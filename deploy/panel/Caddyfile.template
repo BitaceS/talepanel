@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TalePanel — Caddy reverse proxy
+# {{DOMAIN}} is substituted by install-panel.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{{DOMAIN}} {
+    # Automatic TLS via Let's Encrypt (HTTP-01 challenge on port 80).
+    encode gzip
+
+    # API — proxy /api/* to the Go backend.
+    handle /api/* {
+        reverse_proxy api:8080
+    }
+
+    # Everything else — proxy to the Nuxt web panel.
+    handle {
+        reverse_proxy web:3000
+    }
+}
