@@ -164,7 +164,8 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 		req.DiskLimitMB = 10240
 	}
 
-	// Find best available node — simplest heuristic: fewest active servers.
+	// Find best available node — prefer lowest recent CPU load; fall back to
+	// server count for nodes that have not yet reported metrics.
 	var nodeID uuid.UUID
 	err := s.db.QueryRow(ctx, `
 		SELECT n.id
@@ -174,9 +175,11 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 		      SELECT COUNT(*) FROM servers s
 		      WHERE s.node_id = n.id AND s.status NOT IN ('stopped','crashed')
 		  )
-		ORDER BY (
-		  SELECT COUNT(*) FROM servers s WHERE s.node_id = n.id
-		) ASC
+		ORDER BY
+		  COALESCE(
+		    (SELECT cpu_pct FROM node_metrics WHERE node_id = n.id ORDER BY sampled_at DESC LIMIT 1),
+		    (SELECT COUNT(*) * 10.0 FROM servers s WHERE s.node_id = n.id)
+		  ) ASC
 		LIMIT 1
 	`).Scan(&nodeID)
 	if err != nil {

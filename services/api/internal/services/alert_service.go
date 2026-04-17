@@ -20,10 +20,11 @@ var (
 )
 
 type CreateAlertRuleRequest struct {
-	ServerID  *uuid.UUID `json:"server_id"`
-	Type      string     `json:"type" binding:"required"`
-	Threshold *float64   `json:"threshold"`
-	Channels  []string   `json:"channels"`
+	ServerID   *uuid.UUID `json:"server_id"`
+	Type       string     `json:"type" binding:"required"`
+	Threshold  *float64   `json:"threshold"`
+	Channels   []string   `json:"channels"`
+	WebhookURL string     `json:"webhook_url"`
 }
 
 type AlertService struct {
@@ -66,10 +67,10 @@ func (s *AlertService) CreateRule(ctx context.Context, userID uuid.UUID, req Cre
 
 	r := &models.AlertRule{}
 	err := s.db.QueryRow(ctx, `
-		INSERT INTO alert_rules (server_id, user_id, type, threshold, channels)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO alert_rules (server_id, user_id, type, threshold, channels, webhook_url)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, server_id, user_id, type, threshold, channels, enabled, created_at
-	`, req.ServerID, userID, req.Type, req.Threshold, channels).Scan(
+	`, req.ServerID, userID, req.Type, req.Threshold, channels, req.WebhookURL).Scan(
 		&r.ID, &r.ServerID, &r.UserID, &r.Type, &r.Threshold,
 		&r.Channels, &r.Enabled, &r.CreatedAt,
 	)
@@ -149,7 +150,7 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 	// 1. Query active rules for this rule_type.
 	// alert_rules uses "type" (not rule_type) and "enabled" (not is_active).
 	rows, err := s.db.Query(ctx, `
-		SELECT id, user_id, server_id, threshold, channels
+		SELECT id, user_id, server_id, threshold, channels, webhook_url
 		FROM alert_rules
 		WHERE type = $1 AND enabled = true
 		  AND (server_id IS NULL OR server_id = $2)
@@ -160,17 +161,18 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 	defer rows.Close()
 
 	type ruleRow struct {
-		id        uuid.UUID
-		userID    uuid.UUID
-		serverID  *uuid.UUID
-		threshold *float64
-		channels  json.RawMessage
+		id         uuid.UUID
+		userID     uuid.UUID
+		serverID   *uuid.UUID
+		threshold  *float64
+		channels   json.RawMessage
+		webhookURL string
 	}
 
 	var rules []ruleRow
 	for rows.Next() {
 		var r ruleRow
-		if err := rows.Scan(&r.id, &r.userID, &r.serverID, &r.threshold, &r.channels); err != nil {
+		if err := rows.Scan(&r.id, &r.userID, &r.serverID, &r.threshold, &r.channels, &r.webhookURL); err != nil {
 			return fmt.Errorf("scanning alert rule: %w", err)
 		}
 		rules = append(rules, r)
@@ -267,8 +269,7 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 			FiredAt:   time.Now(),
 			SubjectID: subjectID.String(),
 		}
-		// webhookURL is not stored in the current schema — pass empty string.
-		s.notifier.Dispatch(ctx, payload, channels, userEmail, "")
+		s.notifier.Dispatch(ctx, payload, channels, userEmail, rule.webhookURL)
 	}
 
 	return nil
