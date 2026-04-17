@@ -508,6 +508,27 @@ async function deleteDatabase(name: string) {
   } catch { showToast('Failed to delete database', 'error') }
 }
 
+const rotatingDb = ref('')
+const rotatedCreds = ref<{ username: string; password: string; host: string; port: number; database: string } | null>(null)
+
+async function rotateDatabasePassword(name: string) {
+  if (!confirm(`Rotate password for database "${name}"?\n\nAny service using the old password will break until you update its connection string.`)) return
+  rotatingDb.value = name
+  try {
+    const res = await api.post<{ credentials: { username: string; password: string; host: string; port: number; database: string } }>(
+      `/servers/${serverId.value}/database/reset-password`,
+      {},
+    )
+    rotatedCreds.value = res.credentials
+    showToast('Password rotated — copy the new credentials now')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to rotate password', 'error')
+  } finally {
+    rotatingDb.value = ''
+  }
+}
+
 // ── File Browser ─────────────────────────────────────────────────────────────
 interface FileEntry {
   name: string
@@ -1642,6 +1663,12 @@ const sidebarMods = computed(() => {
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', db.status === 'active' ? 'text-tp-success bg-tp-success/15' : 'text-tp-muted bg-tp-surface2']">
                   {{ db.status }}
                 </span>
+                <button class="p-1.5 rounded-xl text-tp-warning hover:bg-tp-warning/10 transition-colors"
+                  :disabled="rotatingDb === db.name"
+                  :title="'Rotate password'"
+                  @click="rotateDatabasePassword(db.name)">
+                  <RotateCcw class="w-3.5 h-3.5" />
+                </button>
                 <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors"
                   @click="confirm('Delete database ' + db.name + '?') && deleteDatabase(db.name)">
                   <Trash2 class="w-3.5 h-3.5" />
@@ -1664,6 +1691,28 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </div>
+
+        <!-- Rotated credentials modal — shown once, caller must copy -->
+        <UiModal :open="!!rotatedCreds" title="New database credentials" @close="rotatedCreds = null">
+          <div v-if="rotatedCreds" class="space-y-3">
+            <p class="text-tp-muted text-xs">Copy these now — the password will not be shown again.</p>
+            <div class="space-y-1.5">
+              <div v-for="(val, label) in {
+                Host: rotatedCreds.host,
+                Port: String(rotatedCreds.port),
+                Database: rotatedCreds.database,
+                Username: rotatedCreds.username,
+                Password: rotatedCreds.password,
+              }" :key="label" class="flex items-center gap-2 bg-tp-surface2 rounded-xl px-3 py-2 text-xs">
+                <span class="text-tp-outline w-20 shrink-0">{{ label }}</span>
+                <code class="text-tp-text font-mono flex-1 break-all">{{ val }}</code>
+              </div>
+            </div>
+            <div class="flex justify-end pt-2">
+              <UiButton variant="primary" size="md" @click="rotatedCreds = null">Done</UiButton>
+            </div>
+          </div>
+        </UiModal>
 
         <!-- Create DB Modal -->
         <UiModal :open="showCreateDbModal" title="Create Database" @close="showCreateDbModal = false">
