@@ -351,8 +351,8 @@ cd apps/web && npm run lint && npm run typecheck
 
 | Phase | Focus | Status |
 |---|---|---|
-| MVP | Auth, servers, console, files, worlds, backups, basic monitoring | 🔨 In Progress |
-| V2 | Mod manager, player tools, node cluster, alerts | Planned |
+| MVP | Auth, servers, console, files, worlds, backups, basic monitoring | Done |
+| V2 | Mod manager, player tools, node cluster, alerts | Done |
 | V3 | Desktop app, mobile app, templates, webhooks | Planned |
 | V4 | Multi-tenant, billing, mod marketplace | Planned |
 
