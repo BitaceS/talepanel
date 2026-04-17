@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -473,7 +474,7 @@ func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req Upda
 	}
 
 	setClauses := []string{}
-	args := []interface{}{}
+	args := []any{}
 	argIdx := 1
 
 	if req.Name != nil {
@@ -494,24 +495,12 @@ func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req Upda
 
 	args = append(args, nodeID)
 	q := fmt.Sprintf(`UPDATE nodes SET %s WHERE id = $%d`,
-		joinStrings(setClauses, ", "), argIdx)
+		strings.Join(setClauses, ", "), argIdx)
 	if _, err := s.db.Exec(ctx, q, args...); err != nil {
 		return nil, fmt.Errorf("updating node: %w", err)
 	}
 
 	return s.GetNode(ctx, nodeID)
-}
-
-// joinStrings joins a slice of strings with a separator (avoids importing strings in this file).
-func joinStrings(parts []string, sep string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += sep
-		}
-		result += p
-	}
-	return result
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
