@@ -178,6 +178,66 @@ async fn poll_and_dispatch(
                 }
             }
 
+            "enable_mod" => {
+                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                if data_path.is_empty() || filename.is_empty() {
+                    CommandResult::err("enable_mod payload missing required fields".to_string())
+                } else {
+                    let disabled = format!("{data_path}/mods/{filename}.disabled");
+                    let enabled  = format!("{data_path}/mods/{filename}");
+                    if std::path::Path::new(&disabled).exists() {
+                        match std::fs::rename(&disabled, &enabled) {
+                            Ok(()) => {
+                                tracing::info!("enabled mod: {}", filename);
+                                CommandResult::ok(format!("Enabled mod {filename}"))
+                            }
+                            Err(err) => {
+                                warn!(%err, %filename, "enable_mod rename failed");
+                                CommandResult::err(format!("enable_mod rename failed: {err}"))
+                            }
+                        }
+                    } else if std::path::Path::new(&enabled).exists() {
+                        tracing::info!("enable_mod: {} already enabled, no-op", filename);
+                        CommandResult::ok(format!("Mod {filename} already enabled"))
+                    } else {
+                        tracing::warn!("enable_mod: neither {} nor {}.disabled found", filename, filename);
+                        CommandResult::err(format!("enable_mod: {filename} not found"))
+                    }
+                }
+            }
+
+            "disable_mod" => {
+                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                if data_path.is_empty() || filename.is_empty() {
+                    CommandResult::err("disable_mod payload missing required fields".to_string())
+                } else {
+                    let enabled  = format!("{data_path}/mods/{filename}");
+                    let disabled = format!("{data_path}/mods/{filename}.disabled");
+                    if std::path::Path::new(&enabled).exists() {
+                        match std::fs::rename(&enabled, &disabled) {
+                            Ok(()) => {
+                                tracing::info!("disabled mod: {}", filename);
+                                CommandResult::ok(format!("Disabled mod {filename}"))
+                            }
+                            Err(err) => {
+                                warn!(%err, %filename, "disable_mod rename failed");
+                                CommandResult::err(format!("disable_mod rename failed: {err}"))
+                            }
+                        }
+                    } else if std::path::Path::new(&disabled).exists() {
+                        tracing::info!("disable_mod: {} already disabled, no-op", filename);
+                        CommandResult::ok(format!("Mod {filename} already disabled"))
+                    } else {
+                        tracing::warn!("disable_mod: {} not found", filename);
+                        CommandResult::err(format!("disable_mod: {filename} not found"))
+                    }
+                }
+            }
+
             unknown => {
                 warn!(
                     command_type = %unknown,
