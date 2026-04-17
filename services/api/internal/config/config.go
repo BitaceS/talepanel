@@ -52,6 +52,13 @@ type Config struct {
 	MariaDBDSN  string // e.g. "root:password@tcp(mariadb:3306)/"
 	MariaDBHost string // hostname for server connections, e.g. "mariadb"
 	MariaDBPort int    // port for server connections, e.g. 3306
+
+	// SMTP (for alert notifications)
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 // Load reads configuration from environment variables, validates required fields,
@@ -191,6 +198,21 @@ func Load() (*Config, error) {
 		cfg.MariaDBPort = p
 	} else {
 		cfg.MariaDBPort = 3306
+	}
+
+	// SMTP — optional (leave SMTP_HOST empty to disable email notifications)
+	cfg.SMTPHost = os.Getenv("SMTP_HOST")
+	cfg.SMTPUser = os.Getenv("SMTP_USER")
+	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
+	cfg.SMTPFrom = os.Getenv("SMTP_FROM")
+	if portStr := os.Getenv("SMTP_PORT"); portStr != "" {
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("SMTP_PORT must be an integer: %w", err)
+		}
+		cfg.SMTPPort = port
+	} else {
+		cfg.SMTPPort = 587
 	}
 
 	return cfg, nil
