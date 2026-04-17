@@ -105,6 +105,47 @@ const canStop    = computed(() => server.value?.status === 'running' || server.v
 const canRestart = computed(() => server.value?.status === 'running')
 const canKill    = computed(() => server.value?.status !== 'stopped' && server.value?.status !== 'installing')
 
+// ── Migrate to Node ───────────────────────────────────────────────────────────
+const showMigrateModal = ref(false)
+const migrateNodes = ref<Array<{id: string, name: string, status: string}>>([])
+const migrateTargetId = ref('')
+const migrateLoading = ref(false)
+const migrateError = ref('')
+
+const isAdmin = computed(() => {
+  const role = authStore.user?.role
+  return role === 'admin' || role === 'owner'
+})
+
+async function openMigrateModal() {
+  showMigrateModal.value = true
+  migrateError.value = ''
+  migrateTargetId.value = ''
+  try {
+    const data = await api.get<{ nodes: Array<{id: string, name: string, status: string}> }>('/nodes')
+    migrateNodes.value = (data.nodes ?? []).filter(n => n.id !== server.value?.node_id && n.status === 'online')
+  } catch {
+    migrateError.value = 'Failed to load nodes'
+  }
+}
+
+async function submitMigrate() {
+  if (!migrateTargetId.value || !serverId.value) return
+  migrateLoading.value = true
+  migrateError.value = ''
+  try {
+    await api.post(`/servers/${serverId.value}/migrate`, { target_node_id: migrateTargetId.value })
+    showMigrateModal.value = false
+    showToast('Migration initiated')
+    await serversStore.fetchServer(serverId.value)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    migrateError.value = e.data?.error ?? e.message ?? 'Migration failed'
+  } finally {
+    migrateLoading.value = false
+  }
+}
+
 // ── Metrics polling ───────────────────────────────────────────────────────────
 interface Metrics {
   cpu: { usage_percent: number }
@@ -873,6 +914,14 @@ const sidebarMods = computed(() => {
               :loading="actionLoading.kill" @click="runAction('kill')">
               <Zap class="w-3.5 h-3.5" /> Kill
             </UiButton>
+            <button
+              v-if="server?.status === 'stopped' && isAdmin"
+              @click="openMigrateModal"
+              class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-tp-surface3 text-tp-text hover:bg-tp-surface-highest transition-colors"
+            >
+              <span class="material-symbols-outlined text-base">swap_horiz</span>
+              Migrate
+            </button>
           </div>
         </div>
       </div>
@@ -1894,6 +1943,37 @@ const sidebarMods = computed(() => {
         </div>
       </div>
     </template>
+
+    <!-- Migrate to Node Modal -->
+    <UiModal :open="showMigrateModal" title="Migrate to Node" size="sm" @close="showMigrateModal = false">
+      <div class="space-y-4">
+        <p class="text-tp-outline text-sm">Select a target node. The server must stay stopped during migration.</p>
+        <div v-if="migrateError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">{{ migrateError }}</div>
+        <div v-if="migrateNodes.length === 0 && !migrateError" class="text-tp-muted text-sm">No other online nodes available.</div>
+        <div v-else class="space-y-2">
+          <label
+            v-for="n in migrateNodes"
+            :key="n.id"
+            class="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors"
+            :class="migrateTargetId === n.id ? 'bg-tp-primary/10 border border-tp-primary/30' : 'bg-tp-surface3 hover:bg-tp-surface-highest'"
+          >
+            <input type="radio" class="sr-only" :value="n.id" v-model="migrateTargetId" />
+            <span class="material-symbols-outlined text-tp-outline text-base">dns</span>
+            <span class="text-tp-text text-sm font-medium">{{ n.name }}</span>
+          </label>
+        </div>
+      </div>
+      <template #footer>
+        <UiButton variant="ghost" size="md" @click="showMigrateModal = false">Cancel</UiButton>
+        <UiButton
+          variant="primary"
+          size="md"
+          :loading="migrateLoading"
+          :disabled="!migrateTargetId"
+          @click="submitMigrate"
+        >Migrate</UiButton>
+      </template>
+    </UiModal>
 
     <!-- Toast -->
     <Transition name="toast">
