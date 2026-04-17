@@ -23,16 +23,18 @@ type ServerHandler struct {
 	daemons        *daemon.ClientPool
 	serversBaseDir string // base dir on daemon nodes, e.g. /srv/taledaemon/servers
 	log            *zap.Logger
+	alertSvc       *services.AlertService
 }
 
 // NewServerHandler constructs a ServerHandler.
-func NewServerHandler(svc *services.ServerService, nodeSvc *services.NodeService, daemons *daemon.ClientPool, serversBaseDir string, log *zap.Logger) *ServerHandler {
+func NewServerHandler(svc *services.ServerService, nodeSvc *services.NodeService, daemons *daemon.ClientPool, serversBaseDir string, log *zap.Logger, alertSvc *services.AlertService) *ServerHandler {
 	return &ServerHandler{
 		svc:            svc,
 		nodeSvc:        nodeSvc,
 		daemons:        daemons,
 		serversBaseDir: serversBaseDir,
 		log:            log,
+		alertSvc:       alertSvc,
 	}
 }
 
@@ -610,6 +612,15 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 		zap.String("server_id", serverID.String()),
 		zap.String("status", req.Status),
 	)
+
+	if req.Status == models.StatusCrashed {
+		if h.alertSvc != nil {
+			if err := h.alertSvc.EvaluateAndFire(c.Request.Context(), "server_crashed", serverID, 0); err != nil {
+				h.log.Warn("alert evaluate failed", zap.Error(err))
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "status updated"})
 }
 
