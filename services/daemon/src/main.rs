@@ -61,13 +61,20 @@ async fn main() -> Result<()> {
     ));
 
     // ── 4. Register this node with the TalePanel API ────────────────────────
+    //
+    // Best-effort only.  Production panels (ENV=production) gate the legacy
+    // POST /nodes/:id/register endpoint — the daemon was enrolled via
+    // /nodes/enroll instead, and the node record already exists.  We still
+    // attempt the call to push fresh hardware specs on dev panels; a 410
+    // response simply means we skip the info refresh and rely on heartbeats.
     let node_info = build_node_registration(&config);
-    api_client
-        .register(node_info)
-        .await
-        .context("Node registration failed; check api_url and node_token")?;
-
-    info!("Node registered with TalePanel API");
+    match api_client.register(node_info).await {
+        Ok(()) => info!("Node registered with TalePanel API"),
+        Err(e) => warn!(
+            "Skipping legacy self-register (enrollment flow supersedes it): {}",
+            e
+        ),
+    }
 
     // ── 5. Set up the graceful-shutdown broadcast channel ───────────────────
     //
