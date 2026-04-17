@@ -1,10 +1,13 @@
 package router
 
 import (
+	"context"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/Bitaces/talepanel/api/internal/alerting"
 	"github.com/Bitaces/talepanel/api/internal/config"
 	"github.com/Bitaces/talepanel/api/internal/daemon"
 	"github.com/Bitaces/talepanel/api/internal/handlers"
@@ -15,8 +18,10 @@ import (
 )
 
 // SetupRouter wires the full middleware stack and all route groups onto a new
-// Gin engine and returns it.
+// Gin engine and returns it. ctx is used for background workers (alert evaluator)
+// and should be cancelled on process shutdown.
 func SetupRouter(
+	ctx context.Context,
 	cfg *config.Config,
 	db *pgxpool.Pool,
 	rdb *redis.Client,
@@ -51,7 +56,12 @@ func SetupRouter(
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
 	backupSvc := services.NewBackupService(db)
-	alertSvc := services.NewAlertService(db, nil, log)
+	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
+	webhookNotifier := alerting.NewWebhookNotifier(log)
+	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, log)
+	alertSvc := services.NewAlertService(db, notifier, log)
+	evaluator := alerting.NewAlertEvaluator(alertSvc, log)
+	go evaluator.Start(ctx)
 
 	// New services
 	permSvc := services.NewPermissionService(db)
