@@ -62,18 +62,18 @@ async fn main() -> Result<()> {
 
     // ── 4. Register this node with the TalePanel API ────────────────────────
     //
-    // Best-effort only.  Production panels (ENV=production) gate the legacy
-    // POST /nodes/:id/register endpoint — the daemon was enrolled via
-    // /nodes/enroll instead, and the node record already exists.  We still
-    // attempt the call to push fresh hardware specs on dev panels; a 410
-    // response simply means we skip the info refresh and rely on heartbeats.
-    let node_info = build_node_registration(&config);
-    match api_client.register(node_info).await {
-        Ok(()) => info!("Node registered with TalePanel API"),
-        Err(e) => warn!(
-            "Skipping legacy self-register (enrollment flow supersedes it): {}",
-            e
-        ),
+    // The daemon is enrolled into the panel via /nodes/enroll (new flow),
+    // which inserts the nodes row with the correct token_hash and hardware
+    // specs.  Heartbeats keep the row current.  On dev panels we still
+    // refresh specs by calling the legacy self-register path; on production
+    // it returns 410 which we treat as a no-op.
+    if config.daemon.env == "development" {
+        let node_info = build_node_registration(&config);
+        if let Err(e) = api_client.register(node_info).await {
+            warn!("Dev self-register failed (non-fatal): {}", e);
+        } else {
+            info!("Node specs refreshed via legacy /register (dev only)");
+        }
     }
 
     // ── 5. Set up the graceful-shutdown broadcast channel ───────────────────

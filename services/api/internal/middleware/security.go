@@ -6,7 +6,11 @@ import (
 )
 
 // SecurityHeaders sets hardened HTTP response headers on every response.
-func SecurityHeaders() gin.HandlerFunc {
+// hsts controls whether Strict-Transport-Security is emitted — pass true
+// only when the panel is actually served over HTTPS, otherwise a user who
+// accidentally hits http:// locks themselves out of their domain for
+// `max-age` seconds.
+func SecurityHeaders(hsts bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
 		h.Set("X-Frame-Options", "DENY")
@@ -15,6 +19,10 @@ func SecurityHeaders() gin.HandlerFunc {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Content-Security-Policy", "default-src 'self'")
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		if hsts {
+			// 1 year, includeSubDomains, preload-eligible.
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
 		c.Next()
 	}
 }
