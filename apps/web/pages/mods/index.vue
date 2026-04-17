@@ -103,6 +103,90 @@ async function removeMod(filename: string) {
   }
 }
 
+// ── Toggle mod (Task 5) ───────────────────────────────────────────────────────
+async function toggleMod(serverId: string, filename: string, currentEnabled: boolean) {
+  try {
+    const api = useApi()
+    await api.patch(`/servers/${serverId}/mods/${encodeURIComponent(filename)}/toggle`, {
+      enabled: !currentEnabled,
+    })
+    await modsStore.fetchInstalled(serverId)
+  } catch {
+    showToast('Toggle failed', 'error')
+  }
+}
+
+// ── Version switch (Task 6) ───────────────────────────────────────────────────
+const versionSwitchMod = ref<InstanceType<typeof Object> | null>(null)
+const versionFiles = ref<CFModFile[]>([])
+const loadingVersions = ref(false)
+
+async function openVersionSwitch(mod: typeof modsStore.installed[number]) {
+  versionSwitchMod.value = mod
+  loadingVersions.value = true
+  try {
+    const api = useApi()
+    const data = await api.get<{ files: CFModFile[] }>(`/curseforge/mods/${mod.cf_mod_id}/files`)
+    versionFiles.value = data.files ?? []
+  } catch {
+    versionFiles.value = []
+    showToast('Failed to load versions', 'error')
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+async function switchVersion(file: CFModFile) {
+  if (!versionSwitchMod.value || !selectedServerId.value) return
+  const mod = versionSwitchMod.value as typeof modsStore.installed[number]
+  try {
+    const api = useApi()
+    await api.patch(`/servers/${selectedServerId.value}/mods/${encodeURIComponent(mod.filename)}`, {
+      file_id: file.id,
+      file_url: file.downloadUrl,
+      display_name: file.displayName,
+      version: Array.isArray(file.gameVersions) ? file.gameVersions[0] : '',
+    })
+    versionSwitchMod.value = null
+    await modsStore.fetchInstalled(selectedServerId.value)
+    showToast('Version updated')
+  } catch {
+    showToast('Version switch failed', 'error')
+  }
+}
+
+// ── Custom JAR upload (Task 6) ────────────────────────────────────────────────
+const uploadingMod = ref(false)
+
+async function uploadMod(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!file.name.endsWith('.jar')) {
+    showToast('Only .jar files allowed', 'error')
+    return
+  }
+  if (!selectedServerId.value) {
+    showToast('Select a server first', 'error')
+    return
+  }
+  uploadingMod.value = true
+  try {
+    const api = useApi()
+    const form = new FormData()
+    form.append('file', file)
+    form.append('display_name', file.name.replace('.jar', ''))
+    await api.post(`/servers/${selectedServerId.value}/mods/upload`, form)
+    await modsStore.fetchInstalled(selectedServerId.value)
+    showToast('Mod uploaded successfully')
+  } catch {
+    showToast('Upload failed', 'error')
+  } finally {
+    uploadingMod.value = false
+    input.value = ''
+  }
+}
+
 function formatDownloads(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
@@ -182,28 +266,89 @@ const isInstalled = (filename: string) =>
 
         <!-- List -->
         <div v-else class="space-y-2">
+          <!-- Toolbar: Upload JAR -->
+          <div class="flex justify-end pb-1">
+            <label
+              class="cursor-pointer px-3 py-1.5 rounded bg-tp-surface2 hover:bg-tp-surface border border-tp-border text-tp-text text-sm transition-colors"
+              :class="{ 'opacity-50 pointer-events-none': uploadingMod }"
+            >
+              {{ uploadingMod ? 'Uploading...' : 'Upload JAR' }}
+              <input type="file" accept=".jar" class="hidden" @change="uploadMod" />
+            </label>
+          </div>
+
           <div
             v-for="mod in modsStore.installed"
             :key="mod.id"
-            class="bg-tp-surface rounded-xl px-4 py-3 flex items-center gap-4"
+            class="bg-tp-surface rounded-xl px-4 py-3 flex flex-col gap-1"
           >
-            <Package class="w-5 h-5 text-tp-primary shrink-0" />
-            <div class="flex-1 min-w-0">
-              <p class="text-tp-text text-sm font-medium truncate">
-                {{ mod.display_name || mod.filename }}
-              </p>
-              <p class="text-tp-muted text-xs font-mono mt-0.5">{{ mod.filename }}</p>
+            <!-- Main row -->
+            <div class="flex items-center gap-4">
+              <Package class="w-5 h-5 text-tp-primary shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="text-tp-text text-sm font-medium truncate">
+                  {{ mod.display_name || mod.filename }}
+                </p>
+                <p class="text-tp-muted text-xs font-mono mt-0.5">{{ mod.filename }}</p>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="flex items-center gap-1.5 shrink-0">
+                <!-- Toggle button -->
+                <button
+                  @click="toggleMod(selectedServerId, mod.filename, mod.is_present)"
+                  class="text-xs px-2 py-1 rounded transition-colors"
+                  :class="mod.is_present
+                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                    : 'bg-white/10 text-white/40 hover:bg-white/20'"
+                >
+                  {{ mod.is_present ? 'Enabled' : 'Disabled' }}
+                </button>
+
+                <!-- Change version (CurseForge only) -->
+                <button
+                  v-if="mod.source === 'curseforge' || mod.cf_mod_id"
+                  @click="openVersionSwitch(mod)"
+                  class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-tp-muted hover:text-tp-text transition-colors"
+                >
+                  Change version
+                </button>
+
+                <!-- Delete -->
+                <UiButton
+                  variant="danger"
+                  size="sm"
+                  :loading="modsStore.removingFilename === mod.filename"
+                  :disabled="!!modsStore.removingFilename"
+                  @click="removeMod(mod.filename)"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </UiButton>
+              </div>
             </div>
-            <span v-if="mod.version" class="text-tp-outline text-xs shrink-0">{{ mod.version }}</span>
-            <UiButton
-              variant="danger"
-              size="sm"
-              :loading="modsStore.removingFilename === mod.filename"
-              :disabled="!!modsStore.removingFilename"
-              @click="removeMod(mod.filename)"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </UiButton>
+
+            <!-- Metadata row (Task 5) -->
+            <div class="mt-1 text-xs text-white/50 flex flex-wrap gap-x-3 gap-y-0.5 ml-9">
+              <span
+                v-if="mod.source"
+                class="px-1.5 py-0.5 rounded"
+                :class="mod.source === 'curseforge' ? 'bg-orange-500/20 text-orange-300'
+                      : mod.source === 'detected'   ? 'bg-blue-500/20 text-blue-300'
+                      :                               'bg-white/10 text-white/50'"
+              >
+                {{ mod.source }}
+              </span>
+              <span v-if="mod.author">by {{ mod.author }}</span>
+              <span v-if="mod.version">v{{ mod.version }}</span>
+            </div>
+            <p v-if="mod.description" class="mt-0.5 text-xs text-white/40 truncate ml-9">{{ mod.description }}</p>
+            <div v-if="mod.detected_commands?.length" class="mt-1 flex flex-wrap gap-1 ml-9">
+              <code
+                v-for="cmd in mod.detected_commands"
+                :key="cmd"
+                class="px-1 py-0.5 bg-white/5 rounded text-xs text-white/50 font-mono"
+              >{{ cmd }}</code>
+            </div>
           </div>
         </div>
       </div>
@@ -335,6 +480,40 @@ const isInstalled = (filename: string) =>
         {{ toast }}
       </div>
     </Transition>
+
+    <!-- ── Version switch modal (Task 6) ─────────────────────────────────────── -->
+    <Teleport to="body">
+      <div
+        v-if="versionSwitchMod"
+        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+        @click.self="versionSwitchMod = null"
+      >
+        <div class="bg-[#0d1117] border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl mx-4">
+          <h3 class="text-lg font-semibold mb-4 text-tp-text">
+            Change version — {{ (versionSwitchMod as typeof modsStore.installed[number]).display_name || (versionSwitchMod as typeof modsStore.installed[number]).filename }}
+          </h3>
+          <div v-if="loadingVersions" class="text-white/40 text-sm py-4 text-center">Loading versions...</div>
+          <ul v-else-if="versionFiles.length" class="space-y-1 max-h-64 overflow-y-auto">
+            <li
+              v-for="f in versionFiles"
+              :key="f.id"
+              class="flex justify-between items-center px-3 py-2 rounded hover:bg-white/5 cursor-pointer transition-colors"
+              @click="switchVersion(f)"
+            >
+              <span class="text-sm text-tp-text">{{ f.displayName }}</span>
+              <span class="text-xs text-white/40">{{ Array.isArray(f.gameVersions) ? f.gameVersions[0] : '' }}</span>
+            </li>
+          </ul>
+          <p v-else class="text-white/40 text-sm py-4 text-center">No versions available.</p>
+          <button
+            @click="versionSwitchMod = null"
+            class="mt-4 text-sm text-white/40 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
