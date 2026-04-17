@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { useApi } from '~/composables/useApi'
-import type { Player } from '~/types'
+import type { Player, PlayerSession } from '~/types'
 
 export const usePlayersStore = defineStore('players', () => {
   const api = useApi()
@@ -40,5 +40,30 @@ export const usePlayersStore = defineStore('players', () => {
     if (p) p.is_whitelisted = whitelisted
   }
 
-  return { players, loading, error, fetchPlayers, banPlayer, unbanPlayer, setWhitelist }
+  async function kickPlayer(serverId: string, playerId: string, reason: string) {
+    await api.post(`/servers/${serverId}/players/${playerId}/kick`, { reason })
+  }
+
+  async function setOp(serverId: string, playerId: string, op: boolean) {
+    await api.patch(`/servers/${serverId}/players/${playerId}/op`, { op })
+    const p = players.value.find(p => p.id === playerId)
+    if (p) p.is_op = op
+  }
+
+  async function setMute(serverId: string, playerId: string, muted: boolean) {
+    await api.patch(`/servers/${serverId}/players/${playerId}/mute`, { muted })
+    const p = players.value.find(p => p.id === playerId)
+    if (p) p.is_muted = muted
+  }
+
+  async function fetchPlayer(serverId: string, playerId: string): Promise<Player> {
+    return await api.get<Player>(`/servers/${serverId}/players/${playerId}`)
+  }
+
+  async function fetchPlayerSessions(serverId: string, playerId: string): Promise<PlayerSession[]> {
+    const data = await api.get<{ sessions: PlayerSession[] }>(`/servers/${serverId}/players/${playerId}/sessions`)
+    return data.sessions ?? []
+  }
+
+  return { players, loading, error, fetchPlayers, banPlayer, unbanPlayer, setWhitelist, kickPlayer, setOp, setMute, fetchPlayer, fetchPlayerSessions }
 })

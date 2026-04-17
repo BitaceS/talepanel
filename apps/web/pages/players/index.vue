@@ -71,6 +71,31 @@ async function toggleWhitelist(playerId: string, whitelisted: boolean) {
   } catch { showToast('Failed to update whitelist', 'error') }
 }
 
+async function kickPlayer(playerId: string, username: string) {
+  if (!selectedServer.value) return
+  const reason = prompt(`Kick reason for ${username} (optional):`) ?? ''
+  try {
+    await playersStore.kickPlayer(selectedServer.value, playerId, reason)
+    showToast(`${username} kicked`)
+  } catch { showToast('Failed to kick player', 'error') }
+}
+
+async function toggleOp(playerId: string, currentOp: boolean) {
+  if (!selectedServer.value) return
+  try {
+    await playersStore.setOp(selectedServer.value, playerId, !currentOp)
+    showToast(!currentOp ? 'Op granted' : 'Op removed')
+  } catch { showToast('Failed to update op status', 'error') }
+}
+
+async function toggleMute(playerId: string, currentMuted: boolean) {
+  if (!selectedServer.value) return
+  try {
+    await playersStore.setMute(selectedServer.value, playerId, !currentMuted)
+    showToast(!currentMuted ? 'Player muted' : 'Player unmuted')
+  } catch { showToast('Failed to update mute status', 'error') }
+}
+
 watch(selectedServer, (sid) => {
   if (sid) playersStore.fetchPlayers(sid)
   else playersStore.players = []
@@ -175,6 +200,8 @@ function timeAgo(iso?: string | null): string {
                 <div class="flex items-center gap-1.5">
                   <span v-if="p.is_banned" class="text-xs font-medium px-2 py-0.5 rounded-full text-tp-error bg-tp-error/10">Banned</span>
                   <span v-if="p.is_whitelisted" class="text-xs font-medium px-2 py-0.5 rounded-full text-tp-success bg-tp-success/15">Whitelisted</span>
+                  <span v-if="p.is_op" class="text-xs font-medium px-2 py-0.5 rounded-full text-yellow-400 bg-yellow-500/15">Op</span>
+                  <span v-if="p.is_muted" class="text-xs font-medium px-2 py-0.5 rounded-full text-orange-400 bg-orange-500/15">Muted</span>
                 </div>
               </td>
               <td class="px-4 py-3">
@@ -192,6 +219,27 @@ function timeAgo(iso?: string | null): string {
                     <ShieldCheck v-if="p.is_whitelisted" class="w-4 h-4" />
                     <ShieldOff v-else class="w-4 h-4" />
                   </button>
+                  <button title="Kick"
+                    class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                    @click="kickPlayer(p.id, p.username)">
+                    Kick
+                  </button>
+                  <button :title="p.is_op ? 'Remove Op' : 'Grant Op'"
+                    class="text-xs px-2 py-1 rounded transition-colors"
+                    :class="p.is_op ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30' : 'bg-white/10 text-white/40 hover:bg-white/20'"
+                    @click="toggleOp(p.id, p.is_op)">
+                    {{ p.is_op ? 'Op' : 'No Op' }}
+                  </button>
+                  <button :title="p.is_muted ? 'Unmute' : 'Mute'"
+                    class="text-xs px-2 py-1 rounded transition-colors"
+                    :class="p.is_muted ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : 'bg-white/10 text-white/40 hover:bg-white/20'"
+                    @click="toggleMute(p.id, p.is_muted)">
+                    {{ p.is_muted ? 'Muted' : 'Mute' }}
+                  </button>
+                  <NuxtLink :to="`/servers/${selectedServer}/players/${p.id}`"
+                    class="text-xs px-2 py-1 rounded bg-white/10 text-tp-muted hover:bg-white/20 hover:text-tp-text transition-colors">
+                    View
+                  </NuxtLink>
                 </div>
               </td>
             </tr>
