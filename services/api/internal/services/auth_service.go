@@ -19,6 +19,7 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
 	"github.com/tyraxo/talepanel/api/internal/config"
+	tpcrypto "github.com/tyraxo/talepanel/api/internal/crypto"
 	"github.com/tyraxo/talepanel/api/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -177,7 +178,6 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken, ip, userAg
 	const q = `
 		SELECT s.id, s.user_id, s.expires_at, s.revoked,
 		       u.id, u.email, u.username, u.password_hash, u.role,
-		       COALESCE(u.totp_secret,'') AS totp_secret,
 		       u.totp_enabled, u.created_at, u.last_login_at, u.is_active
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
@@ -189,7 +189,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken, ip, userAg
 	err := s.db.QueryRow(ctx, q, tokenHash).Scan(
 		&session.ID, &session.UserID, &session.ExpiresAt, &session.Revoked,
 		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.Role,
-		&user.TOTPSecret, &user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
+		&user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -629,7 +629,6 @@ func (s *AuthService) revokeSessionByID(ctx context.Context, id uuid.UUID) error
 func (s *AuthService) findUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	const q = `
 		SELECT id, email, username, password_hash, role,
-		       COALESCE(totp_secret, '') AS totp_secret,
 		       totp_enabled, created_at, last_login_at, is_active
 		FROM users
 		WHERE email = $1
@@ -637,11 +636,15 @@ func (s *AuthService) findUserByEmail(ctx context.Context, email string) (*model
 	user := &models.User{}
 	err := s.db.QueryRow(ctx, q, email).Scan(
 		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.Role,
-		&user.TOTPSecret, &user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
+		&user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
 	)
 	return user, err
 }
 
+// findUserByID returns the user including the decrypted TOTP secret.
+// This is the only path that exposes the plaintext TOTP secret; callers that
+// do not need TOTP validation should prefer findUserByEmail or add their own
+// narrower query.
 func (s *AuthService) findUserByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	const q = `
 		SELECT id, email, username, password_hash, role,
@@ -655,7 +658,17 @@ func (s *AuthService) findUserByID(ctx context.Context, id uuid.UUID) (*models.U
 		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.Role,
 		&user.TOTPSecret, &user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
 	)
-	return user, err
+	if err != nil {
+		return user, err
+	}
+	if user.TOTPEnabled && user.TOTPSecret != "" {
+		plain, derr := tpcrypto.Decrypt(s.config.TOTPEncKey, user.TOTPSecret)
+		if derr != nil {
+			return nil, fmt.Errorf("decrypting TOTP secret: %w", derr)
+		}
+		user.TOTPSecret = string(plain)
+	}
+	return user, nil
 }
 
 // hashToken returns the hex-encoded SHA-256 of the token.

@@ -76,10 +76,11 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, re
 }
 
 // GetProfile returns user profile info.
+// totp_secret is deliberately not selected — profile responses never need
+// the plaintext, and the column is AES-encrypted at rest.
 func (s *ProfileService) GetProfile(ctx context.Context, userID uuid.UUID) (*models.User, error) {
 	const q = `
 		SELECT id, email, username, password_hash, role,
-		       COALESCE(totp_secret, '') AS totp_secret,
 		       totp_enabled, created_at, last_login_at, is_active,
 		       display_name, avatar_url,
 		       COALESCE(language, 'en') AS language,
@@ -90,7 +91,7 @@ func (s *ProfileService) GetProfile(ctx context.Context, userID uuid.UUID) (*mod
 	user := &models.User{}
 	err := s.db.QueryRow(ctx, q, userID).Scan(
 		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.Role,
-		&user.TOTPSecret, &user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
+		&user.TOTPEnabled, &user.CreatedAt, &user.LastLoginAt, &user.IsActive,
 		&user.DisplayName, &user.AvatarURL, &user.Language, &user.Timezone,
 	)
 	if err != nil {

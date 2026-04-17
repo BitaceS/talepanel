@@ -144,11 +144,14 @@ func GetUserFromCtx(c *gin.Context) (*models.User, bool) {
 }
 
 // loadUserByID fetches a single user row from the database by primary key.
+// totp_secret is deliberately NOT selected here — the middleware has no use
+// for the plaintext secret, and fetching it would force the whole package to
+// hold the AES key.  AuthService.findUserByID covers the one call site that
+// needs the decrypted secret (TOTP verification).
 func loadUserByID(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) (*models.User, error) {
 	const query = `
 		SELECT
 			id, email, username, password_hash, role,
-			COALESCE(totp_secret, '') AS totp_secret,
 			totp_enabled, created_at, last_login_at, is_active
 		FROM users
 		WHERE id = $1
@@ -161,7 +164,6 @@ func loadUserByID(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) (*models.
 		&user.Username,
 		&user.PasswordHash,
 		&user.Role,
-		&user.TOTPSecret,
 		&user.TOTPEnabled,
 		&user.CreatedAt,
 		&user.LastLoginAt,
