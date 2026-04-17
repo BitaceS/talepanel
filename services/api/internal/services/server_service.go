@@ -254,7 +254,7 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 
 	// Build dynamic SET clause.
 	setClauses := []string{"updated_at = NOW()"}
-	args := []interface{}{}
+	args := []any{}
 	argIdx := 1
 
 	if req.Name != nil {
@@ -341,7 +341,7 @@ func (s *ServerService) IngestLogs(ctx context.Context, serverID uuid.UUID, line
 	// pgx supports batch/copy but a simple parameterised INSERT is safe for
 	// the expected batch size (~60 lines/minute per server).
 	const baseQ = `INSERT INTO server_logs (server_id, logged_at, level, message) VALUES `
-	args := make([]interface{}, 0, len(lines)*4)
+	args := make([]any, 0, len(lines)*4)
 	placeholders := make([]string, 0, len(lines))
 
 	for i, l := range lines {
