@@ -242,8 +242,7 @@ async fn delete_server_data(
     // Best-effort kill — ignore "not running" errors.
     let _ = state.process_manager.kill_server(&server_id).await;
 
-    let data_path = std::path::PathBuf::from(&state.config.daemon.data_root)
-        .join("servers")
+    let data_path = std::path::PathBuf::from(&state.servers_base_dir)
         .join(&server_id);
 
     if data_path.exists() {
