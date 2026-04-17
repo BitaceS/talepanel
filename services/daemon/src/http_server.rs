@@ -232,6 +232,33 @@ async fn restart_server(
 }
 
 /// `POST /servers/:id/kill`
+/// DELETE /servers/:id
+/// Kills the running process (if any) and removes the server's data directory
+/// from disk.  Called by the API immediately before it deletes the server row.
+async fn delete_server_data(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+) -> impl IntoResponse {
+    // Best-effort kill — ignore "not running" errors.
+    let _ = state.process_manager.kill_server(&server_id).await;
+
+    let data_path = std::path::PathBuf::from(&state.config.daemon.data_root)
+        .join("servers")
+        .join(&server_id);
+
+    if data_path.exists() {
+        if let Err(e) = tokio::fs::remove_dir_all(&data_path).await {
+            return ActionResponse::err(format!(
+                "failed to remove {}: {}",
+                data_path.display(),
+                e
+            ))
+            .into_response();
+        }
+    }
+    ActionResponse::ok(format!("server {server_id} data removed")).into_response()
+}
+
 async fn kill_server(
     State(state): State<AppState>,
     Path(server_id): Path<String>,
@@ -1198,6 +1225,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/stop", post(stop_server))
         .route("/servers/:id/restart", post(restart_server))
         .route("/servers/:id/kill", post(kill_server))
+        .route("/servers/:id", axum::routing::delete(delete_server_data))
         .route("/servers/:id/command", post(send_command))
         .route("/servers/:id/status", get(server_status))
         .route("/servers/:id/metrics", get(server_metrics))

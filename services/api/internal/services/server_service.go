@@ -401,8 +401,8 @@ func (s *ServerService) GetLogs(ctx context.Context, serverID uuid.UUID, limit i
 // ─── DeleteServer ─────────────────────────────────────────────────────────────
 
 // DeleteServer removes a server record.  Callers must hold at least admin role
-// or be the server owner.  The handler is responsible for stopping the server
-// on the daemon before calling this method.
+// or be the server owner.  The handler is responsible for asking the daemon to
+// clean up on-disk data before calling this method.
 func (s *ServerService) DeleteServer(ctx context.Context, serverID, userID uuid.UUID, role string) error {
 	server, err := s.GetServer(ctx, serverID, userID, role)
 	if err != nil {

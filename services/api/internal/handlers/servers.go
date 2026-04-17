@@ -163,18 +163,27 @@ func (h *ServerHandler) DeleteServer(c *gin.Context) {
 		return
 	}
 
-	// Best-effort: ask the daemon to stop the process before removing the DB
-	// record.  Errors are logged but do not block the delete — the daemon
-	// will detect the next heartbeat discrepancy and clean up.
+	// Best-effort: ask the daemon to stop the process AND remove the on-disk
+	// data directory before we delete the DB row.  If the daemon is
+	// unreachable we still delete the row so the operator can recreate the
+	// server, and log a warning so they can rm -rf the leftover directory.
+	cleanupWarning := ""
 	if client, clientErr := h.daemonClient(server.NodeID.String()); clientErr == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		if stopErr := client.StopServer(ctx, serverID.String()); stopErr != nil {
-			h.log.Warn("delete: daemon stop failed (non-fatal)",
+		if derr := client.DeleteServerData(ctx, serverID.String()); derr != nil {
+			cleanupWarning = "daemon cleanup failed; " + server.DataPath + " may still exist on disk"
+			h.log.Warn("delete: daemon data-cleanup failed (non-fatal)",
 				zap.String("server_id", serverID.String()),
-				zap.Error(stopErr),
+				zap.Error(derr),
 			)
 		}
 		cancel()
+	} else {
+		cleanupWarning = "daemon offline; " + server.DataPath + " will be left on disk"
+		h.log.Warn("delete: daemon unreachable, skipping data cleanup",
+			zap.String("server_id", serverID.String()),
+			zap.String("node_id", server.NodeID.String()),
+		)
 	}
 
 	if err := h.svc.DeleteServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
@@ -182,7 +191,11 @@ func (h *ServerHandler) DeleteServer(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "server deleted"})
+	resp := gin.H{"message": "server deleted"}
+	if cleanupWarning != "" {
+		resp["warning"] = cleanupWarning
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // ─── Power Actions ────────────────────────────────────────────────────────────
