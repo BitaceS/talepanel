@@ -345,17 +345,12 @@ CREATE TRIGGER worlds_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ─────────────────────────────────────────────
--- SEED: Default owner account
--- Password: admin (bcrypt hash) — CHANGE IMMEDIATELY IN PRODUCTION
+-- NOTE: No seed user is created by migrations any more.
+-- The owner account must be created after install via:
+--     docker compose run --rm api tale-cli admin create
+-- This prevents a public-install from going live with a well-known default
+-- password.  See migration 014 for legacy cleanup.
 -- ─────────────────────────────────────────────
-
-INSERT INTO users (email, username, password_hash, role) VALUES (
-    'admin@talepanel.local',
-    'admin',
-    -- bcrypt hash of 'changeme' with cost 12
-    '$2a$12$pisdqacT/A4L.X9G2i31RuHp7hnHaKyji6..pSN.chspkfP5OfHVe',
-    'owner'
-) ON CONFLICT DO NOTHING;
 
 -- ─────────────────────────────────────────────
 -- COMMENTS
