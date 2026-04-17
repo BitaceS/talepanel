@@ -22,7 +22,7 @@ function showToast(msg: string, type: 'success' | 'error' = 'success') {
 
 // Create rule modal
 const showCreateModal = ref(false)
-const ruleForm = reactive({ server_id: '', type: 'crash', threshold: 3, channels: [] as string[] })
+const ruleForm = reactive({ server_id: '', type: 'crash', threshold: 3, channels: [] as string[], webhook_url: '' })
 const creating = ref(false)
 
 const ruleTypes = [
@@ -42,6 +42,7 @@ async function createRule() {
       type: ruleForm.type,
       threshold: ruleForm.threshold,
       channels: ruleForm.channels,
+      webhook_url: ruleForm.webhook_url || undefined,
     })
     showCreateModal.value = false
     showToast('Alert rule created')
@@ -221,6 +222,15 @@ onMounted(() => {
             max="100"
             placeholder="90"
             class="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Webhook URL (optional)</label>
+          <input
+            v-model="ruleForm.webhook_url"
+            type="url"
+            placeholder="https://hooks.example.com/…"
+            class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
           />
         </div>
         <div class="flex justify-end gap-2 pt-2">
