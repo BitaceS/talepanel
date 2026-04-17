@@ -1,0 +1,11 @@
+:8443 {
+    # API — proxy /api requests to the Go backend
+    handle /api/* {
+        reverse_proxy api:8080
+    }
+
+    # Everything else — proxy to the Nuxt web panel
+    handle {
+        reverse_proxy web:3000
+    }
+}

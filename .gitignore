@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────
+# TalePanel monorepo .gitignore
+# ─────────────────────────────────────────────
+
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.*.local
+*.env
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V7
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+
+# ─────────────────────────────────────────────
+# Go (services/api)
+# ─────────────────────────────────────────────
+services/api/bin/
+services/api/*.exe
+services/api/vendor/
+
+# ─────────────────────────────────────────────
+# Rust (services/daemon)
+# ─────────────────────────────────────────────
+services/daemon/target/
+apps/desktop/src-tauri/target/
+
+# ─────────────────────────────────────────────
+# Node / Nuxt (apps/web)
+# ─────────────────────────────────────────────
+node_modules/
+apps/web/.nuxt/
+apps/web/.output/
+apps/web/dist/
+apps/web/.cache/
+apps/desktop/node_modules/
+apps/desktop/dist/
+
+# ─────────────────────────────────────────────
+# Flutter (apps/mobile)
+# ─────────────────────────────────────────────
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/build/
+apps/mobile/.packages
+
+# ─────────────────────────────────────────────
+# Docker / infra
+# ─────────────────────────────────────────────
+infra/docker/data/
+infra/docker/pgdata/
+infra/docker/redisdata/
+infra/docker/miniodata/
+
+# ─────────────────────────────────────────────
+# Logs & temp
+# ─────────────────────────────────────────────
+*.log
+logs/
+tmp/
+temp/
+
+# ─────────────────────────────────────────────
+# TLS certificates (generated locally)
+# ─────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.csr
+certs/
+
+# ─────────────────────────────────────────────
+# Backups / data (daemon server data)
+# ─────────────────────────────────────────────
+srv/

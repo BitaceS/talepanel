@@ -1,0 +1,69 @@
+[package]
+name = "taledaemon"
+version = "0.1.0"
+edition = "2021"
+authors = ["TalePanel Team"]
+description = "TaleDaemon - Node agent for TalePanel Hytale server management"
+
+[[bin]]
+name = "taledaemon"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.37", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+# HTTP server (local API)
+axum = { version = "0.7", features = ["json", "macros", "multipart"] }
+tower = { version = "0.4" }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# HTTP client (TalePanel API)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+
+# Config file parsing
+toml = { version = "0.8" }
+
+# Logging / tracing
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+
+# Error handling
+anyhow = { version = "1" }
+
+# UUIDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Concurrent data structures
+dashmap = { version = "5" }
+
+# Time / dates
+chrono = { version = "0.4", features = ["serde"] }
+
+# System metrics — real process CPU/RAM and disk info via sysinfo
+sysinfo = "0.30"
+
+# Zip extraction for hytale-downloader
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# YAML parsing for plugin metadata (plugin.yml)
+serde_yaml = "0.9"
+
+# SHA-256 hashing for plugin file dedup
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+# POSIX signal handling (SIGTERM, SIGKILL)
+libc = { version = "0.2" }
+tokio = { version = "1.37", features = ["full", "signal"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

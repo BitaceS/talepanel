@@ -1,0 +1,78 @@
+# TaleDaemon configuration file
+# Copy this to /etc/taledaemon/config.toml (or ./config.toml) and fill in
+# your node-specific values before starting the daemon.
+#
+# All values can be overridden by TALEDAEMON_* environment variables when no
+# config file is present.  See src/config.rs for the full list of env vars.
+
+[daemon]
+# Unique identifier for this node.
+# Generate with: uuidgen  or  python3 -c "import uuid; print(uuid.uuid4())"
+node_id = "your-node-uuid-here"
+
+# Base URL of the TalePanel API (no trailing slash).
+api_url = "http://localhost:8080"
+
+# Registration token issued by TalePanel for this node.
+# Found in the panel under Nodes → <this node> → Settings → Token.
+node_token = "your-node-registration-token"
+
+# Port for the daemon's local HTTP API (power actions, metrics).
+# The TalePanel API connects to this port from the control-plane network.
+listen_port = 8444
+
+# Root directory where per-server data directories are created.
+# Server files land at: {data_root}/servers/{server_id}/
+data_root = "/srv/taledaemon"
+
+# Minimum log level to emit.  One of: trace, debug, info, warn, error.
+log_level = "info"
+
+# Runtime environment.  "production" emits JSON-formatted logs.
+# Any other value uses a human-readable pretty format.
+env = "development"
+
+
+[resources]
+# Maximum number of Hytale server processes this node is allowed to run
+# simultaneously.
+max_servers = 20
+
+# How often internal per-process metrics are refreshed, in milliseconds.
+metrics_interval_ms = 5000
+
+# How often the daemon sends a heartbeat to the TalePanel API, in seconds.
+heartbeat_interval_s = 10
+
+# How often the daemon polls the TalePanel API for pending commands, in
+# seconds.
+command_poll_interval_s = 2
+
+
+[hytale]
+# Path to the Java binary used to launch Hytale server processes.
+# Must be Java 17+ (the same JRE version the Hytale client ships with).
+java_binary = "java"
+
+# Relative path to the server JAR within each server's data directory.
+# Expected layout after download:
+#   {data_path}/Server/HytaleServer.jar   ← JAR
+#   {data_path}/Assets.zip                ← required game assets
+server_jar = "Server/HytaleServer.jar"
+
+# Maximum seconds to wait for the server to emit a "ready" signal on stdout
+# before the daemon marks the server as crashed.
+startup_timeout_s = 120
+
+# Seconds to wait for a graceful stop (stdin "stop" command) before the
+# daemon force-kills the process with SIGKILL / taskkill.
+stop_timeout_s = 30
+
+# Extra JVM arguments injected before "-jar".
+# Useful for garbage-collector tuning, enabling JFR, etc.
+# Example: extra_jvm_args = ["-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"]
+extra_jvm_args = []
+
+# Extra arguments appended after the server JAR path.
+# Passed directly to the Hytale server process.
+extra_server_args = []

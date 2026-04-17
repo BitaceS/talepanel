@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-tp-bg text-tp-text font-sans antialiased;
+  }
+  * {
+    @apply border-tp-border;
+  }
+}
+
+@layer components {
+  /* Scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #2d3449 transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #2d3449;
+    border-radius: 3px;
+  }
+
+  /* Glass effect for floating elements */
+  .glass {
+    background: rgba(19, 27, 46, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Glass panel for nav/sidebar */
+  .glass-panel {
+    background: rgba(19, 27, 46, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* CTA gradient (primary → primary-container) */
+  .cta-gradient {
+    background: linear-gradient(135deg, #adc6ff 0%, #4d8eff 100%);
+  }
+
+  /* Surface tint overlay */
+  .surface-tint {
+    background: rgba(173, 198, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Ghost border (outline-variant at 15% opacity) */
+  .ghost-border {
+    border: 1px solid rgba(66, 71, 84, 0.15);
+  }
+
+  /* Progress bar gradient fill */
+  .progress-fill {
+    background: linear-gradient(90deg, #adc6ff 0%, #89ceff 100%);
+  }
+}
+
+@layer utilities {
+  /* Font display for headlines */
+  .font-display {
+    font-family: 'Manrope', system-ui, sans-serif;
+  }
+}
