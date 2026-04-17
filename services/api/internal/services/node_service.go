@@ -340,6 +340,180 @@ func (s *NodeService) AckCommand(ctx context.Context, nodeID uuid.UUID, commandI
 	return nil
 }
 
+// ─── RecordHeartbeatMetrics ───────────────────────────────────────────────────
+
+// RecordHeartbeatMetrics inserts a metrics snapshot row into node_metrics.
+func (s *NodeService) RecordHeartbeatMetrics(ctx context.Context, nodeID uuid.UUID, req NodeHeartbeatRequest) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO node_metrics (node_id, cpu_pct, ram_used_mb, disk_used_mb, active_servers)
+		VALUES ($1, $2, $3, $4,
+		  (SELECT COUNT(*) FROM servers WHERE node_id = $1 AND status NOT IN ('stopped','crashed'))
+		)
+	`, nodeID, req.CPUPercent, req.RAMUsedMB, req.DiskUsedMB)
+	if err != nil {
+		return fmt.Errorf("recording heartbeat metrics: %w", err)
+	}
+	return nil
+}
+
+// ─── NodeMetricPoint / GetNodeMetrics ─────────────────────────────────────────
+
+// NodeMetricPoint is a single time-series entry returned by GetNodeMetrics.
+type NodeMetricPoint struct {
+	SampledAt     time.Time `json:"sampled_at"`
+	CPUPct        float64   `json:"cpu_pct"`
+	RAMUsedMB     int64     `json:"ram_used_mb"`
+	DiskUsedMB    int64     `json:"disk_used_mb"`
+	ActiveServers int       `json:"active_servers"`
+}
+
+// GetNodeMetrics returns metric points for the past hours hours ordered ASC.
+func (s *NodeService) GetNodeMetrics(ctx context.Context, nodeID uuid.UUID, hours int) ([]NodeMetricPoint, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT sampled_at, cpu_pct, ram_used_mb, disk_used_mb, active_servers
+		FROM node_metrics
+		WHERE node_id = $1 AND sampled_at > NOW() - ($2 * INTERVAL '1 hour')
+		ORDER BY sampled_at ASC
+	`, nodeID, hours)
+	if err != nil {
+		return nil, fmt.Errorf("querying node metrics: %w", err)
+	}
+	defer rows.Close()
+
+	points := []NodeMetricPoint{}
+	for rows.Next() {
+		var p NodeMetricPoint
+		if err := rows.Scan(&p.SampledAt, &p.CPUPct, &p.RAMUsedMB, &p.DiskUsedMB, &p.ActiveServers); err != nil {
+			return nil, fmt.Errorf("scanning metric row: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating metric rows: %w", err)
+	}
+	return points, nil
+}
+
+// ─── ClusterStats / GetClusterStats ───────────────────────────────────────────
+
+// ClusterStats holds aggregate statistics across all nodes and servers.
+type ClusterStats struct {
+	TotalNodes     int     `json:"total_nodes"`
+	OnlineNodes    int     `json:"online_nodes"`
+	TotalServers   int     `json:"total_servers"`
+	RunningServers int     `json:"running_servers"`
+	AvgCPUPct      float64 `json:"avg_cpu_pct"`
+	TotalRAMMB     int64   `json:"total_ram_mb"`
+	UsedRAMMB      int64   `json:"used_ram_mb"`
+	TotalDiskMB    int64   `json:"total_disk_mb"`
+	UsedDiskMB     int64   `json:"used_disk_mb"`
+}
+
+// GetClusterStats returns aggregate data across all nodes and servers.
+func (s *NodeService) GetClusterStats(ctx context.Context) (*ClusterStats, error) {
+	stats := &ClusterStats{}
+
+	// Node aggregates.
+	err := s.db.QueryRow(ctx, `
+		SELECT
+		  COUNT(*) AS total_nodes,
+		  COUNT(*) FILTER (WHERE status = 'online') AS online_nodes,
+		  COALESCE(SUM(total_ram_mb), 0) AS total_ram_mb,
+		  COALESCE(SUM(total_disk_mb), 0) AS total_disk_mb
+		FROM nodes
+	`).Scan(&stats.TotalNodes, &stats.OnlineNodes, &stats.TotalRAMMB, &stats.TotalDiskMB)
+	if err != nil {
+		return nil, fmt.Errorf("querying cluster node stats: %w", err)
+	}
+
+	// Total servers.
+	err = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM servers`).Scan(&stats.TotalServers)
+	if err != nil {
+		return nil, fmt.Errorf("querying total servers: %w", err)
+	}
+
+	// Running servers.
+	err = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM servers WHERE status = 'running'`).Scan(&stats.RunningServers)
+	if err != nil {
+		return nil, fmt.Errorf("querying running servers: %w", err)
+	}
+
+	// Latest metrics per node: avg CPU, total used RAM/disk.
+	err = s.db.QueryRow(ctx, `
+		SELECT
+		  COALESCE(AVG(cpu_pct), 0),
+		  COALESCE(SUM(ram_used_mb), 0),
+		  COALESCE(SUM(disk_used_mb), 0)
+		FROM (
+		  SELECT DISTINCT ON (node_id) cpu_pct, ram_used_mb, disk_used_mb
+		  FROM node_metrics
+		  ORDER BY node_id, sampled_at DESC
+		) latest
+	`).Scan(&stats.AvgCPUPct, &stats.UsedRAMMB, &stats.UsedDiskMB)
+	if err != nil {
+		return nil, fmt.Errorf("querying cluster metric stats: %w", err)
+	}
+
+	return stats, nil
+}
+
+// ─── UpdateNodeRequest / UpdateNode ───────────────────────────────────────────
+
+// UpdateNodeRequest carries the patchable fields for a node.
+type UpdateNodeRequest struct {
+	Name       *string `json:"name"`
+	Location   *string `json:"location"`
+	MaxServers *int    `json:"max_servers"`
+}
+
+// UpdateNode applies partial updates to a node and returns the updated record.
+func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req UpdateNodeRequest) (*models.Node, error) {
+	if req.Name == nil && req.Location == nil && req.MaxServers == nil {
+		return s.GetNode(ctx, nodeID)
+	}
+
+	setClauses := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if req.Name != nil {
+		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
+		args = append(args, *req.Name)
+		argIdx++
+	}
+	if req.Location != nil {
+		setClauses = append(setClauses, fmt.Sprintf("location = $%d", argIdx))
+		args = append(args, *req.Location)
+		argIdx++
+	}
+	if req.MaxServers != nil {
+		setClauses = append(setClauses, fmt.Sprintf("max_servers = $%d", argIdx))
+		args = append(args, *req.MaxServers)
+		argIdx++
+	}
+
+	args = append(args, nodeID)
+	q := fmt.Sprintf(`UPDATE nodes SET %s WHERE id = $%d`,
+		joinStrings(setClauses, ", "), argIdx)
+	if _, err := s.db.Exec(ctx, q, args...); err != nil {
+		return nil, fmt.Errorf("updating node: %w", err)
+	}
+
+	return s.GetNode(ctx, nodeID)
+}
+
+// joinStrings joins a slice of strings with a separator (avoids importing strings in this file).
+func joinStrings(parts []string, sep string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += sep
+		}
+		result += p
+	}
+	return result
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // generateNodeToken creates a 32-byte random plaintext token and its SHA-256

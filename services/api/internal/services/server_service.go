@@ -444,6 +444,58 @@ func (s *ServerService) SendConsoleCommand(ctx context.Context, serverID uuid.UU
 	return nil
 }
 
+// ─── MigrateServer ────────────────────────────────────────────────────────────
+
+// MigrateServerRequest carries the target node for a server migration.
+type MigrateServerRequest struct {
+	TargetNodeID uuid.UUID `json:"target_node_id" binding:"required"`
+}
+
+// MigrateServer enqueues a migrate_server command on the current node and then
+// re-assigns the server record to the target node.  The server must be stopped
+// before migration can be requested.
+func (s *ServerService) MigrateServer(ctx context.Context, serverID uuid.UUID, req MigrateServerRequest) error {
+	var nodeID uuid.UUID
+	var status string
+	err := s.db.QueryRow(ctx, `SELECT node_id, status FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrServerNotFound
+		}
+		return fmt.Errorf("fetching server: %w", err)
+	}
+	if status != "stopped" {
+		return fmt.Errorf("server must be stopped before migrating")
+	}
+
+	var exists bool
+	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)`, req.TargetNodeID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("checking target node: %w", err)
+	}
+	if !exists {
+		return ErrNodeNotFound
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"target_node_id": req.TargetNodeID.String(),
+		"server_id":      serverID.String(),
+	})
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload, status)
+		VALUES ($1, $2, 'migrate_server', $3, 'pending')
+	`, nodeID, serverID, payload)
+	if err != nil {
+		return fmt.Errorf("enqueuing migrate_server: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `UPDATE servers SET node_id = $1 WHERE id = $2`, req.TargetNodeID, serverID)
+	if err != nil {
+		return fmt.Errorf("updating server node: %w", err)
+	}
+	return nil
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func scanServers(rows pgx.Rows) ([]*models.Server, error) {
