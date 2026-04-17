@@ -147,6 +147,14 @@ export interface Player {
   ban_reason: string | null
   banned_at: string | null
   banned_by: string | null
+  is_op: boolean
+  is_muted: boolean
+}
+
+export interface PlayerSession {
+  joined_at: string
+  left_at: string | null
+  duration_s: number | null
 }
 
 export interface Backup {
