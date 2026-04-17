@@ -63,7 +63,7 @@ func SetupRouter(
 	secureCookie := !cfg.IsDevelopment()
 	authH := handlers.NewAuthHandler(authSvc, cfg.JWTSecret, secureCookie)
 	serverH := handlers.NewServerHandler(serverSvc, nodeSvc, daemonPool, cfg.DaemonServersDir, log, alertSvc)
-	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment())
+	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb)

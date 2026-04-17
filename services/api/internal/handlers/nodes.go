@@ -16,17 +16,18 @@ import (
 
 // NodeHandler groups all daemon-node HTTP handlers.
 type NodeHandler struct {
-	svc     *services.NodeService
-	daemons *daemon.ClientPool
-	log     *zap.Logger
-	devMode bool
+	svc      *services.NodeService
+	daemons  *daemon.ClientPool
+	log      *zap.Logger
+	devMode  bool
+	alertSvc *services.AlertService
 }
 
 // NewNodeHandler constructs a NodeHandler.
 // devMode gates the legacy static-token self-register flow: in production
 // only the enrollment-token flow is available.
-func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *zap.Logger, devMode bool) *NodeHandler {
-	return &NodeHandler{svc: svc, daemons: daemons, log: log, devMode: devMode}
+func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *zap.Logger, devMode bool, alertSvc *services.AlertService) *NodeHandler {
+	return &NodeHandler{svc: svc, daemons: daemons, log: log, devMode: devMode, alertSvc: alertSvc}
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
@@ -200,6 +201,21 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 			zap.String("fqdn", node.FQDN),
 			zap.Int("port", node.Port),
 		)
+
+		// Evaluate threshold-based alerts for CPU, RAM, and disk usage.
+		if h.alertSvc != nil {
+			if req.CPUPercent > 0 {
+				_ = h.alertSvc.EvaluateAndFire(c.Request.Context(), "cpu_high", nodeID, float64(req.CPUPercent))
+			}
+			if node.TotalRAMMB > 0 && req.RAMUsedMB > 0 {
+				ramPct := float64(req.RAMUsedMB) / float64(node.TotalRAMMB) * 100
+				_ = h.alertSvc.EvaluateAndFire(c.Request.Context(), "ram_high", nodeID, ramPct)
+			}
+			if node.TotalDiskMB > 0 && req.DiskUsedMB > 0 {
+				diskPct := float64(req.DiskUsedMB) / float64(node.TotalDiskMB) * 100
+				_ = h.alertSvc.EvaluateAndFire(c.Request.Context(), "disk_high", nodeID, diskPct)
+			}
+		}
 	} else {
 		h.log.Warn("heartbeat: could not refresh daemon pool",
 			zap.String("node_id", nodeID.String()),
