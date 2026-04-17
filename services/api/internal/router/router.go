@@ -195,9 +195,14 @@ func SetupRouter(
 
 		// Players
 		serverGroup.GET("/:id/players", playerH.ListPlayers)
+		serverGroup.GET("/:id/players/:playerId", playerH.GetPlayer)
+		serverGroup.GET("/:id/players/:playerId/sessions", playerH.GetPlayerSessions)
 		serverGroup.POST("/:id/players/:playerId/ban", playerH.BanPlayer)
 		serverGroup.POST("/:id/players/:playerId/unban", playerH.UnbanPlayer)
+		serverGroup.POST("/:id/players/:playerId/kick", playerH.KickPlayer)
 		serverGroup.PATCH("/:id/players/:playerId/whitelist", playerH.SetWhitelist)
+		serverGroup.PATCH("/:id/players/:playerId/op", playerH.SetOp)
+		serverGroup.PATCH("/:id/players/:playerId/mute", playerH.SetMute)
 
 		// Backup schedules (per-server)
 		serverGroup.GET("/:id/backup-schedules", backupH.ListSchedules)
