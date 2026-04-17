@@ -131,6 +131,13 @@ func (c *Client) KillServer(ctx context.Context, serverID string) error {
 	return c.postAction(ctx, fmt.Sprintf("/servers/%s/kill", serverID), nil)
 }
 
+// DeleteServerData tells the daemon to kill the process (if any) and
+// rm -rf the server's data directory.  Called by the API before removing
+// the server DB row.
+func (c *Client) DeleteServerData(ctx context.Context, serverID string) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/servers/%s", serverID), nil, nil)
+}
+
 // SendCommand sends a console command to a running server via its stdin.
 func (c *Client) SendCommand(ctx context.Context, serverID, command string) error {
 	return c.postAction(ctx, fmt.Sprintf("/servers/%s/command", serverID), CommandRequest{Command: command})
