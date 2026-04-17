@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -23,6 +24,11 @@ type Config struct {
 	// JWT
 	JWTSecret        string
 	JWTRefreshSecret string
+
+	// Encryption
+	// TOTPEncKey is a 32-byte key (hex-encoded in the env as 64 hex chars)
+	// used for AES-256-GCM encryption of TOTP secrets at rest.
+	TOTPEncKey []byte
 
 	// CORS
 	CORSOrigins []string
@@ -95,20 +101,46 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("REDIS_URL is required")
 	}
 
-	// JWT_SECRET — required, min 32 chars
+	// JWT_SECRET — required, min 32 chars, reject placeholder.
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
+	if isPlaceholderSecret(cfg.JWTSecret) {
+		return nil, fmt.Errorf("JWT_SECRET is still set to a placeholder value; run the installer or regenerate with `openssl rand -hex 32`")
 	}
 	if len(cfg.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters long, got %d", len(cfg.JWTSecret))
 	}
 
-	// JWT_REFRESH_SECRET — required
+	// JWT_REFRESH_SECRET — required, min 32 chars, reject placeholder.
 	cfg.JWTRefreshSecret = os.Getenv("JWT_REFRESH_SECRET")
 	if cfg.JWTRefreshSecret == "" {
 		return nil, fmt.Errorf("JWT_REFRESH_SECRET is required")
 	}
+	if isPlaceholderSecret(cfg.JWTRefreshSecret) {
+		return nil, fmt.Errorf("JWT_REFRESH_SECRET is still set to a placeholder value; run the installer or regenerate with `openssl rand -hex 32`")
+	}
+	if len(cfg.JWTRefreshSecret) < 32 {
+		return nil, fmt.Errorf("JWT_REFRESH_SECRET must be at least 32 characters long, got %d", len(cfg.JWTRefreshSecret))
+	}
+
+	// TOTP_ENC_KEY — required, 32 bytes hex-encoded (64 hex chars) for AES-256-GCM.
+	totpKeyHex := os.Getenv("TOTP_ENC_KEY")
+	if totpKeyHex == "" {
+		return nil, fmt.Errorf("TOTP_ENC_KEY is required (generate with `openssl rand -hex 32`)")
+	}
+	if isPlaceholderSecret(totpKeyHex) {
+		return nil, fmt.Errorf("TOTP_ENC_KEY is still set to a placeholder value; run the installer or regenerate with `openssl rand -hex 32`")
+	}
+	totpKey, err := hex.DecodeString(totpKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("TOTP_ENC_KEY must be hex-encoded: %w", err)
+	}
+	if len(totpKey) != 32 {
+		return nil, fmt.Errorf("TOTP_ENC_KEY must decode to exactly 32 bytes, got %d", len(totpKey))
+	}
+	cfg.TOTPEncKey = totpKey
 
 	// CORS_ORIGINS — optional, comma-separated
 	corsRaw := os.Getenv("CORS_ORIGINS")
@@ -167,4 +199,18 @@ func Load() (*Config, error) {
 // IsDevelopment returns true when the ENV is set to "development".
 func (c *Config) IsDevelopment() bool {
 	return c.Env == "development"
+}
+
+// isPlaceholderSecret catches the two common "you forgot to set this" shapes:
+// the installer's CHANGEME sentinel, and .env.example's verbose
+// "replace-with-..." placeholders. Both are long enough to pass the 32-char
+// check so we need an explicit reject.
+func isPlaceholderSecret(v string) bool {
+	if v == "CHANGEME_GENERATED_BY_INSTALLER" {
+		return true
+	}
+	if strings.HasPrefix(v, "replace-with-") {
+		return true
+	}
+	return false
 }
