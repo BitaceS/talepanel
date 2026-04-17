@@ -63,7 +63,9 @@ func SetupRouter(
 	secureCookie := !cfg.IsDevelopment()
 	authH := handlers.NewAuthHandler(authSvc, cfg.JWTSecret, secureCookie)
 	serverH := handlers.NewServerHandler(serverSvc, nodeSvc, daemonPool, cfg.DaemonServersDir, log)
-	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log)
+	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment())
+	enrollmentSvc := services.NewEnrollmentService(db)
+	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb)
 	modH := handlers.NewModHandler(modSvc, cfSvc)
 	gameCmdSvc := services.NewGameCommandService(db)
@@ -258,6 +260,19 @@ func SetupRouter(
 		// Admin permission management
 		adminGroup.GET("/users/:id/permissions", adminH.GetUserPermissions)
 		adminGroup.PUT("/users/:id/permissions", adminH.SetUserPermissions)
+
+		// Enrollment: admin creates a short-lived one-shot token that the
+		// daemon redeems via POST /nodes/enroll.
+		adminGroup.POST("/nodes/enroll", enrollmentH.CreateEnrollment)
+	}
+
+	// Public enrollment redemption — the token itself is the authentication.
+	// Kept under a named subgroup with its own rate limiter so it cannot
+	// be targeted independently of the rest of /nodes.
+	enrollGroup := v1.Group("/nodes")
+	enrollGroup.Use(authLimiter)
+	{
+		enrollGroup.POST("/enroll", enrollmentH.Redeem)
 	}
 
 	// Daemon callbacks — authenticated by node bearer token, NOT user JWT.

@@ -19,11 +19,14 @@ type NodeHandler struct {
 	svc     *services.NodeService
 	daemons *daemon.ClientPool
 	log     *zap.Logger
+	devMode bool
 }
 
 // NewNodeHandler constructs a NodeHandler.
-func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *zap.Logger) *NodeHandler {
-	return &NodeHandler{svc: svc, daemons: daemons, log: log}
+// devMode gates the legacy static-token self-register flow: in production
+// only the enrollment-token flow is available.
+func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *zap.Logger, devMode bool) *NodeHandler {
+	return &NodeHandler{svc: svc, daemons: daemons, log: log, devMode: devMode}
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
@@ -109,8 +112,16 @@ func (h *NodeHandler) DeleteNode(c *gin.Context) {
 
 // DaemonSelfRegister handles POST /nodes/:id/register.
 // Called by the daemon on startup to push real hardware specs and mark the
-// node online.  Protected by DaemonNodeAuth.
+// node online.  Protected by DaemonNodeAuth.  Only available in dev mode —
+// production installs use the enrollment-token flow (POST /nodes/enroll).
 func (h *NodeHandler) DaemonSelfRegister(c *gin.Context) {
+	if !h.devMode {
+		c.JSON(http.StatusGone, gin.H{
+			"error": "static-token node registration is disabled in production; use POST /api/v1/nodes/enroll with an enrollment token",
+		})
+		return
+	}
+
 	nodeID, ok := parseUUID(c, "id")
 	if !ok {
 		return
