@@ -1,16 +1,16 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install CA certificates and git (some modules need git at build time).
 RUN apk add --no-cache ca-certificates git
 
 WORKDIR /build
 
-# Download dependencies. go.sum is generated here if not present.
-COPY go.mod ./
+# Download dependencies.
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the source and build the binary.
+# Copy the rest of the source and build both binaries.
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -20,29 +20,36 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
       -o /build/talepanel-api \
       ./cmd/server
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -ldflags="-s -w" \
+      -trimpath \
+      -o /build/tale-cli \
+      ./cmd/talecli
+
 # ── Stage 2: Runtime (production) ─────────────────────────────────────────────
 FROM alpine:3.19 AS production
 
 RUN apk add --no-cache ca-certificates wget
 
-# Copy the compiled binary.
-COPY --from=builder /build/talepanel-api /talepanel-api
+# Copy both compiled binaries.
+COPY --from=builder /build/talepanel-api /usr/local/bin/talepanel-api
+COPY --from=builder /build/tale-cli /usr/local/bin/tale-cli
 
 EXPOSE 8080
 
-ENTRYPOINT ["/talepanel-api"]
+ENTRYPOINT ["/usr/local/bin/talepanel-api"]
 
 # ── Stage 3: Development ──────────────────────────────────────────────────────
 # Used by docker-compose for local development (go run, live code via volume).
-FROM golang:1.22-alpine AS development
+FROM golang:1.25-alpine AS development
 
 RUN apk add --no-cache ca-certificates git
 
 WORKDIR /app
 
-COPY go.mod ./
-# Download and tidy generates go.sum if it doesn't exist yet
-RUN go mod download && go mod tidy
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
 
