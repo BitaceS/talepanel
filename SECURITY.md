@@ -4,7 +4,7 @@
 
 **Do not open a public GitHub issue.**
 
-Email `security@talepanel.com` with:
+Email `info@diengdoh.com` with:
 
 - A description of the vulnerability.
 - Steps to reproduce.

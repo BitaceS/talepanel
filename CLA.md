@@ -26,4 +26,4 @@ This CLA covers contributions to any file inside the `talepanel` repository at `
 
 ## Contact
 
-Questions: `licensing@talepanel.com`.
+Questions: `info@diengdoh.com`.

@@ -14,7 +14,7 @@ Private, non-commercial self-hosting (running TalePanel for your own Hytale comm
 
 ## How to obtain a commercial license
 
-Email **licensing@talepanel.com** with:
+Email **info@diengdoh.com** with:
 
 - Your company name and country.
 - The rough scope of use (single-tenant vs. multi-tenant hosting, approximate node count).

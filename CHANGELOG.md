@@ -6,7 +6,7 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 Nothing yet.
 
-## [0.9.0-beta] — 2026-04-TBD
+## [0.9.0-beta] — 2026-04-17
 
 Initial public beta. Self-hosted, Open Source under AGPL-3.0.
 
