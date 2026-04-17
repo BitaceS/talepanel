@@ -152,8 +152,7 @@ func Load() (*Config, error) {
 	// CORS_ORIGINS — optional, comma-separated
 	corsRaw := os.Getenv("CORS_ORIGINS")
 	if corsRaw != "" {
-		parts := strings.Split(corsRaw, ",")
-		for _, p := range parts {
+		for p := range strings.SplitSeq(corsRaw, ",") {
 			trimmed := strings.TrimSpace(p)
 			if trimmed != "" {
 				cfg.CORSOrigins = append(cfg.CORSOrigins, trimmed)
