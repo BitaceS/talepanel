@@ -78,6 +78,11 @@ func main() {
 	// ── Router ─────────────────────────────────────────────────────────────────
 	r := router.SetupRouter(cfg, pool, rdb, log)
 
+	// ── Session cleanup worker ────────────────────────────────────────────────
+	// Runs every 6 hours, removes sessions whose expires_at is more than 30
+	// days in the past.  Prevents unbounded growth of the sessions table.
+	go runSessionCleanup(pool, log)
+
 	// ── HTTP Server ────────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.ServerPort),
@@ -135,6 +140,39 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 	zapCfg.Level = zap.NewAtomicLevelAt(level)
 
 	return zapCfg.Build()
+}
+
+// runSessionCleanup periodically purges expired session rows.  Runs for the
+// lifetime of the process; cancellation happens implicitly when the process
+// exits.
+func runSessionCleanup(pool *pgxpool.Pool, log *zap.Logger) {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+
+	// Run once on startup so a panel that's been offline for a while catches
+	// up immediately rather than waiting 6 hours.
+	cleanupOnce(pool, log)
+
+	for range ticker.C {
+		cleanupOnce(pool, log)
+	}
+}
+
+func cleanupOnce(pool *pgxpool.Pool, log *zap.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ct, err := pool.Exec(ctx, `
+		DELETE FROM sessions
+		 WHERE expires_at < NOW() - INTERVAL '30 days'
+	`)
+	if err != nil {
+		log.Warn("session cleanup failed", zap.Error(err))
+		return
+	}
+	if n := ct.RowsAffected(); n > 0 {
+		log.Info("session cleanup", zap.Int64("removed", n))
+	}
 }
 
 // checkSchema verifies that critical tables exist as a lightweight startup

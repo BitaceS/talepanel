@@ -204,6 +204,48 @@ impl ProcessManager {
                 return;
             }
 
+            // Local-bin fallback: before hitting the Hytale CDN, check whether
+            // the operator pre-placed a JAR + Assets.zip at
+            // {data_root}/hytale-bin/.  This is the supported "offline /
+            // air-gapped install" path and also the fastest — hardlinking
+            // avoids copying multi-gigabyte assets per server.
+            let local_bin = PathBuf::from(&data_root).join("hytale-bin");
+            let local_jar = local_bin.join("HytaleServer.jar");
+            let local_assets = local_bin.join("Assets.zip");
+            if local_jar.exists() && local_assets.exists() {
+                push_log(format!("Using local Hytale binaries from {}", local_bin.display()), "INFO").await;
+                let server_dir = target.join("Server");
+                if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
+                    push_log(format!("Failed to create Server/: {e}"), "ERROR").await;
+                    let _ = api_client.report_server_status(&server_id, "crashed").await;
+                    return;
+                }
+                // Hardlink (same filesystem).  Fall back to copy if hardlink
+                // fails (e.g. cross-mount with restrictive perms).
+                for (src, dst) in [
+                    (local_jar.clone(), server_dir.join("HytaleServer.jar")),
+                    (local_bin.join("HytaleServer.aot"), server_dir.join("HytaleServer.aot")),
+                    (local_assets.clone(), target.join("Assets.zip")),
+                ] {
+                    if !src.exists() { continue; }
+                    if tokio::fs::hard_link(&src, &dst).await.is_err() {
+                        if let Err(e) = tokio::fs::copy(&src, &dst).await {
+                            push_log(format!("Failed to place {}: {e}", dst.display()), "ERROR").await;
+                            let _ = api_client.report_server_status(&server_id, "crashed").await;
+                            return;
+                        }
+                    }
+                }
+                // Licenses dir is optional — cp -r equivalent.
+                let licenses_src = local_bin.join("Licenses");
+                if licenses_src.is_dir() {
+                    let _ = copy_dir(&licenses_src, &server_dir.join("Licenses")).await;
+                }
+                push_log("Provisioning complete via local hytale-bin".into(), "INFO").await;
+                let _ = api_client.report_server_status(&server_id, "stopped").await;
+                return;
+            }
+
             // Try downloading from the official Hytale Downloader.
             let tool_dir = PathBuf::from(&data_root).join("tools");
             let download_ok = match downloader::fetch_downloader_cli(&tool_dir).await {
@@ -533,6 +575,25 @@ done
 // ---------------------------------------------------------------------------
 
 /// Convert internal `LogLine` types to the API wire format.
+// copy_dir recursively copies src into dst, creating dst if needed.
+// Used by the local-bin fallback in provision.  Kept minimal — if more
+// features are needed we can switch to the `fs_extra` crate later.
+async fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let ty = entry.file_type().await?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            Box::pin(copy_dir(&from, &to)).await?;
+        } else {
+            tokio::fs::copy(&from, &to).await?;
+        }
+    }
+    Ok(())
+}
+
 fn to_wire_log_lines(lines: Vec<LogLine>) -> Vec<crate::api_client::LogLine> {
     lines
         .into_iter()
