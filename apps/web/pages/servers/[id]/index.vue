@@ -15,6 +15,7 @@ import { useGameCommandsStore } from '~/stores/gameCommands'
 import { useWorldsStore } from '~/stores/worlds'
 import { usePlayersStore } from '~/stores/players'
 import { useBackupsStore } from '~/stores/backups'
+import { useInvitationsStore } from '~/stores/invitations'
 import { useApi } from '~/composables/useApi'
 import type { CFMod, CFModFile } from '~/types'
 import type { GameCommand } from '~/stores/gameCommands'
@@ -28,6 +29,7 @@ const api = useApi()
 const worldsStore = useWorldsStore()
 const playersStore = usePlayersStore()
 const backupsStore = useBackupsStore()
+const invitationsStore = useInvitationsStore()
 
 const serverId = computed(() => route.params.id as string)
 
@@ -132,6 +134,7 @@ watch(activeTab, (tab) => {
   if (tab === 'worlds') worldsStore.fetchWorlds(serverId.value)
   if (tab === 'players') playersStore.fetchPlayers(serverId.value)
   if (tab === 'databases') fetchDatabases()
+  if (tab === 'settings') loadServerInvitations()
   if (tab === 'backups') {
     backupsStore.fetchBackups(serverId.value)
     backupsStore.fetchSchedules(serverId.value)
@@ -510,6 +513,41 @@ async function deleteDatabase(name: string) {
 
 const rotatingDb = ref('')
 const rotatedCreds = ref<{ username: string; password: string; host: string; port: number; database: string } | null>(null)
+
+// ── Server invitations (shared access) ──────────────────────────────────────
+const inviteForm = reactive({ email: '', role: 'viewer' })
+const invitingEmail = ref(false)
+
+async function loadServerInvitations() {
+  try {
+    await invitationsStore.fetchServerInvitations(serverId.value)
+  } catch { /* surfaced via store */ }
+}
+
+async function createServerInvitation() {
+  if (!inviteForm.email) return
+  invitingEmail.value = true
+  try {
+    await invitationsStore.createInvitation(serverId.value, inviteForm.email, inviteForm.role)
+    inviteForm.email = ''
+    showToast('Invitation sent')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to invite', 'error')
+  } finally {
+    invitingEmail.value = false
+  }
+}
+
+async function revokeServerInvitation(invitationId: string) {
+  if (!confirm('Revoke this invitation?')) return
+  try {
+    await invitationsStore.revokeInvitation(serverId.value, invitationId)
+    showToast('Invitation revoked')
+  } catch {
+    showToast('Failed to revoke', 'error')
+  }
+}
 
 async function rotateDatabasePassword(name: string) {
   if (!confirm(`Rotate password for database "${name}"?\n\nAny service using the old password will break until you update its connection string.`)) return
@@ -1775,6 +1813,77 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </div>
+        <!-- Shared access / invitations -->
+        <div class="bg-tp-surface rounded-xl overflow-hidden">
+          <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
+            <div>
+              <h3 class="text-tp-text font-display font-semibold text-sm">Shared Access</h3>
+              <p class="text-tp-muted text-xs mt-0.5">Invite other accounts to help manage this server.</p>
+            </div>
+            <button
+              class="p-1.5 rounded-xl text-tp-muted hover:bg-tp-surface2"
+              title="Refresh"
+              @click="loadServerInvitations()"
+            >
+              <RotateCcw class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div class="p-5 space-y-3">
+            <div class="flex items-end gap-2">
+              <div class="flex-1">
+                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Invitee email</label>
+                <input
+                  v-model="inviteForm.email"
+                  type="email"
+                  placeholder="friend@example.com"
+                  class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
+                />
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Role</label>
+                <select v-model="inviteForm.role" class="bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
+                  <option value="viewer">Viewer</option>
+                  <option value="moderator">Moderator</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button
+                class="px-3 py-2 rounded-xl bg-tp-primary text-white text-sm font-medium disabled:opacity-50"
+                :disabled="invitingEmail || !inviteForm.email"
+                @click="createServerInvitation"
+              >
+                {{ invitingEmail ? 'Sending…' : 'Invite' }}
+              </button>
+            </div>
+
+            <div v-if="invitationsStore.serverInvitations.length === 0" class="text-tp-muted text-xs py-3 text-center">
+              No pending invitations.
+            </div>
+            <div v-else class="divide-y divide-tp-border border border-tp-border rounded-xl">
+              <div
+                v-for="inv in invitationsStore.serverInvitations" :key="inv.id"
+                class="flex items-center justify-between px-3 py-2"
+              >
+                <div class="text-sm">
+                  <p class="text-tp-text font-medium">{{ inv.invitee_email }}</p>
+                  <p class="text-tp-muted text-xs">
+                    <span class="capitalize">{{ inv.role }}</span>
+                    · <span class="capitalize">{{ inv.status }}</span>
+                    · {{ new Date(inv.created_at).toLocaleDateString() }}
+                  </p>
+                </div>
+                <button
+                  v-if="inv.status === 'pending'"
+                  class="text-tp-danger text-xs hover:underline"
+                  @click="revokeServerInvitation(inv.id)"
+                >
+                  Revoke
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="bg-tp-surface rounded-xl border border-tp-danger/30 p-5">
           <h3 class="text-tp-danger font-display font-semibold text-sm mb-2">Danger Zone</h3>
           <p class="text-tp-muted text-xs mb-3">Permanently delete this server and all associated data.</p>
