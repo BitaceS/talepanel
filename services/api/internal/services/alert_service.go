@@ -152,7 +152,8 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 		SELECT id, user_id, server_id, threshold, channels
 		FROM alert_rules
 		WHERE type = $1 AND enabled = true
-	`, ruleType)
+		  AND (server_id IS NULL OR server_id = $2)
+	`, ruleType, subjectID)
 	if err != nil {
 		return fmt.Errorf("querying alert rules for type %s: %w", ruleType, err)
 	}

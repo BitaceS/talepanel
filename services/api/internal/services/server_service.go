@@ -467,6 +467,9 @@ func (s *ServerService) MigrateServer(ctx context.Context, serverID uuid.UUID, r
 	if status != "stopped" {
 		return fmt.Errorf("server must be stopped before migrating")
 	}
+	if nodeID == req.TargetNodeID {
+		return fmt.Errorf("server is already on the target node")
+	}
 
 	var exists bool
 	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)`, req.TargetNodeID).Scan(&exists)
@@ -481,19 +484,23 @@ func (s *ServerService) MigrateServer(ctx context.Context, serverID uuid.UUID, r
 		"target_node_id": req.TargetNodeID.String(),
 		"server_id":      serverID.String(),
 	})
-	_, err = s.db.Exec(ctx, `
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning migration tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err = tx.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload, status)
 		VALUES ($1, $2, 'migrate_server', $3, 'pending')
-	`, nodeID, serverID, payload)
-	if err != nil {
+	`, nodeID, serverID, payload); err != nil {
 		return fmt.Errorf("enqueuing migrate_server: %w", err)
 	}
-
-	_, err = s.db.Exec(ctx, `UPDATE servers SET node_id = $1 WHERE id = $2`, req.TargetNodeID, serverID)
-	if err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE servers SET node_id = $1 WHERE id = $2`, req.TargetNodeID, serverID); err != nil {
 		return fmt.Errorf("updating server node: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

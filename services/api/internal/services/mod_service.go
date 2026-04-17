@@ -186,12 +186,15 @@ func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename
 	if err != nil {
 		return fmt.Errorf("toggle mod: fetch server: %w", err)
 	}
-	_, err = s.db.Exec(ctx,
+	ct, err := s.db.Exec(ctx,
 		`UPDATE server_mods SET is_present = $1 WHERE server_id = $2 AND filename = $3`,
 		enabled, serverID, filename,
 	)
 	if err != nil {
 		return fmt.Errorf("toggle mod: update: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("mod not found: %s", filename)
 	}
 	cmdType := "disable_mod"
 	if enabled {
