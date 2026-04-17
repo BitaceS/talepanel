@@ -40,7 +40,46 @@ var (
 	ErrUserInactive  = errors.New("account is disabled")
 	ErrTOTPInvalid   = errors.New("invalid TOTP code")
 	ErrSessionExpired = errors.New("session expired or revoked")
+
+	// ErrWeakPasswordForRole is returned when a privileged role is given a
+	// password that does not meet the strict policy: min 12 chars, at least
+	// one digit, at least one non-alphanumeric symbol.
+	ErrWeakPasswordForRole = errors.New("owner and admin accounts require passwords of at least 12 characters including a digit and a symbol")
 )
+
+// validatePasswordForRole enforces the minimum password strength required for
+// the role.  Regular users keep the 8-char floor; owner/admin are bound to a
+// stricter 12-char + digit + symbol policy.
+func validatePasswordForRole(role, password string) error {
+	minLen := 8
+	privileged := role == models.RoleOwner || role == models.RoleAdmin
+	if privileged {
+		minLen = 12
+	}
+	if utf8.RuneCountInString(password) < minLen {
+		return fmt.Errorf("password must be at least %d characters long", minLen)
+	}
+	if !privileged {
+		return nil
+	}
+
+	hasDigit := false
+	hasSymbol := false
+	for _, r := range password {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			// alpha, ignore
+		default:
+			hasSymbol = true
+		}
+	}
+	if !hasDigit || !hasSymbol {
+		return ErrWeakPasswordForRole
+	}
+	return nil
+}
 
 // LoginResult is returned by Login, RefreshToken, and VerifyTOTP.
 type LoginResult struct {
@@ -80,8 +119,8 @@ func (s *AuthService) Register(ctx context.Context, email, username, password st
 	if !usernameRegex.MatchString(username) {
 		return nil, fmt.Errorf("username must be 3–20 characters and contain only letters, numbers, and underscores")
 	}
-	if utf8.RuneCountInString(password) < 8 {
-		return nil, fmt.Errorf("password must be at least 8 characters")
+	if err := validatePasswordForRole(models.RoleUser, password); err != nil {
+		return nil, err
 	}
 
 	// Uniqueness checks — use COUNT to avoid disclosing which field conflicts.
@@ -310,8 +349,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, oldP
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
 		return errors.New("current password is incorrect")
 	}
-	if len(newPassword) < 8 {
-		return errors.New("new password must be at least 8 characters")
+	if err := validatePasswordForRole(user.Role, newPassword); err != nil {
+		return err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
 	if err != nil {
@@ -404,11 +443,11 @@ func (s *AuthService) CreateUserByAdmin(ctx context.Context, email, username, pa
 	if !usernameRegex.MatchString(username) {
 		return nil, fmt.Errorf("username must be 3-20 characters and contain only letters, numbers, and underscores")
 	}
-	if utf8.RuneCountInString(password) < 8 {
-		return nil, fmt.Errorf("password must be at least 8 characters")
-	}
 	if models.RoleWeight(role) == 0 {
 		return nil, fmt.Errorf("invalid role: must be user, moderator, admin, or owner")
+	}
+	if err := validatePasswordForRole(role, password); err != nil {
+		return nil, err
 	}
 
 	// Uniqueness checks.
