@@ -3,7 +3,7 @@
 # TalePanel — Panel Host Installer
 #
 # Usage:
-#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-panel.sh)
+#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install-panel.sh)
 #
 # Flags (for unattended installs):
 #   --domain example.com          public domain
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 COMMON_LIB="$SCRIPT_DIR/lib/common.sh"
 if [ ! -r "$COMMON_LIB" ]; then
   TMP_LIB="$(mktemp)"
-  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-tyraxo/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
+  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-Bitaces/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
   COMMON_LIB="$TMP_LIB"
 fi
 # shellcheck disable=SC1090
@@ -37,7 +37,7 @@ DOMAIN=""
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
-REPO_URL="https://github.com/tyraxo/talepanel.git"
+REPO_URL="https://github.com/Bitaces/talepanel.git"
 BRANCH="main"
 INSTALL_DIR="/opt/talepanel"
 ASSUME_YES=0
@@ -171,7 +171,7 @@ Next steps:
   - Sign in, create a node via Nodes → Add Node → copy the enrollment token.
   - On each gameserver host, run:
 
-      sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-daemon.sh) \\
+      sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install-daemon.sh) \\
         --panel-url https://$DOMAIN \\
         --enrollment-token '<token-from-panel>'
 

@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 COMMON_LIB="$SCRIPT_DIR/lib/common.sh"
 if [ ! -r "$COMMON_LIB" ]; then
   TMP_LIB="$(mktemp)"
-  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-tyraxo/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
+  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-Bitaces/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
   COMMON_LIB="$TMP_LIB"
 fi
 # shellcheck disable=SC1090
@@ -39,7 +39,7 @@ PANEL_URL=""
 ENROLL_TOKEN=""
 DAEMON_HOST=""
 DAEMON_PORT="8444"
-REPO_URL="https://github.com/tyraxo/talepanel.git"
+REPO_URL="https://github.com/Bitaces/talepanel.git"
 BRANCH="main"
 INSTALL_DIR="/opt/taledaemon"
 ASSUME_YES=0

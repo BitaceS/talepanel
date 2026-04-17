@@ -15,9 +15,9 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tyraxo/talepanel/api/internal/config"
-	"github.com/tyraxo/talepanel/api/internal/db"
-	"github.com/tyraxo/talepanel/api/internal/router"
+	"github.com/Bitaces/talepanel/api/internal/config"
+	"github.com/Bitaces/talepanel/api/internal/db"
+	"github.com/Bitaces/talepanel/api/internal/router"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tyraxo/talepanel/api/internal/services"
+	"github.com/Bitaces/talepanel/api/internal/services"
 )
 
 func cfErrStatus(err error) int {
