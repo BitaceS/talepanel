@@ -212,6 +212,8 @@ type Player struct {
 	BanReason     *string    `json:"ban_reason,omitempty"`
 	BannedAt      *time.Time `json:"banned_at,omitempty"`
 	BannedBy      *uuid.UUID `json:"banned_by,omitempty"`
+	IsOp          bool       `json:"is_op"`
+	IsMuted       bool       `json:"is_muted"`
 }
 
 // Backup represents a server backup record.
