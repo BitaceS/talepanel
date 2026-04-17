@@ -103,6 +103,101 @@ async function deleteUser(user: User) {
   }
 }
 
+// ── Permissions editor ────────────────────────────────────────────────────────
+// 16 permission keys mirror the `role_permissions` seed in migration 008.
+// Listed here so the modal renders even if the DB has never been queried;
+// individual per-user overrides are layered on top via GET/PUT on
+// /admin/users/:id/permissions.
+const ALL_PERMISSIONS: { key: string; group: string; label: string }[] = [
+  { key: 'admin.nodes',       group: 'Admin',    label: 'Manage nodes' },
+  { key: 'admin.users',       group: 'Admin',    label: 'Manage users' },
+  { key: 'server.create',     group: 'Servers',  label: 'Create servers' },
+  { key: 'server.delete',     group: 'Servers',  label: 'Delete servers' },
+  { key: 'server.start',      group: 'Servers',  label: 'Start servers' },
+  { key: 'server.stop',       group: 'Servers',  label: 'Stop servers' },
+  { key: 'server.console',    group: 'Servers',  label: 'Send console commands' },
+  { key: 'server.files',      group: 'Servers',  label: 'Access file browser' },
+  { key: 'backup.create',     group: 'Backups',  label: 'Create backups' },
+  { key: 'backup.restore',    group: 'Backups',  label: 'Restore backups' },
+  { key: 'database.view',     group: 'Database', label: 'View server databases' },
+  { key: 'database.reset',    group: 'Database', label: 'Rotate database password' },
+  { key: 'mod.install',       group: 'Mods',     label: 'Install mods' },
+  { key: 'mod.remove',        group: 'Mods',     label: 'Remove mods' },
+  { key: 'player.ban',        group: 'Players',  label: 'Ban / unban players' },
+  { key: 'player.whitelist',  group: 'Players',  label: 'Manage whitelist' },
+]
+
+interface UserPermission { perm_key: string; granted: boolean }
+
+const permUser = ref<User | null>(null)
+const permOverrides = ref<Record<string, boolean>>({})  // null-ish = inherit from role
+const permLoading = ref(false)
+const permSaving = ref(false)
+
+async function openPermissions(user: User) {
+  permUser.value = user
+  permOverrides.value = {}
+  permLoading.value = true
+  try {
+    const res = await api.get<{ permissions: UserPermission[] }>(`/admin/users/${user.id}/permissions`)
+    for (const p of res.permissions ?? []) {
+      permOverrides.value[p.perm_key] = p.granted
+    }
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to load permissions', 'error')
+  } finally {
+    permLoading.value = false
+  }
+}
+
+function closePermissions() {
+  permUser.value = null
+  permOverrides.value = {}
+}
+
+function isOverridden(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(permOverrides.value, key)
+}
+
+function permState(key: string): 'grant' | 'deny' | 'inherit' {
+  if (!isOverridden(key)) return 'inherit'
+  return permOverrides.value[key] ? 'grant' : 'deny'
+}
+
+function setPermState(key: string, state: 'grant' | 'deny' | 'inherit') {
+  if (state === 'inherit') {
+    delete permOverrides.value[key]
+  } else {
+    permOverrides.value[key] = state === 'grant'
+  }
+}
+
+async function savePermissions() {
+  if (!permUser.value) return
+  permSaving.value = true
+  try {
+    const permissions = Object.entries(permOverrides.value).map(([perm_key, granted]) => ({ perm_key, granted }))
+    await api.put(`/admin/users/${permUser.value.id}/permissions`, { permissions })
+    showToast('Permissions saved')
+    closePermissions()
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save permissions', 'error')
+  } finally {
+    permSaving.value = false
+  }
+}
+
+const permGroups = computed(() => {
+  const byGroup: Record<string, typeof ALL_PERMISSIONS> = {}
+  for (const p of ALL_PERMISSIONS) {
+    byGroup[p.group] = byGroup[p.group] ?? []
+    byGroup[p.group].push(p)
+  }
+  return byGroup
+})
+
 // ── Nodes ────────────────────────────────────────────────────────────────────
 interface Node {
   id: string
@@ -390,6 +485,13 @@ async function submitCreateUser() {
               <td class="px-4 py-3">
                 <div class="flex items-center justify-end gap-1">
                   <button
+                    title="Edit permissions"
+                    class="p-1.5 rounded-lg text-tp-primary hover:bg-tp-primary/10 transition-colors"
+                    @click="openPermissions(user)"
+                  >
+                    <Shield class="w-4 h-4" />
+                  </button>
+                  <button
                     v-if="!isSelf(user.id)"
                     :title="user.is_active ? 'Deactivate' : 'Activate'"
                     class="p-1.5 rounded-lg hover:bg-tp-surface2 transition-colors"
@@ -631,6 +733,78 @@ async function submitCreateUser() {
         {{ toast }}
       </div>
     </Transition>
+
+    <!-- Permissions modal -->
+    <div
+      v-if="permUser"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4"
+      @click.self="closePermissions"
+    >
+      <div class="bg-tp-surface rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div class="px-5 py-4 border-b border-tp-border flex items-center justify-between">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-base">
+              Permissions — {{ permUser.username }}
+            </h3>
+            <p class="text-tp-muted text-xs mt-0.5">
+              Role-default: <span class="capitalize">{{ permUser.role }}</span>.  Any override here wins over the role.
+            </p>
+          </div>
+          <button class="text-tp-muted hover:text-tp-text" @click="closePermissions">✕</button>
+        </div>
+
+        <div v-if="permLoading" class="p-8 text-center text-tp-muted text-sm">Loading…</div>
+
+        <div v-else class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          <div v-for="(items, group) in permGroups" :key="group">
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ group }}</p>
+            <div class="space-y-1">
+              <div
+                v-for="p in items" :key="p.key"
+                class="flex items-center justify-between gap-3 rounded-xl bg-tp-surface2 px-3 py-2"
+              >
+                <div>
+                  <p class="text-tp-text text-sm font-medium">{{ p.label }}</p>
+                  <p class="text-tp-outline text-[10px] font-mono">{{ p.key }}</p>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    v-for="opt in [
+                      { state: 'inherit' as const, label: 'Inherit', cls: 'bg-tp-surface border border-tp-border text-tp-muted' },
+                      { state: 'grant'   as const, label: 'Grant',   cls: 'bg-tp-success/15 text-tp-success border border-tp-success/30' },
+                      { state: 'deny'    as const, label: 'Deny',    cls: 'bg-tp-danger/10 text-tp-danger border border-tp-danger/30' },
+                    ]" :key="opt.state"
+                    :class="[
+                      'text-[10px] font-semibold uppercase px-2 py-1 rounded-md transition-opacity',
+                      permState(p.key) === opt.state ? opt.cls : 'bg-transparent border border-tp-border text-tp-outline opacity-60 hover:opacity-100',
+                    ]"
+                    @click="setPermState(p.key, opt.state)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-5 py-3 border-t border-tp-border flex items-center justify-end gap-2">
+          <button
+            class="px-3 py-2 rounded-xl text-tp-muted text-sm hover:bg-tp-surface2"
+            @click="closePermissions"
+          >
+            Cancel
+          </button>
+          <button
+            class="px-4 py-2 rounded-xl bg-tp-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            :disabled="permSaving || permLoading"
+            @click="savePermissions"
+          >
+            {{ permSaving ? 'Saving…' : 'Save permissions' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
