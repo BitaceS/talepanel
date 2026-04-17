@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// localWhitelist contains IPs that are never rate-limited.
+// localWhitelist contains IPs that are never rate-limited — DEVELOPMENT ONLY.
 var localWhitelist = map[string]struct{}{
 	"127.0.0.1": {},
 	"::1":       {},
@@ -22,16 +22,22 @@ var localWhitelist = map[string]struct{}{
 //
 // Key schema: "ratelimit:{ip}:{window_minute_unix}"
 //
+// When devMode is true, the localhost IPs in localWhitelist are exempt.
+// Never pass devMode=true in production — localhost rate-limit exemption is
+// a brute-force bypass in any deployment that terminates TLS on the API host.
+//
 // When the limit is exceeded the handler is aborted with HTTP 429 and a
 // Retry-After header indicating the seconds until the current window expires.
-func RateLimit(rdb *redis.Client, requestsPerMin int) gin.HandlerFunc {
+func RateLimit(rdb *redis.Client, requestsPerMin int, devMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 
-		// Whitelisted IPs bypass all limiting.
-		if _, ok := localWhitelist[ip]; ok {
-			c.Next()
-			return
+		// Whitelisted IPs bypass all limiting — dev mode only.
+		if devMode {
+			if _, ok := localWhitelist[ip]; ok {
+				c.Next()
+				return
+			}
 		}
 
 		now := time.Now()

@@ -80,8 +80,9 @@ func SetupRouter(
 	pluginH := handlers.NewPluginHandler(modSvc, log)
 
 	// ── Rate limiters ─────────────────────────────────────────────────────────
-	generalLimiter := middleware.RateLimit(rdb, 120)
-	authLimiter := middleware.RateLimit(rdb, 30)
+	devMode := cfg.IsDevelopment()
+	generalLimiter := middleware.RateLimit(rdb, 120, devMode)
+	authLimiter := middleware.RateLimit(rdb, 30, devMode)
 
 	// ── Auth middleware ────────────────────────────────────────────────────────
 	authRequired := middleware.AuthRequired(db, rdb, cfg.JWTSecret)
