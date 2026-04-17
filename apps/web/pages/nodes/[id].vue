@@ -42,6 +42,8 @@ const servers = ref<Server[]>([])
 const loading = ref(true)
 const error = ref('')
 
+useHead({ title: computed(() => node.value ? `${node.value.name} · Nodes · TalePanel` : 'Node · TalePanel') })
+
 const latestMetric = computed(() => metrics.value.length > 0 ? metrics.value[metrics.value.length - 1] : null)
 const nodeServers = computed(() => servers.value.filter(s => s.node_id === nodeId.value))
 

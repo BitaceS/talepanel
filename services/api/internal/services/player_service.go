@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,10 +146,14 @@ func (s *PlayerService) KickPlayer(ctx context.Context, serverID, playerID uuid.
 		return fmt.Errorf("fetching player for kick: %w", err)
 	}
 
-	// 2. Build kick command.
+	// 2. Build kick command. Sanitize username — reject shell-unsafe characters
+	// that could be interpreted as command separators by the game console.
+	if strings.ContainsAny(username, "\n\r;|&`") {
+		return fmt.Errorf("player username contains unsafe characters")
+	}
 	cmd := fmt.Sprintf("kick %s", username)
 	if reason != "" {
-		cmd = fmt.Sprintf("kick %s %s", username, reason)
+		cmd = fmt.Sprintf("kick %s %s", username, strings.ReplaceAll(reason, "\n", " "))
 	}
 
 	// 3. Enqueue daemon send_command.
