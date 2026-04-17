@@ -22,16 +22,61 @@ interface Node {
   created_at: string
 }
 
+interface ClusterStats {
+  total_nodes: number
+  online_nodes: number
+  total_servers: number
+  running_servers: number
+  avg_cpu_pct: number
+  total_ram_mb: number
+  used_ram_mb: number
+  total_disk_mb: number
+  used_disk_mb: number
+}
+
+interface NodeMetricPoint {
+  sampled_at: string
+  cpu_pct: number
+  ram_used_mb: number
+  disk_used_mb: number
+  active_servers: number
+}
+
 const nodes = ref<Node[]>([])
 const loading = ref(false)
 const error = ref('')
+const clusterStats = ref<ClusterStats | null>(null)
+const nodeMetrics = ref<Record<string, NodeMetricPoint | null>>({})
 
 async function fetchNodes() {
   loading.value = true
   error.value = ''
   try {
-    const data = await api.get<{ nodes: Node[] }>('/nodes')
-    nodes.value = data.nodes ?? []
+    const [nodesData, statsData] = await Promise.all([
+      api.get<{ nodes: Node[] }>('/nodes'),
+      api.get<ClusterStats>('/nodes/cluster-stats').catch(() => null),
+    ])
+    nodes.value = nodesData.nodes ?? []
+    clusterStats.value = statsData
+
+    // Fetch per-node metrics for online nodes
+    const onlineNodes = nodes.value.filter(n => n.status === 'online')
+    const results = await Promise.allSettled(
+      onlineNodes.map(n =>
+        api.get<{ metrics: NodeMetricPoint[] }>(`/nodes/${n.id}/metrics?hours=1`)
+      )
+    )
+    const metricsMap: Record<string, NodeMetricPoint | null> = {}
+    results.forEach((result, idx) => {
+      const nodeId = onlineNodes[idx].id
+      if (result.status === 'fulfilled') {
+        const pts = result.value.metrics ?? []
+        metricsMap[nodeId] = pts.length > 0 ? pts[pts.length - 1] : null
+      } else {
+        metricsMap[nodeId] = null
+      }
+    })
+    nodeMetrics.value = metricsMap
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
     error.value = e.data?.error ?? e.message ?? 'Failed to fetch nodes'
@@ -112,6 +157,53 @@ function closeModal() {
   Object.assign(registerForm, { name: '', fqdn: '', port: 8444, location: '' })
 }
 
+// ── Edit modal ────────────────────────────────────────────────────────────────
+const showEditModal = ref(false)
+const editingNode = ref<Node | null>(null)
+const editForm = reactive({ name: '', location: '', max_servers: 0 })
+const editLoading = ref(false)
+const editError = ref('')
+
+function openEditModal(node: Node) {
+  editingNode.value = node
+  editForm.name = node.name
+  editForm.location = node.location ?? ''
+  editForm.max_servers = node.max_servers
+  editError.value = ''
+  showEditModal.value = true
+}
+
+function closeEditModal() {
+  showEditModal.value = false
+  editingNode.value = null
+  editError.value = ''
+}
+
+async function submitEdit() {
+  if (!editingNode.value) return
+  editLoading.value = true
+  editError.value = ''
+  try {
+    const node = editingNode.value
+    const payload: Record<string, unknown> = {}
+    if (editForm.name && editForm.name !== node.name) payload.name = editForm.name
+    if (editForm.location !== (node.location ?? '')) payload.location = editForm.location
+    if (editForm.max_servers !== node.max_servers) payload.max_servers = editForm.max_servers
+
+    const data = await api.patch<{ node: Node }>(`/nodes/${node.id}`, payload)
+    const idx = nodes.value.findIndex(n => n.id === node.id)
+    if (idx !== -1) nodes.value[idx] = data.node
+    showToast('Node updated')
+    closeEditModal()
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    editError.value = e.data?.error ?? e.message ?? 'Failed to update node'
+  } finally {
+    editLoading.value = false
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function statusColor(status: string) {
   switch (status) {
     case 'online': return 'text-tp-tertiary bg-tp-tertiary/15'
@@ -138,7 +230,6 @@ function timeAgo(iso?: string): string {
 function uptimeFromHeartbeat(iso?: string): string {
   if (!iso) return '--:--:--'
   const diff = Date.now() - new Date(iso).getTime()
-  // If heartbeat is recent, assume node has been up; show a placeholder uptime
   const s = Math.floor(diff / 1000)
   if (s > 300) return '--:--:--'
   return '99.9%'
@@ -150,48 +241,6 @@ const isAdmin = computed(() =>
 
 const onlineCount = computed(() => nodes.value.filter(n => n.status === 'online').length)
 const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value === nodes.value.length)
-
-// Mock live node events
-const liveEvents = ref([
-  { time: '14:32:01', message: 'Node heartbeat received — dev-node' },
-  { time: '14:31:45', message: 'Server hytale-prod-01 status: running' },
-  { time: '14:31:12', message: 'Metrics collected — CPU 34%, RAM 76.4 GB' },
-  { time: '14:30:58', message: 'Backup job completed — world_alpha.tar.gz' },
-  { time: '14:30:22', message: 'Player connected: ShadowMiner_42' },
-  { time: '14:29:47', message: 'Mod update check — no updates available' },
-  { time: '14:29:01', message: 'Node heartbeat received — dev-node' },
-  { time: '14:28:33', message: 'Server hytale-dev-02 status: stopped' },
-  { time: '14:28:01', message: 'Disk usage check — 4.2 TB / 10 TB' },
-  { time: '14:27:15', message: 'Player disconnected: CraftLord_99' },
-])
-
-// Helper: mock CPU load for a node (placeholder)
-function mockCpuLoad(_node: Node): number {
-  // Offline nodes show 0
-  if (_node.status !== 'online') return 0
-  // Use a deterministic pseudo-value based on node name hash
-  let hash = 0
-  for (let i = 0; i < _node.name.length; i++) hash = (hash * 31 + _node.name.charCodeAt(i)) % 100
-  return Math.max(12, hash % 68 + 12)
-}
-
-// Helper: mock RAM usage for a node
-function mockRamUsed(_node: Node): number {
-  if (_node.status !== 'online') return 0
-  return Math.round(_node.total_ram_mb * 0.6)
-}
-
-// Helper: mock disk usage for a node
-function mockDiskUsed(_node: Node): number {
-  if (_node.status !== 'online') return 0
-  return Math.round(_node.total_disk_mb * 0.42)
-}
-
-// Helper: mock server count for a node
-function mockServerCount(_node: Node): number {
-  if (_node.status !== 'online') return 0
-  return Math.min(Math.max(1, Math.floor(_node.max_servers * 0.75)), _node.max_servers)
-}
 </script>
 
 <template>
@@ -250,7 +299,7 @@ function mockServerCount(_node: Node): number {
       </UiButton>
     </div>
 
-    <!-- Main content: Node grid + Live Events -->
+    <!-- Main content: Node grid + Cluster Overview -->
     <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <!-- Node cards — 2 columns on the left -->
       <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -283,12 +332,18 @@ function mockServerCount(_node: Node): number {
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CPU LOAD</span>
-              <span class="text-tp-text text-xs font-semibold">{{ node.status === 'online' ? mockCpuLoad(node) + '%' : '\u2014' }}</span>
+              <span class="text-tp-text text-xs font-semibold">
+                {{ node.status === 'online' && nodeMetrics[node.id] != null
+                  ? (nodeMetrics[node.id]!.cpu_pct.toFixed(1) + '%')
+                  : '\u2014' }}
+              </span>
             </div>
             <div class="h-2 bg-tp-surface-highest rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full progress-fill transition-all duration-700"
-                :style="{ width: node.status === 'online' ? mockCpuLoad(node) + '%' : '0%' }"
+                :style="{ width: node.status === 'online' && nodeMetrics[node.id] != null
+                  ? (nodeMetrics[node.id]!.cpu_pct) + '%'
+                  : '0%' }"
               />
             </div>
           </div>
@@ -298,13 +353,17 @@ function mockServerCount(_node: Node): number {
             <div class="flex items-center justify-between mb-1.5">
               <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">MEMORY USAGE</span>
               <span class="text-tp-text text-xs font-semibold">
-                {{ node.status === 'online' ? formatMB(mockRamUsed(node)) + ' / ' + formatMB(node.total_ram_mb) : '\u2014' }}
+                {{ node.status === 'online' && nodeMetrics[node.id] != null
+                  ? formatMB(nodeMetrics[node.id]!.ram_used_mb) + ' / ' + formatMB(node.total_ram_mb)
+                  : '\u2014' }}
               </span>
             </div>
             <div class="h-2 bg-tp-surface-highest rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full progress-fill transition-all duration-700"
-                :style="{ width: node.status === 'online' && node.total_ram_mb > 0 ? (mockRamUsed(node) / node.total_ram_mb * 100).toFixed(1) + '%' : '0%' }"
+                :style="{ width: node.status === 'online' && nodeMetrics[node.id] != null && node.total_ram_mb > 0
+                  ? (nodeMetrics[node.id]!.ram_used_mb / node.total_ram_mb * 100).toFixed(1) + '%'
+                  : '0%' }"
               />
             </div>
           </div>
@@ -314,13 +373,17 @@ function mockServerCount(_node: Node): number {
             <div class="flex items-center justify-between mb-1.5">
               <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">DISK STORAGE</span>
               <span class="text-tp-text text-xs font-semibold">
-                {{ node.status === 'online' ? formatMB(mockDiskUsed(node)) + ' / ' + formatMB(node.total_disk_mb) : '\u2014' }}
+                {{ node.status === 'online' && nodeMetrics[node.id] != null
+                  ? formatMB(nodeMetrics[node.id]!.disk_used_mb) + ' / ' + formatMB(node.total_disk_mb)
+                  : '\u2014' }}
               </span>
             </div>
             <div class="h-2 bg-tp-surface-highest rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full progress-fill transition-all duration-700"
-                :style="{ width: node.status === 'online' && node.total_disk_mb > 0 ? (mockDiskUsed(node) / node.total_disk_mb * 100).toFixed(1) + '%' : '0%' }"
+                :style="{ width: node.status === 'online' && nodeMetrics[node.id] != null && node.total_disk_mb > 0
+                  ? (nodeMetrics[node.id]!.disk_used_mb / node.total_disk_mb * 100).toFixed(1) + '%'
+                  : '0%' }"
               />
             </div>
           </div>
@@ -328,9 +391,20 @@ function mockServerCount(_node: Node): number {
           <!-- Footer: capacity + actions -->
           <div class="flex items-center justify-between mt-auto pt-2">
             <span class="text-tp-outline text-xs">
-              Capacity: {{ node.status === 'online' ? mockServerCount(node) : 0 }}/{{ node.max_servers }} Servers
+              Capacity:
+              {{ node.status === 'online' && nodeMetrics[node.id] != null
+                ? nodeMetrics[node.id]!.active_servers
+                : 0 }}/{{ node.max_servers }} Servers
             </span>
             <div class="flex items-center gap-2">
+              <UiButton
+                v-if="isAdmin"
+                variant="ghost"
+                size="sm"
+                @click="openEditModal(node)"
+              >
+                <span class="material-symbols-outlined text-sm">edit</span>
+              </UiButton>
               <UiButton
                 v-if="isAdmin"
                 variant="danger"
@@ -350,20 +424,81 @@ function mockServerCount(_node: Node): number {
         </div>
       </div>
 
-      <!-- Right column: Live Node Events -->
+      <!-- Right column: Cluster Overview -->
       <div class="flex flex-col gap-5">
         <div class="bg-tp-surface2 rounded-xl flex flex-col overflow-hidden h-fit">
-          <div class="px-5 py-3 flex items-center justify-between">
+          <div class="px-5 py-3 flex items-center justify-between border-b border-tp-surface3">
             <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-tp-tertiary animate-pulse" />
-              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">LIVE NODE EVENTS</span>
+              <span class="w-2 h-2 rounded-full bg-tp-primary animate-pulse" />
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CLUSTER OVERVIEW</span>
             </div>
-            <span class="text-tp-outline text-[10px]">Auto-refresh</span>
           </div>
-          <div class="bg-tp-surface-lowest flex-1 max-h-[520px] overflow-y-auto px-4 py-3 space-y-1.5 font-mono text-xs">
-            <div v-for="(evt, i) in liveEvents" :key="i" class="flex gap-2 leading-5">
-              <span class="text-tp-outline shrink-0">{{ evt.time }}</span>
-              <span class="text-tp-tertiary">{{ evt.message }}</span>
+          <div class="px-5 py-4 space-y-4">
+            <!-- Total Nodes -->
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-tp-outline">Total Nodes</span>
+              <span class="text-tp-text text-sm font-semibold font-display">
+                {{ clusterStats?.total_nodes ?? nodes.length }}
+              </span>
+            </div>
+            <!-- Online Nodes -->
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-tp-outline">Online Nodes</span>
+              <span class="text-tp-tertiary text-sm font-semibold font-display">
+                {{ clusterStats?.online_nodes ?? onlineCount }}
+              </span>
+            </div>
+            <!-- Running Servers -->
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-tp-outline">Running Servers</span>
+              <span class="text-tp-text text-sm font-semibold font-display">
+                {{ clusterStats?.running_servers ?? '\u2014' }}
+              </span>
+            </div>
+            <!-- Avg CPU -->
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-tp-outline">Avg CPU</span>
+              <span class="text-tp-text text-sm font-semibold font-display">
+                {{ clusterStats != null ? clusterStats.avg_cpu_pct.toFixed(1) + '%' : '\u2014' }}
+              </span>
+            </div>
+            <!-- RAM Usage -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs text-tp-outline">RAM Usage</span>
+                <span class="text-tp-text text-xs font-semibold">
+                  {{ clusterStats != null
+                    ? formatMB(clusterStats.used_ram_mb) + ' / ' + formatMB(clusterStats.total_ram_mb)
+                    : '\u2014' }}
+                </span>
+              </div>
+              <div class="h-1.5 bg-tp-surface-highest rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full progress-fill transition-all duration-700"
+                  :style="{ width: clusterStats && clusterStats.total_ram_mb > 0
+                    ? (clusterStats.used_ram_mb / clusterStats.total_ram_mb * 100).toFixed(1) + '%'
+                    : '0%' }"
+                />
+              </div>
+            </div>
+            <!-- Disk Usage -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs text-tp-outline">Disk Usage</span>
+                <span class="text-tp-text text-xs font-semibold">
+                  {{ clusterStats != null
+                    ? formatMB(clusterStats.used_disk_mb) + ' / ' + formatMB(clusterStats.total_disk_mb)
+                    : '\u2014' }}
+                </span>
+              </div>
+              <div class="h-1.5 bg-tp-surface-highest rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full progress-fill transition-all duration-700"
+                  :style="{ width: clusterStats && clusterStats.total_disk_mb > 0
+                    ? (clusterStats.used_disk_mb / clusterStats.total_disk_mb * 100).toFixed(1) + '%'
+                    : '0%' }"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -387,15 +522,17 @@ function mockServerCount(_node: Node): number {
     <div v-if="nodes.length > 0" class="grid grid-cols-3 gap-5">
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
         <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">TOTAL NODES</p>
-        <p class="text-tp-text font-display font-bold text-3xl">{{ nodes.length }}</p>
+        <p class="text-tp-text font-display font-bold text-3xl">{{ clusterStats?.total_nodes ?? nodes.length }}</p>
       </div>
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
-        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">TOTAL PLAYERS</p>
-        <p class="text-tp-text font-display font-bold text-3xl">&mdash;</p>
+        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">RUNNING SERVERS</p>
+        <p class="text-tp-text font-display font-bold text-3xl">{{ clusterStats?.running_servers ?? '\u2014' }}</p>
       </div>
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
-        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">GLOBAL LATENCY</p>
-        <p class="text-tp-text font-display font-bold text-3xl">&mdash;</p>
+        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">AVG CPU LOAD</p>
+        <p class="text-tp-text font-display font-bold text-3xl">
+          {{ clusterStats != null ? clusterStats.avg_cpu_pct.toFixed(1) + '%' : '\u2014' }}
+        </p>
       </div>
     </div>
 
@@ -434,6 +571,23 @@ function mockServerCount(_node: Node): number {
         <UiButton v-if="!registeredNode" variant="primary" size="md" :loading="registerLoading" @click="submitRegister">
           Register
         </UiButton>
+      </template>
+    </UiModal>
+
+    <!-- Edit Modal -->
+    <UiModal :open="showEditModal" title="Edit Node" size="md" @close="closeEditModal">
+      <form class="space-y-4" @submit.prevent="submitEdit">
+        <div v-if="editError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
+          {{ editError }}
+        </div>
+        <UiInput v-model="editForm.name" label="Node Name" placeholder="prod-node-01" />
+        <UiInput v-model="editForm.location" label="Location" placeholder="US-East" />
+        <UiInput v-model="editForm.max_servers" type="number" label="Max Servers" placeholder="10" />
+      </form>
+
+      <template #footer>
+        <UiButton variant="ghost" size="md" @click="closeEditModal">Cancel</UiButton>
+        <UiButton variant="primary" size="md" :loading="editLoading" @click="submitEdit">Save</UiButton>
       </template>
     </UiModal>
 
