@@ -15,29 +15,37 @@ TalePanel is a full-stack server management platform built exclusively for Hytal
 
 TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RAM is fine) and one or more servers for the daemon (the hosts that actually run Hytale).
 
-### Panel host
+### One script, any role
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-panel.sh)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install.sh)
 ```
 
-The script installs Docker if missing, clones TalePanel into `/opt/talepanel`, generates all secrets (`openssl rand -hex 32`), creates the admin account you choose, and starts the stack behind Caddy with automatic Let's Encrypt TLS.
+A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
+**Upgrade**, or **Uninstall**. For unattended installs pass `--mode panel`
+or `--mode daemon` plus the relevant flags — see `bash install.sh --help`.
 
-### Daemon host
+### Panel host (control plane)
 
-In the panel, go to **Nodes → Add Node** to get a one-shot enrollment token (15-minute TTL, single-use). Then on the daemon host:
+Installs Docker if missing, clones into `/opt/talepanel`, generates every
+secret via `openssl rand -hex 32`, creates the admin account you choose,
+and starts the stack behind Caddy with automatic Let's Encrypt TLS.
 
-```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-daemon.sh) \
-  --panel-url https://panel.example.com \
-  --enrollment-token "<token-from-panel>"
-```
+### Daemon host (gameserver)
 
-Repeat for each additional daemon host. The daemon appears in the panel's Nodes list as `online` within ~30 seconds after heartbeating.
+In the panel, go to **Nodes → Add Node** to get a one-shot enrollment token
+(15-minute TTL, single-use). Then run `install.sh --mode daemon` on the
+daemon host with `--panel-url` and `--enrollment-token`. The node appears
+as `online` within ~30 seconds.
+
+> **Offline / air-gapped install:** drop `HytaleServer.jar` and `Assets.zip`
+> into `/srv/taledaemon/hytale-bin/` on the daemon host. Servers
+> provision in milliseconds via hardlink instead of pulling from the
+> Hytale CDN, which is IPv4-only.
 
 ### Commercial hosting license
 
-Running TalePanel as a paid managed service? The AGPL-3.0 obligation to open-source your whole stack does not fit most hosters — contact `licensing@talepanel.com` for a commercial license that waives it.
+Running TalePanel as a paid managed service? The AGPL-3.0 obligation to open-source your whole stack does not fit most hosters — contact `info@diengdoh.com` for a commercial license that waives it.
 
 ---
 
@@ -279,19 +287,22 @@ To add a node to TalePanel:
 
 ---
 
-## Seed Data
+## Creating the first admin
 
-After first migration, a default admin account is created:
-- **Email:** `admin@talepanel.local`
-- **Password:** `changeme`
-- **Role:** `owner`
+No seed account ships with the database. Create the owner after the
+first `docker compose up`:
 
-Change this immediately via the Settings page or:
 ```bash
-curl -X PATCH http://localhost:8080/api/v1/admin/users/<id> \
-  -H "Authorization: Bearer <token>" \
-  -d '{"email":"you@example.com","password":"newpassword"}'
+docker compose run --rm api tale-cli admin create \
+  --email you@example.com \
+  --username you \
+  --password 'Correct-Horse-Battery-4!' \
+  --non-interactive
 ```
+
+Owner/admin passwords must be at least 12 characters, with at least one
+digit and one non-alphanumeric symbol. The `install.sh` / `install-panel.sh`
+scripts do this automatically during a fresh install.
 
 ---
 

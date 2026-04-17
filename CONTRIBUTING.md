@@ -56,7 +56,7 @@ The `v0.9.x` line ships without a test suite — tests are being back-filled per
 
 ## Security issues
 
-Do **not** open an issue. Email `security@talepanel.com`. See `SECURITY.md`.
+Do **not** open an issue. Email `info@diengdoh.com`. See `SECURITY.md`.
 
 ## Roadmap
 
