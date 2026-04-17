@@ -117,6 +117,11 @@ func SetupRouter(
 			authProtected.GET("/me", authH.Me)
 			authProtected.PATCH("/password", authH.ChangePassword)
 
+			// 2FA (TOTP) self-service
+			authProtected.POST("/totp/setup",   authH.SetupTOTP)
+			authProtected.POST("/totp/confirm", authH.ConfirmTOTP)
+			authProtected.POST("/totp/disable", authH.DisableTOTP)
+
 			// Profile
 			authProtected.GET("/profile", profileH.GetProfile)
 			authProtected.PATCH("/profile", profileH.UpdateProfile)

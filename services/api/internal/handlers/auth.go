@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"time"
@@ -203,6 +204,82 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "password changed"})
+}
+
+// ─── TOTP Setup / Confirm / Disable ───────────────────────────────────────────
+
+// SetupTOTP handles POST /auth/totp/setup — starts a 2FA enrollment flow.
+// Returns the otpauth URI plus a base64-encoded PNG of the QR code.
+func (h *AuthHandler) SetupTOTP(c *gin.Context) {
+	user, ok := middleware.GetUserFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	res, err := h.svc.SetupTOTP(c.Request.Context(), user.ID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"secret":         res.Secret,
+		"otpauth_uri":    res.OtpauthURI,
+		"qr_code_base64": base64.StdEncoding.EncodeToString(res.QRCodePNG),
+	})
+}
+
+type confirmTOTPRequest struct {
+	Code string `json:"code" binding:"required"`
+}
+
+// ConfirmTOTP handles POST /auth/totp/confirm — finalises 2FA enrollment.
+func (h *AuthHandler) ConfirmTOTP(c *gin.Context) {
+	user, ok := middleware.GetUserFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	var req confirmTOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.ConfirmTOTP(c.Request.Context(), user.ID, req.Code); err != nil {
+		if errors.Is(err, services.ErrTOTPInvalid) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid TOTP code"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "2FA enabled"})
+}
+
+type disableTOTPRequest struct {
+	Password string `json:"password" binding:"required"`
+}
+
+// DisableTOTP handles POST /auth/totp/disable — turns 2FA off after re-auth.
+func (h *AuthHandler) DisableTOTP(c *gin.Context) {
+	user, ok := middleware.GetUserFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	var req disableTOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.DisableTOTP(c.Request.Context(), user.ID, req.Password); err != nil {
+		if errors.Is(err, services.ErrInvalidCreds) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "password incorrect"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not disable 2FA"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "2FA disabled"})
 }
 
 // ─── VerifyTOTP ───────────────────────────────────────────────────────────────
