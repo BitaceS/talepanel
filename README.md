@@ -18,7 +18,7 @@ TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RA
 ### One script, any role
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install.sh)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install.sh)
 ```
 
 A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
@@ -87,7 +87,7 @@ talepanel/
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/tyraxo/talepanel.git
+git clone https://github.com/Bitaces/talepanel.git
 cd talepanel
 cp .env.example .env
 ```
@@ -117,9 +117,12 @@ go run cmd/server/main.go
 API is now at `http://localhost:8080`
 Health check: `curl http://localhost:8080/api/v1/health`
 
-Default seed account:
-- Email: `admin@talepanel.local`
-- Password: `changeme` ← **change this immediately**
+Bootstrap the first owner:
+```bash
+docker compose run --rm api tale-cli admin create \
+  --email you@example.com --username you \
+  --password 'Correct-Horse-Battery-4!' --non-interactive
+```
 
 ### 4. Start the web panel
 
@@ -260,7 +263,7 @@ To add a node to TalePanel:
 1. Install TaleDaemon on the target machine:
    ```bash
    # On the node machine
-   curl -sSL https://get.talepanel.io/daemon | bash
+   curl -sSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install.sh | bash
    # Or build from source:
    cd services/daemon && cargo build --release
    ```

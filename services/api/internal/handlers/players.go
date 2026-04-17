@@ -4,9 +4,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tyraxo/talepanel/api/internal/middleware"
-	"github.com/tyraxo/talepanel/api/internal/models"
-	"github.com/tyraxo/talepanel/api/internal/services"
+	"github.com/Bitaces/talepanel/api/internal/middleware"
+	"github.com/Bitaces/talepanel/api/internal/models"
+	"github.com/Bitaces/talepanel/api/internal/services"
 	"go.uber.org/zap"
 )
 

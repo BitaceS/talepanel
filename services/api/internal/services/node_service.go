@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tyraxo/talepanel/api/internal/models"
+	"github.com/Bitaces/talepanel/api/internal/models"
 )
 
 var (

@@ -22,7 +22,7 @@ TalePanel is dual-licensed: AGPL-3.0 for public use, plus a commercial license f
 
 ## Scope
 
-This CLA covers contributions to any file inside the `talepanel` repository at `github.com/tyraxo/talepanel` and its successors.
+This CLA covers contributions to any file inside the `talepanel` repository at `github.com/Bitaces/talepanel` and its successors.
 
 ## Contact
 

@@ -5,12 +5,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/tyraxo/talepanel/api/internal/config"
-	"github.com/tyraxo/talepanel/api/internal/daemon"
-	"github.com/tyraxo/talepanel/api/internal/handlers"
-	"github.com/tyraxo/talepanel/api/internal/middleware"
-	"github.com/tyraxo/talepanel/api/internal/models"
-	"github.com/tyraxo/talepanel/api/internal/services"
+	"github.com/Bitaces/talepanel/api/internal/config"
+	"github.com/Bitaces/talepanel/api/internal/daemon"
+	"github.com/Bitaces/talepanel/api/internal/handlers"
+	"github.com/Bitaces/talepanel/api/internal/middleware"
+	"github.com/Bitaces/talepanel/api/internal/models"
+	"github.com/Bitaces/talepanel/api/internal/services"
 	"go.uber.org/zap"
 )
 

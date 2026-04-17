@@ -1,4 +1,4 @@
-module github.com/tyraxo/talepanel/api
+module github.com/Bitaces/talepanel/api
 
 go 1.25.0
 
