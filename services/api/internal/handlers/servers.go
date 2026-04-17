@@ -1087,6 +1087,35 @@ func (h *ServerHandler) CreateArchive(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "archive created"})
 }
 
+// ─── MigrateServer ────────────────────────────────────────────────────────────
+
+// MigrateServer handles POST /servers/:id/migrate  (admin only).
+func (h *ServerHandler) MigrateServer(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	var req services.MigrateServerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.svc.MigrateServer(c.Request.Context(), serverID, req); err != nil {
+		switch {
+		case errors.Is(err, services.ErrServerNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		case errors.Is(err, services.ErrNodeNotFound):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "target node not found"})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "server migration initiated"})
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func mustUser(c *gin.Context) *models.User {

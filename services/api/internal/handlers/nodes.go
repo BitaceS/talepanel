@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -189,6 +191,13 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 		return
 	}
 
+	// Record metrics for the cluster dashboard time-series chart.
+	go func() {
+		if mErr := h.svc.RecordHeartbeatMetrics(context.Background(), nodeID, req); mErr != nil {
+			h.log.Warn("failed to record heartbeat metrics", zap.String("node_id", nodeID.String()), zap.Error(mErr))
+		}
+	}()
+
 	// Refresh the daemon pool entry using the node's registered FQDN and port.
 	// Extract the plaintext token from the Authorization header (already
 	// validated by DaemonNodeAuth) to build the daemon HTTP client.
@@ -312,6 +321,66 @@ func (h *NodeHandler) GetNetworkStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// ─── GetNodeMetrics ───────────────────────────────────────────────────────────
+
+// GetNodeMetrics handles GET /nodes/:id/metrics?hours=24
+// Returns time-series metric points. hours param defaults to 24, max 168.
+func (h *NodeHandler) GetNodeMetrics(c *gin.Context) {
+	nodeID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	hours := 24
+	if hStr := c.Query("hours"); hStr != "" {
+		if h2, err := strconv.Atoi(hStr); err == nil && h2 > 0 && h2 <= 168 {
+			hours = h2
+		}
+	}
+
+	points, err := h.svc.GetNodeMetrics(c.Request.Context(), nodeID, hours)
+	if err != nil {
+		nodeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"metrics": points})
+}
+
+// ─── GetClusterStats ──────────────────────────────────────────────────────────
+
+// GetClusterStats handles GET /nodes/cluster-stats
+func (h *NodeHandler) GetClusterStats(c *gin.Context) {
+	stats, err := h.svc.GetClusterStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not compute cluster stats"})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
+}
+
+// ─── UpdateNode ───────────────────────────────────────────────────────────────
+
+// UpdateNode handles PATCH /nodes/:id
+func (h *NodeHandler) UpdateNode(c *gin.Context) {
+	nodeID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	var req services.UpdateNodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	node, err := h.svc.UpdateNode(c.Request.Context(), nodeID, req)
+	if err != nil {
+		nodeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"node": node})
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -161,6 +161,7 @@ func SetupRouter(
 		serverGroup.GET("/:id/metrics", serverH.GetMetrics)
 		serverGroup.GET("/:id/logs", serverH.GetLogs)
 		serverGroup.POST("/:id/console", serverH.SendConsoleCommand)
+		serverGroup.POST("/:id/migrate", serverH.MigrateServer)
 
 		// File browser
 		serverGroup.GET("/:id/files", serverH.ListFiles)
@@ -314,8 +315,11 @@ func SetupRouter(
 	{
 		nodeGroup.GET("", nodeH.ListNodes)
 		nodeGroup.POST("", nodeH.RegisterNode)
+		nodeGroup.GET("/cluster-stats", nodeH.GetClusterStats)
 		nodeGroup.GET("/:id", nodeH.GetNode)
+		nodeGroup.GET("/:id/metrics", nodeH.GetNodeMetrics)
 		nodeGroup.GET("/:id/network-stats", nodeH.GetNetworkStats)
+		nodeGroup.PATCH("/:id", nodeH.UpdateNode)
 
 		// Delete requires owner role.
 		nodeGroup.DELETE("/:id",
