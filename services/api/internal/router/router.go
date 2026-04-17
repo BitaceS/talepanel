@@ -51,7 +51,7 @@ func SetupRouter(
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
 	backupSvc := services.NewBackupService(db)
-	alertSvc := services.NewAlertService(db)
+	alertSvc := services.NewAlertService(db, nil, log)
 
 	// New services
 	permSvc := services.NewPermissionService(db)
