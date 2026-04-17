@@ -34,7 +34,7 @@ func SetupRouter(
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.GinLogger(log))
-	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.SecurityHeaders(!cfg.IsDevelopment()))
 	r.Use(corsMiddleware(cfg))
 
 	// ── Daemon client pool ─────────────────────────────────────────────────────
