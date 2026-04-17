@@ -11,6 +11,36 @@ TalePanel is a full-stack server management platform built exclusively for Hytal
 
 ---
 
+## Install (self-hosted)
+
+TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RAM is fine) and one or more servers for the daemon (the hosts that actually run Hytale).
+
+### Panel host
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-panel.sh)
+```
+
+The script installs Docker if missing, clones TalePanel into `/opt/talepanel`, generates all secrets (`openssl rand -hex 32`), creates the admin account you choose, and starts the stack behind Caddy with automatic Let's Encrypt TLS.
+
+### Daemon host
+
+In the panel, go to **Nodes → Add Node** to get a one-shot enrollment token (15-minute TTL, single-use). Then on the daemon host:
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/tyraxo/talepanel/main/scripts/install-daemon.sh) \
+  --panel-url https://panel.example.com \
+  --enrollment-token "<token-from-panel>"
+```
+
+Repeat for each additional daemon host. The daemon appears in the panel's Nodes list as `online` within ~30 seconds after heartbeating.
+
+### Commercial hosting license
+
+Running TalePanel as a paid managed service? The AGPL-3.0 obligation to open-source your whole stack does not fit most hosters — contact `licensing@talepanel.com` for a commercial license that waives it.
+
+---
+
 ## Monorepo Structure
 
 ```
