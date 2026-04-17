@@ -615,9 +615,14 @@ func (s *AuthService) GetUserActivity(ctx context.Context, userID uuid.UUID, lim
 }
 
 // GetUserSessions returns active sessions for a user.
+// ip_address is PostgreSQL `inet` (nullable) and user_agent is nullable `text`;
+// we cast + COALESCE so the Go `string` scan never sees NULL.
 func (s *AuthService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*models.Session, error) {
 	const q = `
-		SELECT id, user_id, ip_address, user_agent, created_at, expires_at, revoked
+		SELECT id, user_id,
+		       COALESCE(host(ip_address), '') AS ip_address,
+		       COALESCE(user_agent, '')       AS user_agent,
+		       created_at, expires_at, revoked
 		FROM sessions
 		WHERE user_id = $1 AND revoked = false AND expires_at > NOW()
 		ORDER BY created_at DESC
