@@ -71,40 +71,74 @@ async function changePassword() {
 }
 
 // ── 2FA ────────────────────────────────────────────────────────────────────────
-async function setup2FA() {
-  showToast('2FA setup: scan the QR code in your authenticator app. Full TOTP enrollment coming in the next API update.', 'success')
+// Real setup/disable flow lives in pages/settings/security.vue — this page
+// only ships deep-links to it.
+function setup2FA() {
+  navigateTo('/settings/security')
 }
-
-async function disable2FA() {
-  showToast('2FA disable: contact your administrator to disable 2FA.', 'success')
+function disable2FA() {
+  navigateTo('/settings/security')
 }
 
 // ── Notifications ──────────────────────────────────────────────────────────────
-const notifPrefs = reactive([
-  { key: 'crash', label: 'Server Crash Alerts', desc: 'Get notified when a server crashes or stops unexpectedly', enabled: true },
-  { key: 'backup', label: 'Backup Completion', desc: 'Notifications when backups complete or fail', enabled: true },
-  { key: 'resource', label: 'Resource Warnings', desc: 'Alerts when CPU, RAM, or disk usage exceeds thresholds', enabled: false },
-  { key: 'ddos', label: 'DDoS Detection', desc: 'Immediate alerts when suspicious network traffic is detected', enabled: true },
-  { key: 'player', label: 'Player Events', desc: 'Notifications for player joins, bans, and moderation actions', enabled: false },
-])
-
-function saveNotifPrefs() {
-  localStorage.setItem('tp_notif_prefs', JSON.stringify(notifPrefs))
-  showToast('Preferences saved')
+// Backed by GET/PUT /auth/profile/notifications.  Each row corresponds to one
+// alert_type and tracks email/discord/telegram channels; the UI currently
+// exposes a single enable/disable toggle that we write to all three channels.
+interface NotifPref {
+  key: string
+  label: string
+  desc: string
+  enabled: boolean
 }
 
-// Load saved prefs
-onMounted(() => {
-  const saved = localStorage.getItem('tp_notif_prefs')
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved) as { key: string; enabled: boolean }[]
-      parsed.forEach(p => {
-        const pref = notifPrefs.find(n => n.key === p.key)
-        if (pref) pref.enabled = p.enabled
-      })
-    } catch { /* ignore */ }
+const notifPrefs = reactive<NotifPref[]>([
+  { key: 'crash',    label: 'Server Crash Alerts',   desc: 'Get notified when a server crashes or stops unexpectedly', enabled: true },
+  { key: 'backup',   label: 'Backup Completion',     desc: 'Notifications when backups complete or fail',              enabled: true },
+  { key: 'resource', label: 'Resource Warnings',     desc: 'Alerts when CPU, RAM, or disk usage exceeds thresholds',   enabled: false },
+  { key: 'ddos',     label: 'DDoS Detection',        desc: 'Immediate alerts when suspicious network traffic is detected', enabled: true },
+  { key: 'player',   label: 'Player Events',         desc: 'Notifications for player joins, bans, and moderation actions', enabled: false },
+])
+
+interface BackendNotifPref {
+  alert_type: string
+  email: boolean
+  discord: boolean
+  telegram: boolean
+}
+
+async function saveNotifPrefs() {
+  const changed = notifPrefs.find(p => p.key === arguments[0])
+  const writes = notifPrefs.map(p =>
+    api.put('/auth/profile/notifications', {
+      alert_type: p.key,
+      email:      p.enabled,
+      discord:    p.enabled,
+      telegram:   p.enabled,
+    }),
+  )
+  try {
+    await Promise.all(writes)
+    showToast('Preferences saved')
+  } catch (err) {
+    showToast((err as Error).message || 'Failed to save preferences', 'error')
   }
+  void changed
+}
+
+async function loadNotifPrefs() {
+  try {
+    const res = await api.get<{ preferences: BackendNotifPref[] }>('/auth/profile/notifications')
+    for (const backend of res.preferences ?? []) {
+      const local = notifPrefs.find(p => p.key === backend.alert_type)
+      if (local) local.enabled = backend.email || backend.discord || backend.telegram
+    }
+  } catch {
+    // Backend may not have preferences yet — keep defaults.
+  }
+}
+
+onMounted(() => {
+  void loadNotifPrefs()
 })
 </script>
 
