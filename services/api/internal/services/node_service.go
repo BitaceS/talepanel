@@ -39,7 +39,11 @@ type NodeHeartbeatRequest struct {
 	Metrics   json.RawMessage `json:"metrics,omitempty"`
 	// NodeToken is the daemon's registration token, used by the API to
 	// (re-)register the in-memory daemon HTTP client pool entry.
-	NodeToken string          `json:"node_token,omitempty"`
+	NodeToken   string  `json:"node_token,omitempty"`
+	// Resource metrics sent inline by the daemon (cpu_percent is already 0–100).
+	CPUPercent  float32 `json:"cpu_percent"`
+	RAMUsedMB   uint64  `json:"ram_used_mb"`
+	DiskUsedMB  uint64  `json:"disk_used_mb"`
 }
 
 // NodeService handles CRUD and heartbeat logic for daemon nodes.
