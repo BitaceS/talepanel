@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TalePanel — Daemon Host Docker Compose
+# Deploys only the TaleDaemon.  Assumes the panel runs on a separate host.
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  taledaemon:
+    driver: bridge
+
+services:
+  daemon:
+    build:
+      context: ../../services/daemon
+      dockerfile: Dockerfile
+    container_name: taledaemon
+    restart: unless-stopped
+    environment:
+      TALEDAEMON_API_URL: ${TALEDAEMON_API_URL:?TALEDAEMON_API_URL is required}
+      TALEDAEMON_NODE_TOKEN: ${TALEDAEMON_NODE_TOKEN:?TALEDAEMON_NODE_TOKEN is required}
+      TALEDAEMON_NODE_ID: ${TALEDAEMON_NODE_ID:?TALEDAEMON_NODE_ID is required}
+      TALEDAEMON_LISTEN_PORT: "8444"
+      TALEDAEMON_DATA_ROOT: /srv/taledaemon
+      TALEDAEMON_LOG_LEVEL: info
+      TALEDAEMON_ENV: production
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    ports:
+      - "8444:8444"
+      - "5520-5600:5520-5600/udp"
+      - "5520-5600:5520-5600/tcp"
+    networks:
+      - taledaemon
+    volumes:
+      - /srv/taledaemon:/srv/taledaemon
