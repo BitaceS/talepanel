@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -25,6 +26,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: configuration error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Force Gin into release mode in production builds.  This must happen
+	// BEFORE any gin function is called (even gin.New) — otherwise Gin emits
+	// its debug banner and the mode switch arrives too late.
+	if !cfg.IsDevelopment() {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	// ── Logger ─────────────────────────────────────────────────────────────────
