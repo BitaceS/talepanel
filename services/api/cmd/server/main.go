@@ -75,8 +75,14 @@ func main() {
 		log.Fatal("schema check failed — run migrations before starting", zap.Error(err))
 	}
 
+	// ── Background worker context ──────────────────────────────────────────────
+	// Cancelled when the process receives a shutdown signal so background
+	// goroutines (alert evaluator, etc.) stop cleanly.
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
 	// ── Router ─────────────────────────────────────────────────────────────────
-	r := router.SetupRouter(cfg, pool, rdb, log)
+	r := router.SetupRouter(workerCtx, cfg, pool, rdb, log)
 
 	// ── Session cleanup worker ────────────────────────────────────────────────
 	// Runs every 6 hours, removes sessions whose expires_at is more than 30
