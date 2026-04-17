@@ -1,12 +1,14 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/png"
 	"regexp"
 	"strings"
 	"time"
@@ -277,6 +279,103 @@ func (s *AuthService) Logout(ctx context.Context, jti, refreshToken string, rema
 	}
 
 	return nil
+}
+
+// ─── TOTP Setup ──────────────────────────────────────────────────────────────
+
+// TOTPSetupResult is returned by SetupTOTP and carries everything the frontend
+// needs to render a QR code and walk the user through confirmation.
+type TOTPSetupResult struct {
+	Secret      string `json:"secret"`        // base32 secret for manual entry
+	OtpauthURI  string `json:"otpauth_uri"`   // otpauth:// URI for QR
+	QRCodePNG   []byte `json:"qr_code_png"`   // PNG bytes, handler sends as base64
+}
+
+// SetupTOTP generates a new TOTP secret for the user, encrypts it, and stores
+// it with totp_enabled=false.  The user must call ConfirmTOTP with a valid
+// code before 2FA is actually activated.  Calling SetupTOTP again before
+// confirmation overwrites the previous pending secret.
+func (s *AuthService) SetupTOTP(ctx context.Context, userID uuid.UUID) (*TOTPSetupResult, error) {
+	user, err := s.findUserByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("loading user: %w", err)
+	}
+	if user.TOTPEnabled {
+		return nil, errors.New("TOTP is already enabled; disable it first")
+	}
+
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "TalePanel",
+		AccountName: user.Email,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("generating TOTP key: %w", err)
+	}
+
+	// Encrypt the base32 secret before writing to DB.
+	encrypted, err := tpcrypto.Encrypt(s.config.TOTPEncKey, []byte(key.Secret()))
+	if err != nil {
+		return nil, fmt.Errorf("encrypting TOTP secret: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx,
+		`UPDATE users SET totp_secret = $1, totp_enabled = false WHERE id = $2`,
+		encrypted, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("storing pending TOTP secret: %w", err)
+	}
+
+	img, err := key.Image(200, 200)
+	if err != nil {
+		return nil, fmt.Errorf("rendering QR image: %w", err)
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		return nil, fmt.Errorf("encoding QR PNG: %w", err)
+	}
+
+	return &TOTPSetupResult{
+		Secret:     key.Secret(),
+		OtpauthURI: key.URL(),
+		QRCodePNG:  pngBuf.Bytes(),
+	}, nil
+}
+
+// ConfirmTOTP validates a code against the pending secret and activates 2FA.
+func (s *AuthService) ConfirmTOTP(ctx context.Context, userID uuid.UUID, code string) error {
+	user, err := s.findUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("loading user: %w", err)
+	}
+	if user.TOTPEnabled {
+		return errors.New("TOTP is already enabled")
+	}
+	if user.TOTPSecret == "" {
+		return errors.New("no pending TOTP setup — call setup first")
+	}
+	if !totp.Validate(code, user.TOTPSecret) {
+		return ErrTOTPInvalid
+	}
+	_, err = s.db.Exec(ctx,
+		`UPDATE users SET totp_enabled = true WHERE id = $1`, userID,
+	)
+	return err
+}
+
+// DisableTOTP turns 2FA off after verifying the user's current password.
+func (s *AuthService) DisableTOTP(ctx context.Context, userID uuid.UUID, password string) error {
+	user, err := s.findUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("loading user: %w", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return ErrInvalidCreds
+	}
+	_, err = s.db.Exec(ctx,
+		`UPDATE users SET totp_enabled = false, totp_secret = NULL WHERE id = $1`, userID,
+	)
+	return err
 }
 
 // ─── VerifyTOTP ───────────────────────────────────────────────────────────────
