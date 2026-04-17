@@ -212,7 +212,17 @@ onMounted(() => {
             <option v-for="rt in ruleTypes" :key="rt.value" :value="rt.value">{{ rt.label }}</option>
           </select>
         </div>
-        <UiInput v-model.number="ruleForm.threshold" type="number" label="Threshold" placeholder="3" />
+        <div v-if="['cpu_high', 'ram_high', 'disk_high'].includes(ruleForm.type)">
+          <label class="block text-sm font-medium mb-1">Threshold (%)</label>
+          <input
+            v-model.number="ruleForm.threshold"
+            type="number"
+            min="1"
+            max="100"
+            placeholder="90"
+            class="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-sm"
+          />
+        </div>
         <div class="flex justify-end gap-2 pt-2">
           <UiButton variant="secondary" size="md" @click="showCreateModal = false">Cancel</UiButton>
           <UiButton variant="primary" size="md" :loading="creating" @click="createRule">Create</UiButton>
