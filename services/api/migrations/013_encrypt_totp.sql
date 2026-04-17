@@ -10,8 +10,7 @@
 
 UPDATE users
    SET totp_secret  = NULL,
-       totp_enabled = false,
-       updated_at   = NOW()
+       totp_enabled = false
  WHERE totp_enabled = true
     OR totp_secret IS NOT NULL;
 
