@@ -89,3 +89,4 @@ certs/
 # Backups / data (daemon server data)
 # ─────────────────────────────────────────────
 srv/
+.worktrees/
