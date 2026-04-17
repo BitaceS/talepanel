@@ -175,8 +175,11 @@ func SetupRouter(
 		serverGroup.POST("/:id/files/archive", serverH.CreateArchive)
 
 		serverGroup.GET("/:id/mods", modH.ListMods)
+		serverGroup.POST("/:id/mods/upload", modH.UploadMod)
 		serverGroup.POST("/:id/mods", modH.InstallMod)
 		serverGroup.DELETE("/:id/mods/:filename", modH.RemoveMod)
+		serverGroup.PATCH("/:id/mods/:filename/toggle", modH.ToggleMod)
+		serverGroup.PATCH("/:id/mods/:filename", modH.SwitchModVersion)
 
 		// Game Control — predefined command templates
 		serverGroup.GET("/:id/game-commands", gameCmdH.ListGameCommands)

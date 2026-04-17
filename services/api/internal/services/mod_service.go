@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -173,6 +174,130 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 		return fmt.Errorf("enqueuing remove command: %w", err)
 	}
 
+	return nil
+}
+
+// ─── Task 2: Toggle mod ───────────────────────────────────────────────────────
+
+// ToggleMod sets is_present on a mod and enqueues an enable_mod or disable_mod command.
+func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename string, enabled bool) error {
+	var nodeID uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
+	if err != nil {
+		return fmt.Errorf("toggle mod: fetch server: %w", err)
+	}
+	_, err = s.db.Exec(ctx,
+		`UPDATE server_mods SET is_present = $1 WHERE server_id = $2 AND filename = $3`,
+		enabled, serverID, filename,
+	)
+	if err != nil {
+		return fmt.Errorf("toggle mod: update: %w", err)
+	}
+	cmdType := "disable_mod"
+	if enabled {
+		cmdType = "enable_mod"
+	}
+	payload, _ := json.Marshal(map[string]string{"filename": filename})
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, $3, $4)
+	`, nodeID, serverID, cmdType, payload)
+	return err
+}
+
+// ─── Task 3: Version switch ───────────────────────────────────────────────────
+
+// ModVersionSwitchRequest is the body for PATCH /servers/:id/mods/:filename.
+type ModVersionSwitchRequest struct {
+	FileID      int    `json:"file_id"`
+	FileURL     string `json:"file_url"`
+	DisplayName string `json:"display_name"`
+	Version     string `json:"version"`
+}
+
+// SwitchModVersion replaces the current mod version with a new CurseForge file atomically.
+func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
+	var nodeID uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
+	if err != nil {
+		return fmt.Errorf("switch mod version: fetch server: %w", err)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("switch mod version: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Delete old mod DB row.
+	_, err = tx.Exec(ctx, `DELETE FROM server_mods WHERE server_id = $1 AND filename = $2`, serverID, oldFilename)
+	if err != nil {
+		return fmt.Errorf("switch mod version: delete old: %w", err)
+	}
+
+	// Enqueue remove_mod command for old file.
+	removePayload, _ := json.Marshal(map[string]string{"filename": oldFilename})
+	_, err = tx.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, 'remove_mod', $3)
+	`, nodeID, serverID, removePayload)
+	if err != nil {
+		return fmt.Errorf("switch mod version: enqueue remove: %w", err)
+	}
+
+	// Derive new filename from URL.
+	parts := strings.Split(req.FileURL, "/")
+	newFilename := parts[len(parts)-1]
+
+	// Insert new mod row.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_file_id, source, is_present)
+		VALUES ($1, $2, $3, $4, $5, $6, 'curseforge', true)
+	`, serverID, newFilename, req.DisplayName, req.Version, req.FileURL, req.FileID)
+	if err != nil {
+		return fmt.Errorf("switch mod version: insert new mod: %w", err)
+	}
+
+	// Enqueue install_mod command for new file.
+	installPayload, _ := json.Marshal(map[string]any{"filename": newFilename, "url": req.FileURL})
+	_, err = tx.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, 'install_mod', $3)
+	`, nodeID, serverID, installPayload)
+	if err != nil {
+		return fmt.Errorf("switch mod version: enqueue install: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ─── Task 4: Custom JAR upload ────────────────────────────────────────────────
+
+// UploadMod records a custom-uploaded mod and enqueues an install_mod command.
+func (s *ModService) UploadMod(ctx context.Context, serverID uuid.UUID, filename, downloadURL, displayName string) error {
+	var nodeID uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
+	if err != nil {
+		return fmt.Errorf("upload mod: fetch server: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO server_mods (server_id, filename, display_name, download_url, source, is_present)
+		VALUES ($1, $2, $3, $4, 'custom', false)
+		ON CONFLICT (server_id, filename) DO NOTHING
+	`, serverID, filename, displayName, downloadURL)
+	if err != nil {
+		return fmt.Errorf("upload mod: insert record: %w", err)
+	}
+
+	payload, _ := json.Marshal(map[string]string{"filename": filename, "url": downloadURL})
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, 'install_mod', $3)
+	`, nodeID, serverID, payload)
+	if err != nil {
+		return fmt.Errorf("upload mod: enqueue command: %w", err)
+	}
 	return nil
 }
 

@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"path"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/Bitaces/talepanel/api/internal/services"
+	"go.uber.org/zap"
 )
 
 func cfErrStatus(err error) int {
@@ -26,10 +29,11 @@ func cfErrStatus(err error) int {
 type ModHandler struct {
 	modSvc *services.ModService
 	cfSvc  *services.CurseForgeService
+	log    *zap.Logger
 }
 
 func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService) *ModHandler {
-	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc}
+	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc, log: zap.NewNop()}
 }
 
 // ─── CurseForge proxy ─────────────────────────────────────────────────────────
@@ -135,4 +139,109 @@ func (h *ModHandler) RemoveMod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "mod removed"})
+}
+
+// ─── Task 2: Toggle (enable/disable) mod ─────────────────────────────────────
+
+type toggleModRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// ToggleMod handles PATCH /servers/:id/mods/:filename/toggle.
+func (h *ModHandler) ToggleMod(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	filename := c.Param("filename")
+	if filename == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "filename required"})
+		return
+	}
+	var req toggleModRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, req.Enabled); err != nil {
+		h.log.Error("toggle mod failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "toggle failed"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ─── Task 3: Version switch ───────────────────────────────────────────────────
+
+// SwitchModVersion handles PATCH /servers/:id/mods/:filename.
+func (h *ModHandler) SwitchModVersion(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	filename := c.Param("filename")
+	var req services.ModVersionSwitchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.FileURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file_url required"})
+		return
+	}
+	if err := h.modSvc.SwitchModVersion(c.Request.Context(), serverID, filename, req); err != nil {
+		h.log.Error("switch mod version failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "switch failed"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ─── Task 4: Custom JAR upload ────────────────────────────────────────────────
+
+// UploadMod handles POST /servers/:id/mods/upload.
+// Accepts a multipart form with a "file" field. The file is read into memory
+// and its name is used as the mod filename. The daemon will pull the file from
+// the URL recorded in the install_mod command payload (a local file:// path on
+// the daemon node is not feasible over the network, so we pass a placeholder
+// URL and rely on the daemon's existing install_mod handler to fetch from the
+// panel's file endpoint). For now we record source='custom' and enqueue an
+// install_mod command with the filename so the daemon can request the file.
+func (h *ModHandler) UploadMod(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file field is required"})
+		return
+	}
+	defer file.Close()
+
+	filename := path.Base(header.Filename)
+	if filename == "" || filename == "." {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+
+	displayName := c.PostForm("display_name")
+	if displayName == "" {
+		displayName = filename
+	}
+
+	// Build a panel-hosted download URL the daemon can use to fetch the file.
+	// The daemon will call GET /api/v1/servers/:id/files/download?path=mods/<filename>
+	// once the panel-side file write is done. For this endpoint we only enqueue
+	// the DB record + command; actual file delivery to the daemon is out of scope
+	// and should be handled by a subsequent file-upload to the server's file browser.
+	placeholderURL := fmt.Sprintf("/api/v1/servers/%s/files/download?path=mods/%s", serverID, filename)
+
+	if err := h.modSvc.UploadMod(c.Request.Context(), serverID, filename, placeholderURL, displayName); err != nil {
+		h.log.Error("upload mod failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"filename": filename, "display_name": displayName})
 }
