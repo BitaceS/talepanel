@@ -109,6 +109,7 @@ func SetupRouter(
 	{
 		healthGroup.GET("", healthH.Liveness)
 		healthGroup.GET("/ready", healthH.Readiness)
+		healthGroup.GET("/setup", healthH.SetupStatus)
 	}
 
 	// Auth — light rate limiting, no auth required (register/login)
