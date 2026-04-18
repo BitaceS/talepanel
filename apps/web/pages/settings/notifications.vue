@@ -141,3 +141,8 @@ async function onToggle(alertType: string) {
     </Transition>
   </div>
 </template>
+
+<style scoped>
+.toast-enter-active, .toast-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
+</style>
