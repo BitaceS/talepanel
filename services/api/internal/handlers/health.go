@@ -30,6 +30,23 @@ func (h *HealthHandler) Liveness(c *gin.Context) {
 	})
 }
 
+// SetupStatus handles GET /health/setup.
+// Returns {"needs_setup": true} when no users exist in the DB.
+// Public endpoint — no auth required.
+func (h *HealthHandler) SetupStatus(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+
+	var count int
+	err := h.db.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"needs_setup": false})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"needs_setup": count == 0})
+}
+
 // Readiness handles GET /health/ready.
 // Returns 200 when DB + Redis are reachable, 503 otherwise.
 // No error details leak to the caller; details are kept off-wire on purpose.
