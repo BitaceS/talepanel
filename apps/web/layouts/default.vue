@@ -307,6 +307,7 @@ const helpLinks = [
 
       <!-- Page content -->
       <main class="flex-1 overflow-y-auto scrollbar-thin" @click="closeAll">
+        <UpdateBanner />
         <NuxtPage />
       </main>
     </div>
