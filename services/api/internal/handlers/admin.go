@@ -12,15 +12,16 @@ import (
 
 // AdminHandler groups all admin-panel HTTP handlers (user management, etc.).
 type AdminHandler struct {
-	authSvc *services.AuthService
-	nodeSvc *services.NodeService
-	permSvc *services.PermissionService
-	log     *zap.Logger
+	authSvc   *services.AuthService
+	nodeSvc   *services.NodeService
+	permSvc   *services.PermissionService
+	updateSvc *services.UpdateService
+	log       *zap.Logger
 }
 
 // NewAdminHandler constructs an AdminHandler.
-func NewAdminHandler(authSvc *services.AuthService, nodeSvc *services.NodeService, permSvc *services.PermissionService, log *zap.Logger) *AdminHandler {
-	return &AdminHandler{authSvc: authSvc, nodeSvc: nodeSvc, permSvc: permSvc, log: log}
+func NewAdminHandler(authSvc *services.AuthService, nodeSvc *services.NodeService, permSvc *services.PermissionService, updateSvc *services.UpdateService, log *zap.Logger) *AdminHandler {
+	return &AdminHandler{authSvc: authSvc, nodeSvc: nodeSvc, permSvc: permSvc, updateSvc: updateSvc, log: log}
 }
 
 // ─── Create User ─────────────────────────────────────────────────────────────
@@ -272,4 +273,16 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "permissions updated"})
+}
+
+// ─── Update Check ─────────────────────────────────────────────────────────────
+
+func (h *AdminHandler) CheckUpdate(c *gin.Context) {
+	info, err := h.updateSvc.CheckForUpdate(c.Request.Context())
+	if err != nil {
+		h.log.Error("update check", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "update check failed"})
+		return
+	}
+	c.JSON(http.StatusOK, info)
 }

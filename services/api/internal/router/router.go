@@ -68,6 +68,7 @@ func SetupRouter(
 	profileSvc := services.NewProfileService(db)
 	invSvc := services.NewInvitationService(db)
 	dbSvc := services.NewDatabaseService(db, cfg.MariaDBDSN, cfg.MariaDBHost, cfg.MariaDBPort)
+	updateSvc := services.NewUpdateService(rdb, cfg.AppVersion, log)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	secureCookie := !cfg.IsDevelopment()
@@ -269,7 +270,7 @@ func SetupRouter(
 	}
 
 	// Admin — requires admin role, general rate limit
-	adminH := handlers.NewAdminHandler(authSvc, nodeSvc, permSvc, log)
+	adminH := handlers.NewAdminHandler(authSvc, nodeSvc, permSvc, updateSvc, log)
 	adminGroup := v1.Group("/admin")
 	adminGroup.Use(authRequired, middleware.RequireRole(models.RoleAdmin), generalLimiter)
 	{
@@ -288,6 +289,9 @@ func SetupRouter(
 		// Enrollment: admin creates a short-lived one-shot token that the
 		// daemon redeems via POST /nodes/enroll.
 		adminGroup.POST("/nodes/enroll", enrollmentH.CreateEnrollment)
+
+		// Update check
+		adminGroup.GET("/update/check", adminH.CheckUpdate)
 	}
 
 	// Public enrollment redemption — the token itself is the authentication.
