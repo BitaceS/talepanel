@@ -14,6 +14,7 @@ type Config struct {
 	ServerPort int
 	Env        string
 	LogLevel   string
+	AppVersion string
 
 	// Database
 	DatabaseURL string
@@ -94,6 +95,12 @@ func Load() (*Config, error) {
 	cfg.LogLevel = os.Getenv("LOG_LEVEL")
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
+	}
+
+	// APP_VERSION — optional, default "dev"
+	cfg.AppVersion = os.Getenv("APP_VERSION")
+	if cfg.AppVersion == "" {
+		cfg.AppVersion = "dev"
 	}
 
 	// DATABASE_URL — required
