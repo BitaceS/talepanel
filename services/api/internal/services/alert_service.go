@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
-	"github.com/Bitaces/talepanel/api/internal/alerting"
-	"github.com/Bitaces/talepanel/api/internal/models"
+	"github.com/BitaceS/talepanel/api/internal/alerting"
+	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 var (

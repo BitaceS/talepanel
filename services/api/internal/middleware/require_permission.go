@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/Bitaces/talepanel/api/internal/services"
+	"github.com/BitaceS/talepanel/api/internal/services"
 )
 
 // RequirePermission aborts the request with 403 if the authenticated user

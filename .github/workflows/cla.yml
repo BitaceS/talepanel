@@ -27,17 +27,17 @@ jobs:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ASSISTANT_PAT }}
         with:
           path-to-signatures: 'signatures/v1/cla.json'
-          path-to-document: 'https://github.com/Bitaces/talepanel/blob/main/CLA.md'
+          path-to-document: 'https://github.com/BitaceS/talepanel/blob/main/CLA.md'
           branch: 'main'
-          allowlist: Bitaces,bot*
-          remote-organization-name: Bitaces
+          allowlist: BitaceS,bot*
+          remote-organization-name: BitaceS
           remote-repository-name: talepanel-cla-signatures
           custom-notsigned-prcomment: >
             Thank you for the pull request! Before we can merge it we need
             every contributor to sign the TalePanel CLA — this is a one-time
             step and lets us dual-license the project (AGPL-3.0 + commercial).
 
-            Please read the [CLA](https://github.com/Bitaces/talepanel/blob/main/CLA.md)
+            Please read the [CLA](https://github.com/BitaceS/talepanel/blob/main/CLA.md)
             and then reply to this comment with:
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
           custom-allsigned-prcomment: 'All contributors have signed the CLA.'

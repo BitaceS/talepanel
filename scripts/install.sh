@@ -6,7 +6,7 @@
 # menu when run without arguments, or takes --mode flag for unattended runs.
 #
 # Usage (interactive):
-#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install.sh)
+#   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
 #
 # Usage (unattended):
 #   sudo bash install.sh --mode panel --domain panel.example.com \
@@ -32,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 COMMON_LIB="$SCRIPT_DIR/lib/common.sh"
 if [ ! -r "$COMMON_LIB" ]; then
   TMP_LIB="$(mktemp)"
-  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-Bitaces/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
+  curl -fsSL "https://raw.githubusercontent.com/${TALEPANEL_REPO:-BitaceS/talepanel}/${TALEPANEL_BRANCH:-main}/scripts/lib/common.sh" -o "$TMP_LIB"
   COMMON_LIB="$TMP_LIB"
 fi
 # shellcheck disable=SC1090
@@ -48,7 +48,7 @@ PANEL_URL=""
 ENROLL_TOKEN=""
 DAEMON_HOST=""
 DAEMON_PORT="8444"
-REPO_URL="https://github.com/Bitaces/talepanel.git"
+REPO_URL="https://github.com/BitaceS/talepanel.git"
 BRANCH="main"
 PANEL_DIR="/opt/talepanel"
 DAEMON_DIR="/opt/taledaemon"

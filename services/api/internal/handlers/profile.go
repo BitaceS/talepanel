@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/Bitaces/talepanel/api/internal/services"
+	"github.com/BitaceS/talepanel/api/internal/services"
 	"go.uber.org/zap"
 )
 

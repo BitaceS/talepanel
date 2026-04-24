@@ -25,6 +25,8 @@ A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
 **Upgrade**, or **Uninstall**. For unattended installs pass `--mode panel`
 or `--mode daemon` plus the relevant flags — see `bash install.sh --help`.
 
+The full operator reference (hardware sizing, DNS, firewall, supported distros, troubleshooting) lives in [`INSTALL.md`](INSTALL.md).
+
 ### Panel host (control plane)
 
 Installs Docker if missing, clones into `/opt/talepanel`, generates every
@@ -114,17 +116,22 @@ go mod download
 go run cmd/server/main.go
 ```
 
-API is now at `http://localhost:8080`
+API is now at `http://localhost:8080`.
 Health check: `curl http://localhost:8080/api/v1/health`
 
-Bootstrap the first owner:
+### 4. Bootstrap the first owner
+
+No seed account is shipped. Create the first owner once, using the API container's bundled CLI (requires step 2's Postgres to be up):
+
 ```bash
 docker compose run --rm api tale-cli admin create \
   --email you@example.com --username you \
   --password 'Correct-Horse-Battery-4!' --non-interactive
 ```
 
-### 4. Start the web panel
+The password must be at least 12 characters with one digit and one non-alphanumeric symbol.
+
+### 5. Start the web panel
 
 ```bash
 cd apps/web
@@ -134,7 +141,7 @@ npm run dev
 
 Web panel: `http://localhost:3000`
 
-### 5. Start the daemon (optional — for local node)
+### 6. Start the daemon (optional — for local node)
 
 ```bash
 cd services/daemon
@@ -196,11 +203,11 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"user@example.com","username":"myuser","password":"securepass123"}'
 
-# Login
+# Login (use the owner you bootstrapped via tale-cli — see "Creating the first admin" below)
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -c cookies.txt \
-  -d '{"email":"admin@talepanel.local","password":"changeme"}'
+  -d '{"email":"you@example.com","password":"your-password"}'
 
 # Use returned access_token in subsequent requests:
 curl http://localhost:8080/api/v1/auth/me \
