@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # TalePanel installer shared library.
-# Sourced by install-panel.sh and install-daemon.sh.
+# Sourced by install.sh.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Colors (no-op if stdout is not a tty).

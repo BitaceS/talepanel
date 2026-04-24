@@ -56,7 +56,7 @@ Migration `013_encrypt_totp.sql` clears any legacy plaintext TOTP secrets. Anyon
 
 ### 3. Daemon registration flow changed
 
-The static `DAEMON_NODE_TOKEN` + `DAEMON_NODE_ID` env pair is no longer accepted in production. Re-run `scripts/install-daemon.sh` against the panel's new enrollment endpoint (`POST /api/v1/nodes/enroll`).
+The static `DAEMON_NODE_TOKEN` + `DAEMON_NODE_ID` env pair is no longer accepted in production. Re-run `scripts/install.sh --mode daemon` against the panel's new enrollment endpoint (`POST /api/v1/nodes/enroll`).
 
 ---
 

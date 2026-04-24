@@ -279,7 +279,7 @@ Adding a daemon host uses a one-shot enrollment token — the daemon self-regist
 
 2. On the daemon host, run the install command from the modal:
    ```bash
-   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-daemon.sh) \
+   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode daemon \
      --panel-url https://panel.example.com \
      --enrollment-token '<token-from-panel>'
    ```
@@ -307,8 +307,8 @@ docker compose run --rm api tale-cli admin create \
 ```
 
 Owner/admin passwords must be at least 12 characters, with at least one
-digit and one non-alphanumeric symbol. The `install.sh` / `install-panel.sh`
-scripts do this automatically during a fresh install.
+digit and one non-alphanumeric symbol. The `install.sh` script does this
+automatically during a fresh panel install.
 
 ---
 

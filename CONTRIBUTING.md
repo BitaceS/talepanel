@@ -16,7 +16,7 @@ apps/desktop/        Tauri wrapper
 apps/mobile/         Flutter app
 deploy/panel/        Production panel compose
 deploy/daemon/       Production daemon compose
-scripts/             install-panel.sh, install-daemon.sh, lib/common.sh
+scripts/             install.sh (unified panel + daemon installer), lib/common.sh
 docs/                specs, plans, architecture notes
 ```
 

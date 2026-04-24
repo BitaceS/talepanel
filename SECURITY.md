@@ -26,7 +26,7 @@ Older minor versions do **not** receive backports unless the vulnerability is cr
 
 ## Default-install security promises
 
-A fresh install via `scripts/install-panel.sh` guarantees:
+A fresh install via `scripts/install.sh --mode panel` guarantees:
 
 - All secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`, `TOTP_ENC_KEY`, DB/Redis/MinIO passwords) are generated with `openssl rand -hex 32`.
 - No seed admin account — the first user is created by `tale-cli admin create` during install.
