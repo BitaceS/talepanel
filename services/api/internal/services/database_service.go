@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/Bitaces/talepanel/api/internal/models"
+	"github.com/BitaceS/talepanel/api/internal/models"
 
 	_ "github.com/go-sql-driver/mysql"
 )

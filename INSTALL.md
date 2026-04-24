@@ -39,7 +39,7 @@ Do **not** expose:
 ### 3. Install
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install-panel.sh)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-panel.sh)
 ```
 
 The script is interactive by default. For an unattended install:
@@ -76,7 +76,7 @@ In the panel: **Nodes → Add Node**. Provide a display name and capacity limits
 ### 3. Install
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install-daemon.sh) \
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-daemon.sh) \
   --panel-url https://panel.example.com \
   --enrollment-token '<paste-token-here>'
 ```

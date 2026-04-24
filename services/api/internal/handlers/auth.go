@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/Bitaces/talepanel/api/internal/middleware"
-	"github.com/Bitaces/talepanel/api/internal/services"
+	"github.com/BitaceS/talepanel/api/internal/middleware"
+	"github.com/BitaceS/talepanel/api/internal/services"
 )
 
 const (

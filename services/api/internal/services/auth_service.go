@@ -20,9 +20,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
-	"github.com/Bitaces/talepanel/api/internal/config"
-	tpcrypto "github.com/Bitaces/talepanel/api/internal/crypto"
-	"github.com/Bitaces/talepanel/api/internal/models"
+	"github.com/BitaceS/talepanel/api/internal/config"
+	tpcrypto "github.com/BitaceS/talepanel/api/internal/crypto"
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
