@@ -18,7 +18,7 @@ TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RA
 ### One script, any role
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install.sh)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
 ```
 
 A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
@@ -87,7 +87,7 @@ talepanel/
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/Bitaces/talepanel.git
+git clone https://github.com/BitaceS/talepanel.git
 cd talepanel
 cp .env.example .env
 ```
@@ -224,7 +224,8 @@ curl http://localhost:8080/api/v1/auth/me \
 | POST | /servers/:id/restart | Restart server |
 | POST | /servers/:id/kill | Kill process |
 | GET | /nodes | List nodes (admin) |
-| POST | /nodes | Register node (admin) |
+| POST | /admin/nodes/enroll | Create one-shot daemon enrollment token (admin) |
+| POST | /nodes/enroll | Redeem enrollment token (daemon) |
 | GET | /health | Health check |
 | GET | /health/ready | Readiness check |
 
@@ -258,35 +259,25 @@ See `.env.example` for the full list with descriptions.
 
 ## Node Registration
 
-To add a node to TalePanel:
+Adding a daemon host uses a one-shot enrollment token — the daemon self-registers, so you never copy a permanent token by hand.
 
-1. Install TaleDaemon on the target machine:
+1. In the panel, open **Nodes → Add Node**, fill in the name and capacity, and
+   click **Create Enrollment Token**. The panel shows the token (15-min TTL,
+   single-use) and a ready-to-paste install command.
+
+2. On the daemon host, run the install command from the modal:
    ```bash
-   # On the node machine
-   curl -sSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install.sh | bash
-   # Or build from source:
-   cd services/daemon && cargo build --release
+   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-daemon.sh) \
+     --panel-url https://panel.example.com \
+     --enrollment-token '<token-from-panel>'
    ```
 
-2. Register the node via the admin panel or API:
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/nodes \
-     -H "Authorization: Bearer <admin_token>" \
-     -H "Content-Type: application/json" \
-     -d '{"name":"node-01","fqdn":"node01.example.com","port":8444,"location":"US-East"}'
-   ```
-   The API returns a `node_token` — this is shown **once**.
+3. The installer redeems the token via `POST /nodes/enroll`, receives the
+   node UUID + permanent node token, writes `/etc/taledaemon/config.toml`,
+   and starts the daemon as a systemd service. Within ~30 seconds the node
+   flips to `online` in the panel.
 
-3. Configure TaleDaemon with the token:
-   ```toml
-   # /etc/taledaemon/config.toml
-   [daemon]
-   node_id = "<uuid from registration>"
-   api_url = "https://panel.example.com"
-   node_token = "<token from step 2>"
-   ```
-
-4. Start TaleDaemon — it will register and begin sending heartbeats.
+For fully unattended provisioning the same token can be passed to `install.sh --mode daemon` — see `bash install.sh --help`.
 
 ---
 
@@ -360,13 +351,20 @@ cd apps/web && npm run lint && npm run typecheck
 
 ## Contributing
 
-TalePanel is currently in private development. Contribution guidelines will be published at MVP release.
+Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow and coding-style notes, and be aware that opening a pull request constitutes acceptance of the [Contributor License Agreement](CLA.md) — the CLA-Assistant bot records your acceptance automatically on your first PR.
+
+Security issues: do **not** open a public issue — see [`SECURITY.md`](SECURITY.md).
 
 ---
 
 ## License
 
-Proprietary. Copyright © 2025 Tyraxo. All rights reserved.
+TalePanel is dual-licensed:
+
+- **[AGPL-3.0](LICENSE)** for self-hosted and open-source use.
+- **[Commercial license](LICENSE-COMMERCIAL.md)** for hosters and service providers who cannot accept the AGPL's source-disclosure requirement — contact `info@diengdoh.com`.
+
+Copyright © 2025–2026 Tyraxo.
 
 ---
 
