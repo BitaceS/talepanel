@@ -41,13 +41,13 @@ Do **not** expose:
 ### 3. Install
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-panel.sh)
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
 ```
 
-The script is interactive by default. For an unattended install:
+The script is interactive by default and asks what you want to install (panel / daemon / both). For an unattended panel install:
 
 ```bash
-sudo bash install-panel.sh \
+sudo bash install.sh --mode panel \
   --domain panel.example.com \
   --admin-email you@example.com \
   --admin-username your-handle \
@@ -58,7 +58,7 @@ sudo bash install-panel.sh \
 Or the IP-only variant — same command, no DNS required:
 
 ```bash
-sudo bash install-panel.sh \
+sudo bash install.sh --mode panel \
   --ip-only \
   --admin-email you@example.com \
   --admin-username your-handle \
@@ -89,7 +89,7 @@ In the panel: **Nodes → Add Node**. Provide a display name and capacity limits
 ### 3. Install
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-daemon.sh) \
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode daemon \
   --panel-url https://panel.example.com \
   --enrollment-token '<paste-token-here>'
 ```

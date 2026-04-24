@@ -137,7 +137,7 @@ const panelOrigin = computed(() =>
 
 const installCommand = computed(() => {
   if (!enrollment.value) return ''
-  return `sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-daemon.sh) \\
+  return `sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode daemon \\
   --panel-url ${panelOrigin.value} \\
   --enrollment-token '${enrollment.value.token}'`
 })

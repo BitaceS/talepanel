@@ -78,8 +78,7 @@ jobs:
       - name: Generate installer checksums
         run: |
           cd scripts
-          sha256sum install-panel.sh > install-panel.sh.sha256
-          sha256sum install-daemon.sh > install-daemon.sh.sha256
+          sha256sum install.sh > install.sh.sha256
           sha256sum lib/common.sh > lib/common.sh.sha256
 
       - name: Extract release notes from CHANGELOG
@@ -102,10 +101,8 @@ jobs:
         with:
           body_path: ${{ steps.notes.outputs.body_path }}
           files: |
-            scripts/install-panel.sh
-            scripts/install-panel.sh.sha256
-            scripts/install-daemon.sh
-            scripts/install-daemon.sh.sha256
+            scripts/install.sh
+            scripts/install.sh.sha256
             scripts/lib/common.sh
             scripts/lib/common.sh.sha256
           draft: false

@@ -2,8 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # TalePanel — Unified Installer
 #
-# Drop-in replacement for install-panel.sh + install-daemon.sh.  Presents a
-# menu when run without arguments, or takes --mode flag for unattended runs.
+# Unified installer for both the Panel and the Daemon.  Presents a menu when
+# run without arguments; pass --mode for unattended runs.
 #
 # Usage (interactive):
 #   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
