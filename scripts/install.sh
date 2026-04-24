@@ -124,6 +124,8 @@ fi
 # ════════════════════════════════════════════════════════════════════════════
 
 install_panel() {
+  # Minimal base install may lack these — install before checking.
+  install_pkgs curl openssl git ca-certificates
   require_cmds curl openssl git
 
   # Resolve DOMAIN — either a real one the user owns, or an sslip.io hostname
@@ -245,6 +247,7 @@ EOF
 }
 
 install_daemon() {
+  install_pkgs curl jq git ca-certificates
   require_cmds curl jq
 
   [ -z "$PANEL_URL" ]     && read -rp "Panel URL (e.g. https://panel.example.com): " PANEL_URL
