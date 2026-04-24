@@ -19,6 +19,13 @@
 #   both      Install panel AND daemon on the same host (dev/home setup).
 #   upgrade   Pull latest code, rebuild, restart the stack.
 #   uninstall Stop containers and remove /opt/talepanel and /opt/taledaemon.
+#
+# Hostname:
+#   --domain panel.example.com   Use this public domain for the panel URL
+#                                (needs an A/AAAA record pointing here).
+#   --ip-only                    No domain — auto-build an sslip.io hostname
+#                                from this host's public IP.  Let's Encrypt
+#                                still issues a valid TLS cert.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -41,6 +48,7 @@ fi
 # ── Defaults ────────────────────────────────────────────────────────────────
 MODE=""
 DOMAIN=""
+IP_ONLY=0
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
@@ -59,6 +67,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --mode)              MODE="$2"; shift 2 ;;
     --domain)            DOMAIN="$2"; shift 2 ;;
+    --ip-only)           IP_ONLY=1; shift ;;
     --admin-email)       ADMIN_EMAIL="$2"; shift 2 ;;
     --admin-username)    ADMIN_USERNAME="$2"; shift 2 ;;
     --admin-password)    ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -127,8 +136,34 @@ esac
 install_panel() {
   require_cmds curl openssl git
 
-  # Prompt for missing values.
-  [ -z "$DOMAIN" ]         && read -rp "Public domain (e.g. panel.example.com): " DOMAIN
+  # Resolve DOMAIN — either a real one the user owns, or an sslip.io hostname
+  # built from this host's public IP.  Caddy still uses Let's Encrypt in both
+  # cases (sslip.io is issuable).
+  if [ -z "$DOMAIN" ] && [ "$IP_ONLY" -eq 0 ]; then
+    cat <<EOF
+
+${BOLD}Hostname${NC}
+  Enter the domain that points at this host (A/AAAA record), OR leave blank
+  to auto-generate a URL from this host's public IP using sslip.io.
+  (sslip.io is a free wildcard DNS — Let's Encrypt issues valid certs for it.)
+
+EOF
+    read -rp "Public domain [leave empty for IP-only via sslip.io]: " DOMAIN
+    [ -z "$DOMAIN" ] && IP_ONLY=1
+  fi
+
+  if [ "$IP_ONLY" -eq 1 ] && [ -z "$DOMAIN" ]; then
+    log "auto-detecting public IP..."
+    local pub_ip
+    pub_ip="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
+    if [ -z "$pub_ip" ]; then
+      read -rp "Could not auto-detect public IP — enter it manually: " pub_ip
+    fi
+    [ -z "$pub_ip" ] && fail "no public IP available for IP-only install"
+    DOMAIN="${pub_ip//./-}.sslip.io"
+    success "using sslip.io hostname: $DOMAIN  (resolves to $pub_ip)"
+  fi
+
   [ -z "$ADMIN_EMAIL" ]    && read -rp "Admin email: " ADMIN_EMAIL
   [ -z "$ADMIN_USERNAME" ] && read -rp "Admin username: " ADMIN_USERNAME
   if [ -z "$ADMIN_PASSWORD" ]; then
