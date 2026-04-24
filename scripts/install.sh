@@ -119,16 +119,6 @@ BANNER
   esac
 fi
 
-# ── Mode dispatch ───────────────────────────────────────────────────────────
-case "$MODE" in
-  panel)     install_panel ;;
-  daemon)    install_daemon ;;
-  both)      install_panel; install_daemon_local ;;
-  upgrade)   upgrade_stack ;;
-  uninstall) uninstall_stack ;;
-  *)         fail "unknown mode: $MODE (expected: panel, daemon, both, upgrade, uninstall)" ;;
-esac
-
 # ════════════════════════════════════════════════════════════════════════════
 #                                MODE HANDLERS
 # ════════════════════════════════════════════════════════════════════════════
@@ -430,3 +420,15 @@ confirm_or_exit() {
   read -rp "Proceed? [y/N] " ans
   [[ "$ans" =~ ^[Yy]$ ]] || fail "aborted by user"
 }
+
+# ── Mode dispatch ───────────────────────────────────────────────────────────
+# Must come AFTER all function definitions above — bash resolves function
+# names at call time, not parse time, but the dispatch must still find them.
+case "$MODE" in
+  panel)     install_panel ;;
+  daemon)    install_daemon ;;
+  both)      install_panel; install_daemon_local ;;
+  upgrade)   upgrade_stack ;;
+  uninstall) uninstall_stack ;;
+  *)         fail "unknown mode: $MODE (expected: panel, daemon, both, upgrade, uninstall)" ;;
+esac
