@@ -115,46 +115,82 @@ async function deleteNode(id: string, name: string) {
   }
 }
 
-// ── Register modal ────────────────────────────────────────────────────────────
+// ── Enrollment modal ──────────────────────────────────────────────────────────
 const showRegisterModal = ref(false)
 const registerLoading = ref(false)
 const registerError = ref('')
-const registeredNode = ref<{ node: Node; registration_token: string } | null>(null)
+const enrollment = ref<{ enrollment_id: string; token: string; expires_at: string } | null>(null)
+const tokenCopied = ref(false)
+const cmdCopied = ref(false)
 
 const registerForm = reactive({
   name: '',
-  fqdn: '',
-  port: 8444,
-  location: '',
+  total_cpu: 4,
+  total_ram_mb: 8192,
+  total_disk_mb: 102400,
+  max_servers: 10,
+})
+
+const panelOrigin = computed(() =>
+  typeof window !== 'undefined' ? window.location.origin : 'https://panel.example.com'
+)
+
+const installCommand = computed(() => {
+  if (!enrollment.value) return ''
+  return `sudo bash <(curl -fsSL https://raw.githubusercontent.com/Bitaces/talepanel/main/scripts/install-daemon.sh) \\
+  --panel-url ${panelOrigin.value} \\
+  --enrollment-token '${enrollment.value.token}'`
 })
 
 async function submitRegister() {
-  if (!registerForm.name || !registerForm.fqdn) return
+  if (!registerForm.name) return
   registerLoading.value = true
   registerError.value = ''
   try {
-    const data = await api.post<{ node: Node; registration_token: string }>('/nodes', {
-      name: registerForm.name,
-      fqdn: registerForm.fqdn,
-      port: registerForm.port,
-      location: registerForm.location,
-    })
-    registeredNode.value = data
-    nodes.value.push(data.node)
-    showToast('Node registered')
+    const data = await api.post<{ enrollment_id: string; token: string; expires_at: string }>(
+      '/admin/nodes/enroll',
+      {
+        node_name: registerForm.name,
+        total_cpu: Number(registerForm.total_cpu) || 0,
+        total_ram_mb: Number(registerForm.total_ram_mb) || 0,
+        total_disk_mb: Number(registerForm.total_disk_mb) || 0,
+        max_servers: Number(registerForm.max_servers) || 0,
+      }
+    )
+    enrollment.value = data
+    showToast('Enrollment token created')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    registerError.value = e.data?.error ?? e.message ?? 'Failed to register node'
+    registerError.value = e.data?.error ?? e.message ?? 'Failed to create enrollment'
   } finally {
     registerLoading.value = false
   }
 }
 
+async function copy(text: string, which: 'token' | 'cmd') {
+  try {
+    await navigator.clipboard.writeText(text)
+    if (which === 'token') {
+      tokenCopied.value = true
+      setTimeout(() => { tokenCopied.value = false }, 2000)
+    } else {
+      cmdCopied.value = true
+      setTimeout(() => { cmdCopied.value = false }, 2000)
+    }
+  } catch {
+    showToast('Copy failed — select and copy manually', 'error')
+  }
+}
+
 function closeModal() {
   showRegisterModal.value = false
-  registeredNode.value = null
+  enrollment.value = null
   registerError.value = ''
-  Object.assign(registerForm, { name: '', fqdn: '', port: 8444, location: '' })
+  tokenCopied.value = false
+  cmdCopied.value = false
+  Object.assign(registerForm, { name: '', total_cpu: 4, total_ram_mb: 8192, total_disk_mb: 102400, max_servers: 10 })
+  // Refresh list — the daemon may have redeemed the token already
+  fetchNodes()
 }
 
 // ── Edit modal ────────────────────────────────────────────────────────────────
@@ -267,7 +303,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
         </UiButton>
         <UiButton v-if="isAdmin" variant="primary" size="md" @click="showRegisterModal = true">
           <span class="material-symbols-outlined text-base">add</span>
-          Register Node
+          Add Node
         </UiButton>
       </div>
     </div>
@@ -536,18 +572,35 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
       </div>
     </div>
 
-    <!-- Register Modal -->
-    <UiModal :open="showRegisterModal" title="Register Node" size="md" @close="closeModal">
-      <!-- Success state -->
-      <div v-if="registeredNode" class="space-y-4">
-        <div class="bg-tp-success/10 rounded-xl px-4 py-3 text-tp-success text-sm">
-          Node registered successfully! Copy the token below — it will not be shown again.
+    <!-- Enrollment Modal -->
+    <UiModal :open="showRegisterModal" title="Add Node" size="lg" @close="closeModal">
+      <!-- Success state: token + install command -->
+      <div v-if="enrollment" class="space-y-4">
+        <div class="bg-tp-warning/10 rounded-xl px-4 py-3 text-tp-warning text-sm">
+          This token is valid for 15 minutes and can only be used once. Copy it now — it will not be shown again.
         </div>
         <div>
-          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">Registration Token</label>
-          <code class="block bg-tp-surface-lowest rounded-xl px-3 py-2.5 text-tp-tertiary text-xs font-mono break-all">
-            {{ registeredNode.registration_token }}
-          </code>
+          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">Enrollment Token</label>
+          <div class="flex items-center gap-2">
+            <code class="flex-1 block bg-tp-surface-lowest rounded-xl px-3 py-2.5 text-tp-tertiary text-xs font-mono break-all">
+              {{ enrollment.token }}
+            </code>
+            <UiButton variant="secondary" size="sm" @click="copy(enrollment.token, 'token')">
+              <span class="material-symbols-outlined text-base">{{ tokenCopied ? 'check' : 'content_copy' }}</span>
+            </UiButton>
+          </div>
+        </div>
+        <div>
+          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">Run this on the daemon host</label>
+          <div class="flex items-start gap-2">
+            <pre class="flex-1 bg-tp-surface-lowest rounded-xl px-3 py-2.5 text-tp-text text-xs font-mono whitespace-pre-wrap break-all">{{ installCommand }}</pre>
+            <UiButton variant="secondary" size="sm" @click="copy(installCommand, 'cmd')">
+              <span class="material-symbols-outlined text-base">{{ cmdCopied ? 'check' : 'content_copy' }}</span>
+            </UiButton>
+          </div>
+          <p class="text-tp-outline text-xs mt-2">
+            Once the daemon redeems the token, the new node will appear in the list.
+          </p>
         </div>
       </div>
 
@@ -556,20 +609,26 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
         <div v-if="registerError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
           {{ registerError }}
         </div>
+        <p class="text-tp-outline text-sm">
+          Create a one-shot enrollment token. Copy the token, then run the generated install command on the daemon host — the daemon self-registers using the token.
+        </p>
         <UiInput v-model="registerForm.name" label="Node Name" placeholder="prod-node-01" :required="true" />
-        <UiInput v-model="registerForm.fqdn" label="Hostname / IP" placeholder="node.example.com" :required="true" />
         <div class="grid grid-cols-2 gap-3">
-          <UiInput v-model="registerForm.port" type="number" label="Daemon Port" placeholder="8444" />
-          <UiInput v-model="registerForm.location" label="Location" placeholder="US-East" />
+          <UiInput v-model="registerForm.total_cpu" type="number" label="CPU Cores" placeholder="4" />
+          <UiInput v-model="registerForm.max_servers" type="number" label="Max Servers" placeholder="10" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <UiInput v-model="registerForm.total_ram_mb" type="number" label="Total RAM (MB)" placeholder="8192" />
+          <UiInput v-model="registerForm.total_disk_mb" type="number" label="Total Disk (MB)" placeholder="102400" />
         </div>
       </form>
 
       <template #footer>
         <UiButton variant="ghost" size="md" @click="closeModal">
-          {{ registeredNode ? 'Close' : 'Cancel' }}
+          {{ enrollment ? 'Done' : 'Cancel' }}
         </UiButton>
-        <UiButton v-if="!registeredNode" variant="primary" size="md" :loading="registerLoading" @click="submitRegister">
-          Register
+        <UiButton v-if="!enrollment" variant="primary" size="md" :loading="registerLoading" @click="submitRegister">
+          Create Enrollment Token
         </UiButton>
       </template>
     </UiModal>
