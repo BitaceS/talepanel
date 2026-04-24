@@ -6,7 +6,9 @@
 #   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install-panel.sh)
 #
 # Flags (for unattended installs):
-#   --domain example.com          public domain
+#   --domain example.com          public domain (A/AAAA record points here)
+#   --ip-only                     no domain — auto-generate sslip.io hostname
+#                                 from this host's public IP
 #   --admin-email you@example.com admin account email
 #   --admin-username your-handle  admin account username
 #   --admin-password "..."        admin account password (min 12 + digit + symbol)
@@ -34,6 +36,7 @@ fi
 . "$COMMON_LIB"
 
 DOMAIN=""
+IP_ONLY=0
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
@@ -45,6 +48,7 @@ ASSUME_YES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain)         DOMAIN="$2"; shift 2 ;;
+    --ip-only)        IP_ONLY=1; shift ;;
     --admin-email)    ADMIN_EMAIL="$2"; shift 2 ;;
     --admin-username) ADMIN_USERNAME="$2"; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -61,8 +65,28 @@ require_root
 detect_os
 require_cmds curl openssl
 
-if [ -z "$DOMAIN" ]; then
-  read -rp "Public domain (e.g. panel.example.com): " DOMAIN
+if [ -z "$DOMAIN" ] && [ "$IP_ONLY" -eq 0 ]; then
+  cat <<'HOSTPROMPT'
+
+Hostname
+  Enter a domain that points at this host (A/AAAA record), OR leave blank
+  to auto-generate a URL from this host's public IP via sslip.io.
+  (sslip.io is a free wildcard DNS — Let's Encrypt issues valid certs for it.)
+
+HOSTPROMPT
+  read -rp "Public domain [leave empty for IP-only via sslip.io]: " DOMAIN
+  [ -z "$DOMAIN" ] && IP_ONLY=1
+fi
+
+if [ "$IP_ONLY" -eq 1 ] && [ -z "$DOMAIN" ]; then
+  log "auto-detecting public IP..."
+  PUB_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
+  if [ -z "$PUB_IP" ]; then
+    read -rp "Could not auto-detect public IP — enter it manually: " PUB_IP
+  fi
+  [ -z "$PUB_IP" ] && fail "no public IP available for IP-only install"
+  DOMAIN="${PUB_IP//./-}.sslip.io"
+  success "using sslip.io hostname: $DOMAIN  (resolves to $PUB_IP)"
 fi
 if [ -z "$ADMIN_EMAIL" ]; then
   read -rp "Admin email: " ADMIN_EMAIL

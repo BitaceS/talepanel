@@ -25,6 +25,8 @@ The installers refuse to run on anything else. Patches for other distros are wel
 
 Point an A/AAAA record for your chosen domain (e.g. `panel.example.com`) at the panel host's public IP. Caddy needs this to request a Let's Encrypt certificate during install.
 
+**Don't have a domain?** Pass `--ip-only` (or leave the prompt blank) and the installer auto-generates an `sslip.io` hostname from the server's public IP — e.g. `203-0-113-42.sslip.io`. Let's Encrypt still issues a valid cert for it, so the panel works over real HTTPS. You can point a proper domain at it later by editing `deploy/panel/.env` and `deploy/panel/Caddyfile`, then `docker compose restart caddy`.
+
 ### 2. Ports
 
 Open TCP 80 and 443 to the internet (needed for Let's Encrypt HTTP-01 challenge and the panel itself).
@@ -47,6 +49,17 @@ The script is interactive by default. For an unattended install:
 ```bash
 sudo bash install-panel.sh \
   --domain panel.example.com \
+  --admin-email you@example.com \
+  --admin-username your-handle \
+  --admin-password 'Correct-Horse-Battery-4!' \
+  --yes
+```
+
+Or the IP-only variant — same command, no DNS required:
+
+```bash
+sudo bash install-panel.sh \
+  --ip-only \
   --admin-email you@example.com \
   --admin-username your-handle \
   --admin-password 'Correct-Horse-Battery-4!' \

@@ -25,6 +25,11 @@ A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
 **Upgrade**, or **Uninstall**. For unattended installs pass `--mode panel`
 or `--mode daemon` plus the relevant flags — see `bash install.sh --help`.
 
+**No domain?** Leave the domain prompt blank (or pass `--ip-only`) and the
+installer auto-builds an `sslip.io` hostname from your server's public IP.
+Let's Encrypt still issues a real TLS cert, so the panel opens over proper
+HTTPS — no browser warnings, no self-signed workarounds.
+
 The full operator reference (hardware sizing, DNS, firewall, supported distros, troubleshooting) lives in [`INSTALL.md`](INSTALL.md).
 
 ### Panel host (control plane)
