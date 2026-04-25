@@ -67,12 +67,13 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 	log.Info("Redis connection established")
 
-	// ── Migrations check ───────────────────────────────────────────────────────
-	// Verifies the database schema has been applied before accepting traffic.
-	// Run a proper migration tool (golang-migrate, goose, etc.) as a separate
-	// step in your deployment pipeline before starting this process.
-	if err := checkSchema(startCtx, pool, log); err != nil {
-		log.Fatal("schema check failed — run migrations before starting", zap.Error(err))
+	// ── Migrations ─────────────────────────────────────────────────────────────
+	// Applies any embedded migrations that have not yet been recorded in
+	// schema_migrations.  Idempotent: existing databases that were first
+	// provisioned via the old docker-entrypoint-initdb mount are picked up
+	// transparently because every migration uses IF NOT EXISTS guards.
+	if err := db.RunMigrations(startCtx, pool, log); err != nil {
+		log.Fatal("running migrations", zap.Error(err))
 	}
 
 	// ── Background worker context ──────────────────────────────────────────────
@@ -181,25 +182,3 @@ func cleanupOnce(pool *pgxpool.Pool, log *zap.Logger) {
 	}
 }
 
-// checkSchema verifies that critical tables exist as a lightweight startup
-// sanity check.  It is NOT a replacement for a proper migration tool.
-func checkSchema(ctx context.Context, pool *pgxpool.Pool, log *zap.Logger) error {
-	var exists bool
-	err := pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.tables
-			WHERE table_schema = 'public'
-			  AND table_name   = 'users'
-		)
-	`).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("schema check query: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("table 'users' not found — database migrations have not been applied")
-	}
-
-	log.Info("schema check passed")
-	return nil
-}
