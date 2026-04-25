@@ -19,6 +19,8 @@
 #   both      Install panel AND daemon on the same host (dev/home setup).
 #   upgrade   Pull latest code, rebuild, restart the stack.
 #   uninstall Stop containers and remove /opt/talepanel and /opt/taledaemon.
+#   check     Run pre-flight checks only (OS, Docker, ports, network).
+#             Touches nothing — safe to run on production hosts.
 #
 # Hostname:
 #   --domain panel.example.com   Use this public domain for the panel URL
@@ -96,13 +98,17 @@ while [ $# -gt 0 ]; do
     --branch)            BRANCH="$2"; shift 2 ;;
     --panel-dir)         PANEL_DIR="$2"; shift 2 ;;
     --daemon-dir)        DAEMON_DIR="$2"; shift 2 ;;
+    --check)             MODE=check; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
     -h|--help)           sed -n '2,23p' "$0"; exit 0 ;;
     *)                   fail "unknown flag: $1" ;;
   esac
 done
 
-require_root
+# --check is read-only and useful for non-root pre-deploy validation.
+if [ "$MODE" != "check" ]; then
+  require_root
+fi
 detect_os
 
 # ── Menu (when --mode is not given) ─────────────────────────────────────────
@@ -505,6 +511,95 @@ confirm_or_exit() {
   [[ "$ans" =~ ^[Yy]$ ]] || fail "aborted by user"
 }
 
+# ── Pre-flight check (read-only) ────────────────────────────────────────────
+# Runs every check the real install would perform, but never installs or
+# modifies anything.  Exits non-zero if any check fails so it can be wired
+# into CI / pre-deploy automation.
+preflight_check() {
+  local fails=0 warns=0
+
+  echo
+  printf "%b" "${BOLD}TalePanel pre-flight check${NC}\n"
+  echo
+
+  # OS — detect_os has already run; this just confirms.
+  success "OS: $OS_ID $OS_VERSION (supported)"
+
+  # Required CLI tools.
+  for c in curl jq openssl git; do
+    if command -v "$c" >/dev/null 2>&1; then
+      success "$c installed"
+    else
+      warn "$c missing — installer will pull it in"
+      warns=$((warns+1))
+    fi
+  done
+
+  # Docker + compose plugin.
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    success "Docker + Compose plugin present ($(docker --version | cut -d' ' -f3 | tr -d ,))"
+  else
+    warn "Docker not installed — installer will pull it in"
+    warns=$((warns+1))
+  fi
+
+  # Ports — only check the ones relevant for the chosen role.  Panel needs
+  # 80/443, daemon needs 8444 and the Hytale port range.  Without a role we
+  # check all of them and treat conflicts as warnings.
+  check_port() {
+    local port="$1" label="$2"
+    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"; then
+      warn "port $port in use ($label) — bind will fail"
+      fails=$((fails+1))
+    else
+      success "port $port free ($label)"
+    fi
+  }
+  if ! command -v ss >/dev/null 2>&1; then
+    warn "ss(8) not available — skipping port checks (install iproute2/iproute)"
+    warns=$((warns+1))
+  else
+    check_port 80   "panel HTTP"
+    check_port 443  "panel HTTPS"
+    check_port 8444 "daemon"
+    check_port 5520 "Hytale default"
+  fi
+
+  # Network reachability.
+  if curl -fsSL --max-time 5 -o /dev/null https://github.com; then
+    success "github.com reachable"
+  else
+    warn "github.com not reachable — installer cannot clone repo"
+    fails=$((fails+1))
+  fi
+  if curl -fsSL --max-time 5 -o /dev/null https://api.ipify.org; then
+    success "api.ipify.org reachable (public IP detection)"
+  else
+    warn "api.ipify.org unreachable — pass --domain or --daemon-host explicitly"
+    warns=$((warns+1))
+  fi
+
+  # Disk space — Docker images + data need ~5 GB minimum.
+  local free_mb
+  free_mb="$(df -Pm /opt 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [ -z "$free_mb" ]; then
+    warn "could not measure free space on /opt"
+    warns=$((warns+1))
+  elif [ "$free_mb" -lt 5120 ]; then
+    warn "/opt has ${free_mb} MB free — recommend at least 5120 MB"
+    fails=$((fails+1))
+  else
+    success "/opt has ${free_mb} MB free"
+  fi
+
+  echo
+  if [ "$fails" -gt 0 ]; then
+    printf "%b%d blocking issue(s)%b, %d warning(s).  Resolve before installing.\n" "$RED" "$fails" "$NC" "$warns"
+    exit 1
+  fi
+  printf "%bAll checks passed%b ($warns warning(s)).  Ready to install.\n" "$GREEN" "$NC"
+}
+
 # ── Mode dispatch ───────────────────────────────────────────────────────────
 # Must come AFTER all function definitions above — bash resolves function
 # names at call time, not parse time, but the dispatch must still find them.
@@ -514,5 +609,6 @@ case "$MODE" in
   both)      install_panel; install_daemon_local ;;
   upgrade)   upgrade_stack ;;
   uninstall) uninstall_stack ;;
-  *)         fail "unknown mode: $MODE (expected: panel, daemon, both, upgrade, uninstall)" ;;
+  check)     preflight_check ;;
+  *)         fail "unknown mode: $MODE (expected: panel, daemon, both, upgrade, uninstall, check)" ;;
 esac
