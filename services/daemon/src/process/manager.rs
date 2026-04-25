@@ -272,8 +272,8 @@ impl ProcessManager {
                     match result {
                         Ok(r) => {
                             let msg = format!(
-                                "Provisioning complete — server files at {} (version: {})",
-                                r.data_path.display(), r.version
+                                "Provisioning complete (version {}) — click Start in the panel to launch the server.",
+                                r.version
                             );
                             info!(%server_id, path = %r.data_path.display(), version = %r.version, "Provisioning complete");
                             push_log(msg, "INFO").await;
