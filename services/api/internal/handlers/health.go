@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/BitaceS/talepanel/api/internal/services"
 )
 
 // HealthHandler groups liveness and readiness check handlers.
@@ -15,21 +17,49 @@ type HealthHandler struct {
 	db                *pgxpool.Pool
 	rdb               *redis.Client
 	deploymentProfile string
+	updateSvc         *services.UpdateService
+	appVersion        string
 }
 
 // NewHealthHandler constructs a HealthHandler.
-func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client, deploymentProfile string) *HealthHandler {
-	return &HealthHandler{db: db, rdb: rdb, deploymentProfile: deploymentProfile}
+func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client, deploymentProfile string, updateSvc *services.UpdateService, appVersion string) *HealthHandler {
+	return &HealthHandler{
+		db:                db,
+		rdb:               rdb,
+		deploymentProfile: deploymentProfile,
+		updateSvc:         updateSvc,
+		appVersion:        appVersion,
+	}
 }
 
 // PublicConfig handles GET /health/config.
 // Returns boot-time settings the unauthenticated web UI needs to render
-// itself correctly (e.g. which module defaults to apply on first load).
+// itself correctly (e.g. which module defaults to apply on first load,
+// the running version, and whether a newer GitHub release exists).
 // Public endpoint — must not leak secrets.
+//
+// The update check is served from the UpdateService Redis cache (24h TTL),
+// so the rare uncached call also makes one outbound HTTPS request to the
+// GitHub API.  We bound the dependency to 2 seconds so a slow GitHub never
+// stalls page loads — on miss we fall back to "no update info".
 func (h *HealthHandler) PublicConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"deployment_profile": h.deploymentProfile,
-	})
+		"version":            h.appVersion,
+	}
+
+	if h.updateSvc != nil {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if info, err := h.updateSvc.CheckForUpdate(ctx); err == nil && info != nil {
+			resp["latest_version"] = info.LatestVersion
+			resp["has_update"] = info.HasUpdate
+			resp["release_url"] = info.ReleaseURL
+			resp["published_at"] = info.PublishedAt
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Liveness handles GET /health.
