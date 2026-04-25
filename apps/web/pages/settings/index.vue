@@ -284,6 +284,32 @@ onMounted(() => {
 
         <!-- ── Modules ─────────────────────────────────────────────────────── -->
         <template v-else-if="activeSection === 'modules'">
+          <!-- Deployment profile selector -->
+          <div class="bg-tp-surface rounded-xl overflow-hidden mb-4">
+            <div class="px-5 py-4 border-b border-tp-border">
+              <h3 class="text-tp-text font-display font-semibold text-sm">Deployment profile</h3>
+              <p class="text-tp-muted text-xs mt-0.5">Switching to "Hoster" enables multi-node and monitoring modules by default. You can still toggle individual modules below.</p>
+            </div>
+            <div class="px-5 py-4 flex gap-2">
+              <button type="button"
+                @click="modulesStore.applyProfile('solo')"
+                :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                  modulesStore.profile === 'solo'
+                    ? 'bg-tp-primary/15 border-tp-primary text-tp-primary'
+                    : 'bg-tp-surface2 border-tp-border text-tp-muted hover:text-tp-text']">
+                Solo / Friends
+              </button>
+              <button type="button"
+                @click="modulesStore.applyProfile('hoster')"
+                :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                  modulesStore.profile === 'hoster'
+                    ? 'bg-tp-primary/15 border-tp-primary text-tp-primary'
+                    : 'bg-tp-surface2 border-tp-border text-tp-muted hover:text-tp-text']">
+                Hosting Provider
+              </button>
+            </div>
+          </div>
+
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">
               <h3 class="text-tp-text font-display font-semibold text-sm">Feature Modules</h3>

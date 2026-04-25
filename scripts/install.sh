@@ -30,6 +30,13 @@
 #                                Caddy to the raw public IP and serve a
 #                                self-signed TLS cert (browser warning on
 #                                first visit).  Pure offline / lab setups.
+#
+# Deployment profile:
+#   --profile solo               Single-host hobbyist setup (default).
+#                                Hides multi-node + monitoring modules.
+#   --profile hoster             Multi-tenant hosting provider setup.
+#                                Shows nodes + monitoring by default.
+#                                Operators can flip this in Settings → Modules.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -54,6 +61,7 @@ MODE=""
 DOMAIN=""
 IP_ONLY=0
 NO_DOMAIN=0
+DEPLOYMENT_PROFILE=""
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
@@ -74,6 +82,7 @@ while [ $# -gt 0 ]; do
     --domain)            DOMAIN="$2"; shift 2 ;;
     --ip-only)           IP_ONLY=1; shift ;;
     --no-domain)         NO_DOMAIN=1; shift ;;
+    --profile)           DEPLOYMENT_PROFILE="$2"; shift 2 ;;
     --admin-email)       ADMIN_EMAIL="$2"; shift 2 ;;
     --admin-username)    ADMIN_USERNAME="$2"; shift 2 ;;
     --admin-password)    ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -180,6 +189,33 @@ EOF
     fi
   fi
 
+  if [ -z "$DEPLOYMENT_PROFILE" ]; then
+    cat <<EOF
+
+${BOLD}Deployment profile${NC}
+  Who is this panel for?
+
+    [1] Solo / Friends-server   — single host, you manage your own servers.
+                                  Hides multi-node and monitoring features.
+    [2] Hosting provider        — multi-tenant, multiple nodes, reseller use.
+                                  Shows nodes + monitoring by default.
+
+  This only seeds defaults — you can toggle individual modules later under
+  Settings → Modules.
+
+EOF
+    read -rp "Select [1-2] (default 1): " profile_choice
+    case "${profile_choice:-1}" in
+      1) DEPLOYMENT_PROFILE=solo ;;
+      2) DEPLOYMENT_PROFILE=hoster ;;
+      *) fail "invalid profile choice: $profile_choice" ;;
+    esac
+  fi
+  case "$DEPLOYMENT_PROFILE" in
+    solo|hoster) ;;
+    *) fail "--profile must be 'solo' or 'hoster' (got: $DEPLOYMENT_PROFILE)" ;;
+  esac
+
   [ -z "$ADMIN_EMAIL" ]    && read -rp "Admin email: " ADMIN_EMAIL
   [ -z "$ADMIN_USERNAME" ] && read -rp "Admin username: " ADMIN_USERNAME
   if [ -z "$ADMIN_PASSWORD" ]; then
@@ -194,6 +230,7 @@ EOF
 
 ${BOLD}Panel installer — summary${NC}
   Domain:      $DOMAIN
+  Profile:     $DEPLOYMENT_PROFILE
   Admin email: $ADMIN_EMAIL
   Admin user:  $ADMIN_USERNAME
   Install dir: $PANEL_DIR
@@ -220,6 +257,7 @@ EOF
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(gen_secret)|"                   "$env_file"
     sed -i "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$(gen_secret)|"   "$env_file"
     sed -i "s|^TOTP_ENC_KEY=.*|TOTP_ENC_KEY=$(gen_secret)|"               "$env_file"
+    sed -i "s|^DEPLOYMENT_PROFILE=.*|DEPLOYMENT_PROFILE=$DEPLOYMENT_PROFILE|" "$env_file"
   fi
 
   # Render Caddyfile with substituted domain and TLS directive.
