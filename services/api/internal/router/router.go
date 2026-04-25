@@ -77,7 +77,7 @@ func SetupRouter(
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
-	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile)
+	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion)
 	modH := handlers.NewModHandler(modSvc, cfSvc)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
