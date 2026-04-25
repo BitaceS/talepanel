@@ -3,6 +3,12 @@
 # {{DOMAIN}} is substituted by install-panel.sh.
 # ─────────────────────────────────────────────────────────────────────────────
 
+{
+    # Fallback when the client's SNI does not match a configured site.
+    # Required for raw-IP installs where browsers / curl send the IP as SNI.
+    default_sni {{DOMAIN}}
+}
+
 {{DOMAIN}} {
     # TLS: empty = automatic Let's Encrypt; "tls internal" = self-signed
     # (when the panel is bound to a raw IP and no domain is configured).
