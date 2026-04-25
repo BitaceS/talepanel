@@ -100,12 +100,14 @@ func (s *ServerService) ListServers(ctx context.Context, userID uuid.UUID, role 
 // GetServer returns a single server if the requesting user has access to it.
 func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUID, role string) (*models.Server, error) {
 	const q = `
-		SELECT id, name, node_id, owner_id, status, hytale_version,
-		       cpu_limit, ram_limit_mb, disk_limit_mb, port, data_path,
-		       auto_restart, crash_limit, crash_window_s, active_world,
-		       created_at, updated_at, metadata
-		FROM servers
-		WHERE id = $1
+		SELECT s.id, s.name, s.node_id, s.owner_id, s.status, s.hytale_version,
+		       s.cpu_limit, s.ram_limit_mb, s.disk_limit_mb, s.port, s.data_path,
+		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
+		       s.created_at, s.updated_at, s.metadata,
+		       COALESCE(n.fqdn, '')
+		FROM servers s
+		LEFT JOIN nodes n ON n.id = s.node_id
+		WHERE s.id = $1
 	`
 	server := &models.Server{}
 	err := s.db.QueryRow(ctx, q, serverID).Scan(
@@ -114,6 +116,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.Port, &server.DataPath, &server.AutoRestart, &server.CrashLimit,
 		&server.CrashWindowS, &server.ActiveWorld, &server.CreatedAt, &server.UpdatedAt,
 		&server.Metadata,
+		&server.NodeFQDN,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
