@@ -4,7 +4,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 {{DOMAIN}} {
-    # Automatic TLS via Let's Encrypt (HTTP-01 challenge on port 80).
+    # TLS: empty = automatic Let's Encrypt; "tls internal" = self-signed
+    # (when the panel is bound to a raw IP and no domain is configured).
+    {{TLS_DIRECTIVE}}
     encode gzip
 
     # API — proxy /api/* to the Go backend.

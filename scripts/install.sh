@@ -26,6 +26,10 @@
 #   --ip-only                    No domain — auto-build an sslip.io hostname
 #                                from this host's public IP.  Let's Encrypt
 #                                still issues a valid TLS cert.
+#   --no-domain                  No domain AND no sslip.io subdomain — bind
+#                                Caddy to the raw public IP and serve a
+#                                self-signed TLS cert (browser warning on
+#                                first visit).  Pure offline / lab setups.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -49,6 +53,7 @@ fi
 MODE=""
 DOMAIN=""
 IP_ONLY=0
+NO_DOMAIN=0
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
@@ -68,6 +73,7 @@ while [ $# -gt 0 ]; do
     --mode)              MODE="$2"; shift 2 ;;
     --domain)            DOMAIN="$2"; shift 2 ;;
     --ip-only)           IP_ONLY=1; shift ;;
+    --no-domain)         NO_DOMAIN=1; shift ;;
     --admin-email)       ADMIN_EMAIL="$2"; shift 2 ;;
     --admin-username)    ADMIN_USERNAME="$2"; shift 2 ;;
     --admin-password)    ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -128,32 +134,50 @@ install_panel() {
   install_pkgs curl openssl git ca-certificates
   require_cmds curl openssl git
 
-  # Resolve DOMAIN — either a real one the user owns, or an sslip.io hostname
-  # built from this host's public IP.  Caddy still uses Let's Encrypt in both
-  # cases (sslip.io is issuable).
-  if [ -z "$DOMAIN" ] && [ "$IP_ONLY" -eq 0 ]; then
+  # Resolve hostname.  Three modes:
+  #   1) user-supplied domain (Let's Encrypt issues a real cert)
+  #   2) auto sslip.io subdomain from public IP (LE issues a real cert)
+  #   3) raw public IP, no domain at all (Caddy issues a self-signed cert)
+  local TLS_DIRECTIVE=""   # empty = automatic LE; "tls internal" = self-signed
+  if [ -z "$DOMAIN" ] && [ "$IP_ONLY" -eq 0 ] && [ "$NO_DOMAIN" -eq 0 ]; then
     cat <<EOF
 
 ${BOLD}Hostname${NC}
-  Enter the domain that points at this host (A/AAAA record), OR leave blank
-  to auto-generate a URL from this host's public IP using sslip.io.
-  (sslip.io is a free wildcard DNS — Let's Encrypt issues valid certs for it.)
+  How should the panel be reachable?
+
+    [1] I have a domain that points at this host (A/AAAA record set).
+    [2] No domain — auto-build an sslip.io subdomain from the public IP
+        (sslip.io is free wildcard DNS, Let's Encrypt issues a real cert).
+    [3] No domain at all — bind Caddy to the raw public IP and use a
+        self-signed cert (browser shows a warning on first visit).
 
 EOF
-    read -rp "Public domain [leave empty for IP-only via sslip.io]: " DOMAIN
-    [ -z "$DOMAIN" ] && IP_ONLY=1
+    read -rp "Select [1-3]: " host_choice
+    case "$host_choice" in
+      1) read -rp "Public domain (e.g. panel.example.com): " DOMAIN
+         [ -z "$DOMAIN" ] && fail "domain is required for option 1" ;;
+      2) IP_ONLY=1 ;;
+      3) NO_DOMAIN=1 ;;
+      *) fail "invalid choice: $host_choice" ;;
+    esac
   fi
 
-  if [ "$IP_ONLY" -eq 1 ] && [ -z "$DOMAIN" ]; then
+  if { [ "$IP_ONLY" -eq 1 ] || [ "$NO_DOMAIN" -eq 1 ]; } && [ -z "$DOMAIN" ]; then
     log "auto-detecting public IP..."
     local pub_ip
     pub_ip="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
     if [ -z "$pub_ip" ]; then
       read -rp "Could not auto-detect public IP — enter it manually: " pub_ip
     fi
-    [ -z "$pub_ip" ] && fail "no public IP available for IP-only install"
-    DOMAIN="${pub_ip//./-}.sslip.io"
-    success "using sslip.io hostname: $DOMAIN  (resolves to $pub_ip)"
+    [ -z "$pub_ip" ] && fail "no public IP available"
+    if [ "$NO_DOMAIN" -eq 1 ]; then
+      DOMAIN="$pub_ip"
+      TLS_DIRECTIVE="tls internal"
+      success "using raw IP: $DOMAIN  (self-signed TLS — browser warning expected)"
+    else
+      DOMAIN="${pub_ip//./-}.sslip.io"
+      success "using sslip.io hostname: $DOMAIN  (resolves to $pub_ip)"
+    fi
   fi
 
   [ -z "$ADMIN_EMAIL" ]    && read -rp "Admin email: " ADMIN_EMAIL
@@ -198,8 +222,9 @@ EOF
     sed -i "s|^TOTP_ENC_KEY=.*|TOTP_ENC_KEY=$(gen_secret)|"               "$env_file"
   fi
 
-  # Render Caddyfile with substituted domain.
-  sed "s|{{DOMAIN}}|$DOMAIN|g" \
+  # Render Caddyfile with substituted domain and TLS directive.
+  sed -e "s|{{DOMAIN}}|$DOMAIN|g" \
+      -e "s|{{TLS_DIRECTIVE}}|${TLS_DIRECTIVE:-}|g" \
     "$PANEL_DIR/deploy/panel/Caddyfile.template" > "$PANEL_DIR/deploy/panel/Caddyfile"
 
   cd "$PANEL_DIR/deploy/panel"
@@ -221,7 +246,7 @@ EOF
   docker compose build api web
 
   log "creating admin account via tale-cli..."
-  docker compose run --rm -T api tale-cli admin create \
+  docker compose run --rm --entrypoint /usr/local/bin/tale-cli -T api admin create \
     --email "$ADMIN_EMAIL" \
     --username "$ADMIN_USERNAME" \
     --password "$ADMIN_PASSWORD" \
