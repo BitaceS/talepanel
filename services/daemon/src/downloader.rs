@@ -223,7 +223,7 @@ pub async fn download_server_files(
         while let Ok(Some(line)) = lines.next_line().await {
             info!("[downloader stdout] {}", line);
             if let Some(tx) = &log_tx_out {
-                let _ = tx.send(line.clone());
+                forward_downloader_line(tx, &line);
             }
             collected.push(line);
         }
@@ -237,7 +237,7 @@ pub async fn download_server_files(
         while let Ok(Some(line)) = lines.next_line().await {
             info!("[downloader stderr] {}", line);
             if let Some(tx) = &log_tx_err {
-                let _ = tx.send(line.clone());
+                forward_downloader_line(tx, &line);
             }
             collected.push(line);
         }
@@ -472,6 +472,57 @@ fn find_launcher_path() -> Result<PathBuf> {
 
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     bail!("Unsupported platform for Launcher copy")
+}
+
+// The Hytale Downloader CLI updates its progress bar in place using \r,
+// which our line-based reader collects into one giant line that looks like
+// "[ ] 0.0% (...) [ ] 1.0% (...) [== ] 2.0% (...) ...".  Forwarding that
+// to the panel console produces a single unreadable log entry.
+//
+// Strategy: split on \r so each progress frame is its own segment, drop
+// frames that are pure progress bars, and forward only the final summary
+// (e.g. the "100.0% (1.4 GB / 1.4 GB)" line if it's the only thing left,
+// or any non-progress text appended at the end).
+fn forward_downloader_line(tx: &mpsc::UnboundedSender<String>, line: &str) {
+    let segments: Vec<&str> = line.split('\r').map(str::trim).filter(|s| !s.is_empty()).collect();
+
+    if segments.is_empty() {
+        return;
+    }
+
+    // Multi-segment line — typical when a \r-driven progress bar got merged
+    // into a single \n-terminated chunk.  Forward only the last segment, and
+    // only if it is not itself a progress frame.
+    if segments.len() > 1 {
+        let last = segments[segments.len() - 1];
+        if !is_progress_frame(last) {
+            let _ = tx.send(last.to_string());
+        }
+        return;
+    }
+
+    let only = segments[0];
+    if !is_progress_frame(only) {
+        let _ = tx.send(only.to_string());
+    }
+}
+
+// A progress frame from the Hytale Downloader CLI looks like
+// "[==========          ] 42.0% (610.4 MB / 1.4 GB)".  Match loosely so we
+// also catch the empty-bar opener "[                    ] 0.0% (...)".
+fn is_progress_frame(s: &str) -> bool {
+    let t = s.trim_start();
+    if !t.starts_with('[') {
+        return false;
+    }
+    let Some(close) = t.find(']') else { return false };
+    // Inside the brackets the bar uses '=' or ' ' only.
+    let inside = &t[1..close];
+    if !inside.chars().all(|c| c == '=' || c == ' ') {
+        return false;
+    }
+    // After the bracket we expect a percent number.
+    t[close + 1..].contains('%')
 }
 
 fn parse_version_from_output(output: &str) -> Option<String> {
