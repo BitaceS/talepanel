@@ -39,6 +39,31 @@ onMounted(async () => {
 
 const server = computed(() => serversStore.currentServer)
 
+// ── Status polling ────────────────────────────────────────────────────────────
+// Refresh the server record every 4s while the status is in a transitional
+// state (installing/starting/stopping) so the Start/Stop buttons unlock as
+// soon as the daemon reports the next stable status.  We slow to 15s once
+// the server is stable so spontaneous crashes still surface without spamming
+// the API.
+let statusTimer: ReturnType<typeof setInterval> | null = null
+const transitionalStatuses = new Set(['installing', 'starting', 'stopping'])
+
+function startStatusPolling() {
+  if (statusTimer) return
+  statusTimer = setInterval(async () => {
+    if (!serverId.value) return
+    try { await serversStore.fetchServer(serverId.value) } catch { /* silent */ }
+  }, 4000)
+}
+function stopStatusPolling() {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+}
+
+watch(() => server.value?.status, (status) => {
+  if (status && transitionalStatuses.has(status)) startStatusPolling()
+  else stopStatusPolling()
+}, { immediate: true })
+
 useHead({
   title: computed(() => server.value ? `${server.value.name} · TalePanel` : 'Server · TalePanel'),
 })
@@ -185,6 +210,7 @@ watch(activeTab, (tab) => {
 onUnmounted(() => {
   clearInterval(metricsTimer)
   clearInterval(logsTimer)
+  stopStatusPolling()
 })
 
 function formatUptime(s: number): string {
@@ -216,6 +242,50 @@ function onConsoleScroll() {
   if (!el) return
   // Consider "at bottom" if within 60px of the bottom
   userScrolledUp.value = el.scrollTop + el.clientHeight < el.scrollHeight - 60
+}
+
+// ── Hytale OAuth detection ────────────────────────────────────────────────────
+// The Hytale Downloader prints a device-code URL during provisioning that the
+// operator MUST open in a browser before downloads can start.  Buried in a
+// scrolling log it's easy to miss, so we surface it as a modal as soon as we
+// see it and dismiss it once provisioning moves past 'installing'.
+const hytaleAuthUrl = ref('')
+const hytaleAuthCode = ref('')
+const hytaleAuthDismissed = ref(false)
+const hytaleAuthRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/device\/verify\?user_code=([A-Za-z0-9_-]+)/
+
+watch(logs, (lines) => {
+  if (hytaleAuthUrl.value || hytaleAuthDismissed.value) return
+  for (const line of lines) {
+    const m = hytaleAuthRegex.exec(line.message)
+    if (m) {
+      hytaleAuthUrl.value = m[0]
+      hytaleAuthCode.value = m[1]
+      break
+    }
+  }
+}, { deep: true })
+
+watch(() => server.value?.status, (status) => {
+  // Once the server leaves the installing state the OAuth dance is over.
+  if (status && status !== 'installing') {
+    hytaleAuthUrl.value = ''
+    hytaleAuthCode.value = ''
+    hytaleAuthDismissed.value = false
+  }
+})
+
+const showHytaleAuthModal = computed(() =>
+  !!hytaleAuthUrl.value && !hytaleAuthDismissed.value
+)
+
+async function copyHytaleAuthCode() {
+  try {
+    await navigator.clipboard.writeText(hytaleAuthCode.value)
+    showToast('Code copied to clipboard')
+  } catch {
+    showToast('Could not copy — select the code manually', 'error')
+  }
 }
 
 async function fetchLogs() {
@@ -1955,6 +2025,46 @@ const sidebarMods = computed(() => {
           :disabled="!migrateTargetId"
           @click="submitMigrate"
         >Migrate</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- Hytale OAuth device-code prompt -->
+    <UiModal :open="showHytaleAuthModal" title="Authenticate with Hytale" size="md" @close="hytaleAuthDismissed = true">
+      <p class="text-tp-text text-sm mb-4">
+        The Hytale Downloader needs you to sign in with your Hytale account
+        before it can download the server files.
+      </p>
+      <ol class="list-decimal list-inside text-tp-muted text-sm space-y-2 mb-4">
+        <li>Open the verification URL below in a browser.</li>
+        <li>Sign in with the Hytale account that owns the game.</li>
+        <li>Confirm the device code matches.  Provisioning resumes automatically.</li>
+      </ol>
+
+      <a
+        :href="hytaleAuthUrl"
+        target="_blank"
+        rel="noopener"
+        class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-4 hover:bg-tp-primary/90 transition-colors break-all"
+      >Open Hytale verification page →</a>
+
+      <div class="bg-tp-surface3 rounded-xl px-4 py-3 mb-2">
+        <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-1">Device code</div>
+        <div class="flex items-center justify-between gap-3">
+          <code class="font-mono text-tp-text text-lg tracking-wider">{{ hytaleAuthCode }}</code>
+          <button
+            class="inline-flex items-center gap-1.5 text-xs text-tp-muted hover:text-tp-text transition-colors"
+            @click="copyHytaleAuthCode"
+          >
+            <Copy class="w-3.5 h-3.5" /> Copy
+          </button>
+        </div>
+      </div>
+      <p class="text-tp-outline text-xs">
+        URL: <span class="break-all">{{ hytaleAuthUrl }}</span>
+      </p>
+
+      <template #footer>
+        <UiButton variant="ghost" @click="hytaleAuthDismissed = true">Dismiss</UiButton>
       </template>
     </UiModal>
 
