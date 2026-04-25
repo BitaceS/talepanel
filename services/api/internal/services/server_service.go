@@ -377,11 +377,14 @@ func (s *ServerService) GetLogs(ctx context.Context, serverID uuid.UUID, limit i
 	}
 
 	const q = `
-		SELECT id, server_id, logged_at, level, message
-		FROM server_logs
-		WHERE server_id = $1
-		ORDER BY logged_at DESC, id DESC
-		LIMIT $2
+		SELECT id, server_id, logged_at, level, message FROM (
+			SELECT id, server_id, logged_at, level, message
+			FROM server_logs
+			WHERE server_id = $1
+			ORDER BY logged_at DESC, id DESC
+			LIMIT $2
+		) recent
+		ORDER BY logged_at ASC, id ASC
 	`
 
 	rows, err := s.db.Query(ctx, q, serverID, limit)
