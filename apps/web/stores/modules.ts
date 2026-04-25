@@ -10,23 +10,26 @@ export interface ModuleConfig {
 
 export type DeploymentProfile = 'solo' | 'hoster'
 
-// DEFAULT_MODULES holds the static metadata.  The `enabled` field is the
-// "solo" default — fields marked hosterOnly are flipped to true when the
-// installer/back-end reports a "hoster" deployment profile.
+// DEFAULT_MODULES holds the static metadata.  All modules are visible by
+// default; operators can disable any of them in Settings → Modules.  The
+// `hosterOnly` flag is informational only (renders a "Hoster" badge).
 const DEFAULT_MODULES: ModuleConfig[] = [
   { id: 'worlds', label: 'Worlds', description: 'Upload, download, and switch Hytale worlds', enabled: true, hosterOnly: false },
   { id: 'mods', label: 'Mods', description: 'CurseForge mod browser and installer', enabled: true, hosterOnly: false },
   { id: 'players', label: 'Players', description: 'Player management, bans, and whitelist', enabled: true, hosterOnly: false },
   { id: 'backups', label: 'Backups', description: 'On-demand and scheduled backup management', enabled: true, hosterOnly: false },
   { id: 'alerts', label: 'Alerts', description: 'Alert rules, notifications, and event monitoring', enabled: true, hosterOnly: false },
-  { id: 'monitoring', label: 'Monitoring', description: 'Real-time metrics and DDoS monitoring', enabled: false, hosterOnly: true },
-  { id: 'nodes', label: 'Nodes', description: 'Multi-node infrastructure management', enabled: false, hosterOnly: true },
+  { id: 'monitoring', label: 'Monitoring', description: 'Real-time metrics and DDoS monitoring', enabled: true, hosterOnly: true },
+  { id: 'nodes', label: 'Nodes', description: 'Multi-node infrastructure management', enabled: true, hosterOnly: true },
 ]
 
+// The deployment profile is now a quick "bulk preset" rather than a
+// visibility gate.  "solo" disables hoster-flagged modules, "hoster"
+// enables everything.  Users can still flip individual modules.
 function defaultsFor(profile: DeploymentProfile): ModuleConfig[] {
   return DEFAULT_MODULES.map(m => ({
     ...m,
-    enabled: profile === 'hoster' ? true : m.enabled,
+    enabled: profile === 'solo' && m.hosterOnly ? false : true,
   }))
 }
 
@@ -50,16 +53,13 @@ export const useModulesStore = defineStore('modules', () => {
   }
 
   // seedFromBackend is for boot-time hydration from /health/config.
-  // It records the server-reported profile but only seeds module defaults
-  // when no user choices have been saved yet.
+  // It only records the server-reported profile — first-time module
+  // defaults are always all-enabled (operators can disable in Settings).
   function seedFromBackend(p: DeploymentProfile) {
     const hadProfile = typeof localStorage !== 'undefined' && !!localStorage.getItem(PROFILE_KEY)
     profile.value = p
     if (typeof localStorage !== 'undefined' && !hadProfile) {
       localStorage.setItem(PROFILE_KEY, p)
-    }
-    if (typeof localStorage !== 'undefined' && !localStorage.getItem(STORAGE_KEY)) {
-      modules.value = defaultsFor(p)
     }
   }
 
@@ -70,7 +70,7 @@ export const useModulesStore = defineStore('modules', () => {
     if (storedProfile === 'solo' || storedProfile === 'hoster') {
       profile.value = storedProfile
     }
-    const seed = defaultsFor(profile.value)
+    const seed = DEFAULT_MODULES.map(m => ({ ...m }))
 
     const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
     if (stored) {
