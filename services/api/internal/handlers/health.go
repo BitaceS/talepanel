@@ -12,13 +12,24 @@ import (
 
 // HealthHandler groups liveness and readiness check handlers.
 type HealthHandler struct {
-	db  *pgxpool.Pool
-	rdb *redis.Client
+	db                *pgxpool.Pool
+	rdb               *redis.Client
+	deploymentProfile string
 }
 
 // NewHealthHandler constructs a HealthHandler.
-func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client) *HealthHandler {
-	return &HealthHandler{db: db, rdb: rdb}
+func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client, deploymentProfile string) *HealthHandler {
+	return &HealthHandler{db: db, rdb: rdb, deploymentProfile: deploymentProfile}
+}
+
+// PublicConfig handles GET /health/config.
+// Returns boot-time settings the unauthenticated web UI needs to render
+// itself correctly (e.g. which module defaults to apply on first load).
+// Public endpoint — must not leak secrets.
+func (h *HealthHandler) PublicConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"deployment_profile": h.deploymentProfile,
+	})
 }
 
 // Liveness handles GET /health.

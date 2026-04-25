@@ -16,6 +16,11 @@ type Config struct {
 	LogLevel   string
 	AppVersion string
 
+	// DeploymentProfile is the operator archetype seeded by the installer.
+	// Values: "solo" (single-host hobbyist) or "hoster" (multi-tenant provider).
+	// Used by the web frontend to seed default module visibility on first load.
+	DeploymentProfile string
+
 	// Database
 	DatabaseURL string
 
@@ -101,6 +106,13 @@ func Load() (*Config, error) {
 	cfg.AppVersion = os.Getenv("APP_VERSION")
 	if cfg.AppVersion == "" {
 		cfg.AppVersion = "dev"
+	}
+
+	// DEPLOYMENT_PROFILE — optional, default "solo".
+	// Only "solo" and "hoster" are recognised; anything else falls back to "solo".
+	cfg.DeploymentProfile = strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_PROFILE")))
+	if cfg.DeploymentProfile != "solo" && cfg.DeploymentProfile != "hoster" {
+		cfg.DeploymentProfile = "solo"
 	}
 
 	// DATABASE_URL — required

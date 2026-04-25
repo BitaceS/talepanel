@@ -77,7 +77,7 @@ func SetupRouter(
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
-	healthH := handlers.NewHealthHandler(db, rdb)
+	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile)
 	modH := handlers.NewModHandler(modSvc, cfSvc)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
@@ -110,6 +110,7 @@ func SetupRouter(
 		healthGroup.GET("", healthH.Liveness)
 		healthGroup.GET("/ready", healthH.Readiness)
 		healthGroup.GET("/setup", healthH.SetupStatus)
+		healthGroup.GET("/config", healthH.PublicConfig)
 	}
 
 	// Auth — light rate limiting, no auth required (register/login)
