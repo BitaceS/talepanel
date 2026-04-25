@@ -47,7 +47,6 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../services/api/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - talepanel
     healthcheck:
