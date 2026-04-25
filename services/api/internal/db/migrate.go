@@ -2,16 +2,30 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
 	"github.com/BitaceS/talepanel/api/migrations"
 )
+
+// PostgreSQL SQLSTATE codes that mean "the object this migration creates
+// already exists" — almost always because the database was provisioned
+// out-of-band.  We treat these as "already applied" so the file is recorded
+// in schema_migrations and never tried again.
+var alreadyExistsCodes = map[string]bool{
+	"42710": true, // duplicate_object
+	"42P07": true, // duplicate_table
+	"42701": true, // duplicate_column
+	"42723": true, // duplicate_function
+	"42P06": true, // duplicate_schema
+}
 
 // RunMigrations applies any embedded *.sql migrations that are not yet
 // recorded in schema_migrations.  Each file is executed in its own
@@ -50,10 +64,15 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, log *zap.Logger) err
 		if err != nil {
 			return fmt.Errorf("reading migration %s: %w", name, err)
 		}
-		if err := applyOne(ctx, pool, name, string(body)); err != nil {
+		applied, err := applyOne(ctx, pool, name, string(body))
+		if err != nil {
 			return err
 		}
-		log.Info("migration applied", zap.String("file", name))
+		if applied {
+			log.Info("migration applied", zap.String("file", name))
+		} else {
+			log.Info("migration recorded (already present)", zap.String("file", name))
+		}
 		pending++
 	}
 
@@ -104,21 +123,39 @@ func listMigrationFiles() ([]string, error) {
 	return files, nil
 }
 
-func applyOne(ctx context.Context, pool *pgxpool.Pool, name, body string) error {
+// applyOne runs a single migration and records it in schema_migrations.
+// Returns (true, nil) when the SQL ran successfully and (false, nil) when it
+// failed with an "object already exists" error — meaning the schema change
+// is already in place and we should just record the file as applied.
+func applyOne(ctx context.Context, pool *pgxpool.Pool, name, body string) (bool, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin tx for %s: %w", name, err)
+		return false, fmt.Errorf("begin tx for %s: %w", name, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	executed := true
 	if _, err := tx.Exec(ctx, body); err != nil {
-		return fmt.Errorf("executing %s: %w", name, err)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && alreadyExistsCodes[pgErr.Code] {
+			// Roll back the failed transaction and start a fresh one to
+			// record the migration — Postgres marks the original aborted.
+			_ = tx.Rollback(ctx)
+			tx, err = pool.Begin(ctx)
+			if err != nil {
+				return false, fmt.Errorf("begin tx for %s after recovery: %w", name, err)
+			}
+			executed = false
+		} else {
+			return false, fmt.Errorf("executing %s: %w", name, err)
+		}
 	}
+
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, name); err != nil {
-		return fmt.Errorf("recording %s: %w", name, err)
+		return false, fmt.Errorf("recording %s: %w", name, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit %s: %w", name, err)
+		return false, fmt.Errorf("commit %s: %w", name, err)
 	}
-	return nil
+	return executed, nil
 }
