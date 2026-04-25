@@ -130,10 +130,11 @@ impl ApiClient {
     /// * `base_url`   – e.g. `"http://panel.example.com:8080"` (no trailing slash)
     /// * `node_token` – Bearer token issued by TalePanel for this node
     /// * `node_id`    – UUID string identifying this node
-    pub fn new(base_url: impl Into<String>, node_token: impl Into<String>, node_id: impl Into<String>) -> Self {
+    pub fn new(base_url: impl Into<String>, node_token: impl Into<String>, node_id: impl Into<String>, insecure_tls: bool) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("TaleDaemon/0.1.0")
+            .danger_accept_invalid_certs(insecure_tls)
             .build()
             .expect("Failed to build reqwest client");
 

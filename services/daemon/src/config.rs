@@ -89,6 +89,12 @@ pub struct DaemonConfig {
     /// Controls log format (pretty vs JSON).
     #[serde(default = "DaemonConfig::default_env")]
     pub env: String,
+
+    /// Skip TLS certificate verification when calling the panel API.
+    /// Set to true only when the panel is reachable via a self-signed cert
+    /// (e.g. an --no-domain panel install over a trusted network).
+    #[serde(default)]
+    pub insecure_tls: bool,
 }
 
 impl DaemonConfig {
@@ -239,6 +245,10 @@ impl Config {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(ResourcesConfig::default_command_poll_interval_s());
 
+        let insecure_tls = std::env::var("TALEDAEMON_INSECURE_TLS")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+            .unwrap_or(false);
+
         Ok(Config {
             daemon: DaemonConfig {
                 node_id,
@@ -248,6 +258,7 @@ impl Config {
                 data_root,
                 log_level,
                 env,
+                insecure_tls,
             },
             resources: ResourcesConfig {
                 max_servers,

@@ -22,6 +22,7 @@ services:
       TALEDAEMON_DATA_ROOT: /srv/taledaemon
       TALEDAEMON_LOG_LEVEL: info
       TALEDAEMON_ENV: production
+      TALEDAEMON_INSECURE_TLS: ${TALEDAEMON_INSECURE_TLS:-0}
     cap_add:
       - NET_ADMIN
       - NET_RAW

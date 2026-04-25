@@ -62,6 +62,7 @@ DOMAIN=""
 IP_ONLY=0
 NO_DOMAIN=0
 DEPLOYMENT_PROFILE=""
+INSECURE_TLS=0
 ADMIN_EMAIL=""
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
@@ -83,6 +84,7 @@ while [ $# -gt 0 ]; do
     --ip-only)           IP_ONLY=1; shift ;;
     --no-domain)         NO_DOMAIN=1; shift ;;
     --profile)           DEPLOYMENT_PROFILE="$2"; shift 2 ;;
+    --insecure-tls)      INSECURE_TLS=1; shift ;;
     --admin-email)       ADMIN_EMAIL="$2"; shift 2 ;;
     --admin-username)    ADMIN_USERNAME="$2"; shift 2 ;;
     --admin-password)    ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -313,6 +315,15 @@ install_daemon() {
   install_pkgs curl jq git ca-certificates
   require_cmds curl jq
 
+  # When the panel uses a self-signed cert (i.e. --no-domain installs),
+  # curl cannot verify it.  --insecure-tls skips verification on every
+  # daemon-side curl call to the panel.
+  local curl_flags="-fsSL"
+  if [ "$INSECURE_TLS" -eq 1 ]; then
+    curl_flags="-fsSLk"
+    warn "TLS verification disabled (--insecure-tls) — only safe over a trusted network"
+  fi
+
   [ -z "$PANEL_URL" ]     && read -rp "Panel URL (e.g. https://panel.example.com): " PANEL_URL
   if [ -z "$ENROLL_TOKEN" ]; then
     read -rsp "Enrollment token: " ENROLL_TOKEN; echo
@@ -344,7 +355,7 @@ EOF
 
   log "redeeming enrollment token..."
   local resp node_id node_token
-  resp="$(curl -fsSL -X POST "$PANEL_URL/api/v1/nodes/enroll" \
+  resp="$(curl $curl_flags -X POST "$PANEL_URL/api/v1/nodes/enroll" \
     -H 'Content-Type: application/json' \
     -d "{\"token\":\"$ENROLL_TOKEN\",\"fqdn\":\"$DAEMON_HOST\",\"port\":$DAEMON_PORT}")"
   node_id="$(echo "$resp" | jq -r .node_id)"
@@ -365,6 +376,13 @@ EOF
   sed -i "s|^TALEDAEMON_API_URL=.*|TALEDAEMON_API_URL=$safe_url|"        "$env_file"
   sed -i "s|^TALEDAEMON_NODE_ID=.*|TALEDAEMON_NODE_ID=$safe_id|"         "$env_file"
   sed -i "s|^TALEDAEMON_NODE_TOKEN=.*|TALEDAEMON_NODE_TOKEN=$safe_token|" "$env_file"
+  if [ "$INSECURE_TLS" -eq 1 ]; then
+    if grep -q '^TALEDAEMON_INSECURE_TLS=' "$env_file"; then
+      sed -i 's|^TALEDAEMON_INSECURE_TLS=.*|TALEDAEMON_INSECURE_TLS=1|' "$env_file"
+    else
+      echo 'TALEDAEMON_INSECURE_TLS=1' >> "$env_file"
+    fi
+  fi
 
   mkdir -p /srv/taledaemon
   chmod 700 /srv/taledaemon
@@ -375,7 +393,7 @@ EOF
   log "starting daemon..."
   docker compose up -d
 
-  if curl -fsSL -o /dev/null "$PANEL_URL/api/v1/health"; then
+  if curl $curl_flags -o /dev/null "$PANEL_URL/api/v1/health"; then
     success "panel reachable"
   else
     warn "panel not responding at $PANEL_URL/api/v1/health — check DNS and TLS"
