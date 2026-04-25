@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
         &config.daemon.api_url,
         &config.daemon.node_token,
         &config.daemon.node_id,
+        config.daemon.insecure_tls,
     ));
 
     let process_manager = Arc::new(ProcessManager::new(
