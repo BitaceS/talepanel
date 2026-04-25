@@ -301,12 +301,9 @@ async function copyToClipboard(text: string, field: string) {
 
 const serverAddress = computed(() => {
   if (!server.value) return ''
-  return `${server.value.name.toLowerCase().replace(/\s+/g, '-')}.talepanel.io:${server.value.port}`
-})
-
-const sftpAddress = computed(() => {
-  if (!server.value) return ''
-  return `sftp://${server.value.name.toLowerCase().replace(/\s+/g, '-')}.talepanel.io:2022`
+  const host = server.value.node_fqdn?.trim()
+  if (!host) return `:${server.value.port}`
+  return `${host}:${server.value.port}`
 })
 
 // ── Mods ──────────────────────────────────────────────────────────────────────
@@ -1119,20 +1116,6 @@ const sidebarMods = computed(() => {
               </div>
             </div>
 
-            <!-- SFTP Connection -->
-            <div>
-              <label class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline block mb-1.5">SFTP CONNECTION</label>
-              <div class="flex items-center gap-2 bg-tp-surface-lowest rounded-lg px-3 py-2">
-                <span class="text-tp-tertiary text-xs font-mono truncate flex-1">{{ sftpAddress }}</span>
-                <button
-                  class="text-tp-outline hover:text-tp-text transition-colors shrink-0"
-                  @click="copyToClipboard(sftpAddress, 'sftp')"
-                >
-                  <Copy v-if="copiedField !== 'sftp'" class="w-3.5 h-3.5" />
-                  <span v-else class="text-tp-tertiary text-[10px] font-semibold">OK</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           <!-- Active Mods -->

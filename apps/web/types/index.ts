@@ -28,6 +28,7 @@ export interface Server {
   active_world: string | null
   created_at: string
   updated_at: string
+  node_fqdn?: string
 }
 
 export interface Node {

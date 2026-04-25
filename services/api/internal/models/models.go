@@ -110,6 +110,11 @@ type Server struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 	Metadata       json.RawMessage `json:"metadata,omitempty"`
+
+	// Joined from the nodes table — populated by GetServer so the web UI
+	// can render the public connect address (<node_fqdn>:<port>) without
+	// a second round trip.  Empty when the server has no node assigned.
+	NodeFQDN string `json:"node_fqdn,omitempty"`
 }
 
 // ServerLog is a single log line pushed by a TaleDaemon node.
