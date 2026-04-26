@@ -297,7 +297,7 @@ const expandedTalker = ref<string | null>(null)
 
       <!-- OVERVIEW TAB -->
       <div v-if="networkTab === 'overview'">
-        <div v-if="!net" class="p-12 text-center">
+        <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <Globe class="w-10 h-10 text-tp-muted mx-auto mb-3" />
           <p class="text-tp-muted text-sm">Waiting for network monitor to initialise...</p>
         </div>
@@ -393,7 +393,7 @@ const expandedTalker = ref<string | null>(null)
 
       <!-- THREATS TAB -->
       <div v-if="networkTab === 'threats'">
-        <div v-if="!net" class="p-12 text-center">
+        <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldAlert class="w-10 h-10 text-tp-muted mx-auto mb-3" />
           <p class="text-tp-muted text-sm">Waiting for network monitor...</p>
         </div>
@@ -466,12 +466,12 @@ const expandedTalker = ref<string | null>(null)
             </div>
 
             <!-- Top talkers -->
-            <div v-if="net.threats.top_talkers.length > 0">
+            <div v-if="(net.threats.top_talkers?.length ?? 0) > 0">
               <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">
-                Top Talkers <span class="normal-case font-normal">({{ net.threats.top_talkers.length }} IPs)</span>
+                Top Talkers <span class="normal-case font-normal">({{ net.threats.top_talkers?.length ?? 0 }} IPs)</span>
               </p>
               <div class="space-y-1">
-                <div v-for="talker in net.threats.top_talkers" :key="talker.ip">
+                <div v-for="talker in (net.threats.top_talkers ?? [])" :key="talker.ip">
                   <button
                     :class="['w-full flex items-center justify-between rounded-xl px-4 py-2.5 text-left transition-colors',
                       talker.severity !== 'normal'
@@ -495,13 +495,13 @@ const expandedTalker = ref<string | null>(null)
             <!-- Threat event log -->
             <div>
               <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">
-                Event Log <span class="normal-case font-normal">({{ net.threats.events.length }} events)</span>
+                Event Log <span class="normal-case font-normal">({{ net.threats.events?.length ?? 0 }} events)</span>
               </p>
-              <div v-if="net.threats.events.length === 0" class="text-center py-6 text-tp-muted text-sm">
+              <div v-if="(net.threats.events?.length ?? 0) === 0" class="text-center py-6 text-tp-muted text-sm">
                 No threat events recorded.
               </div>
               <div v-else class="space-y-1 max-h-80 overflow-y-auto">
-                <div v-for="(evt, i) in [...net.threats.events].reverse().slice(0, 50)" :key="i"
+                <div v-for="(evt, i) in [...(net.threats.events ?? [])].reverse().slice(0, 50)" :key="i"
                   :class="['flex items-start gap-3 rounded-xl px-3 py-2 border text-xs', threatColor(evt.severity).bg, threatColor(evt.severity).border]">
                   <AlertTriangle :class="['w-3.5 h-3.5 shrink-0 mt-0.5', threatColor(evt.severity).text]" />
                   <div class="flex-1 min-w-0">
@@ -522,7 +522,7 @@ const expandedTalker = ref<string | null>(null)
 
       <!-- MITIGATION TAB -->
       <div v-if="networkTab === 'mitigation'">
-        <div v-if="!net" class="p-12 text-center">
+        <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
           <p class="text-tp-muted text-sm">Waiting for network monitor...</p>
         </div>
