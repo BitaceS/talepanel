@@ -11,8 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
+
+	"github.com/BitaceS/talepanel/api/internal/db"
 )
 
 func adminCmd() *cobra.Command {
@@ -70,6 +73,17 @@ func adminCreateCmd() *cobra.Command {
 				return fmt.Errorf("connect: %w", err)
 			}
 			defer pool.Close()
+
+			// Ensure schema exists before INSERT.  When the installer runs
+			// `tale-cli admin create` against a freshly-initialised Postgres
+			// container, the API has never booted and therefore migrations
+			// have never run — `users` would not exist.  Migrations are
+			// idempotent so this is also a no-op on subsequent invocations.
+			migLogger, _ := zap.NewProduction()
+			defer func() { _ = migLogger.Sync() }()
+			if err := db.RunMigrations(ctx, pool, migLogger); err != nil {
+				return fmt.Errorf("run migrations: %w", err)
+			}
 
 			hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 			if err != nil {
