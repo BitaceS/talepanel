@@ -40,28 +40,31 @@ onMounted(async () => {
 const server = computed(() => serversStore.currentServer)
 
 // ── Status polling ────────────────────────────────────────────────────────────
-// Refresh the server record every 4s while the status is in a transitional
-// state (installing/starting/stopping) so the Start/Stop buttons unlock as
-// soon as the daemon reports the next stable status.  We slow to 15s once
-// the server is stable so spontaneous crashes still surface without spamming
-// the API.
+// While the status is transitional (installing/starting/stopping) we poll fast
+// (4s) so the Start/Stop buttons unlock the moment the daemon reports the next
+// stable status.  While stable we still poll, just slowly (15s), so spontaneous
+// crashes — and the lag between a power action and the daemon's status push —
+// surface without the user having to F5.
 let statusTimer: ReturnType<typeof setInterval> | null = null
+let statusTimerInterval = 0
 const transitionalStatuses = new Set(['installing', 'starting', 'stopping'])
 
-function startStatusPolling() {
-  if (statusTimer) return
+function ensureStatusPolling(intervalMs: number) {
+  if (statusTimer && statusTimerInterval === intervalMs) return
+  if (statusTimer) clearInterval(statusTimer)
+  statusTimerInterval = intervalMs
   statusTimer = setInterval(async () => {
     if (!serverId.value) return
     try { await serversStore.fetchServer(serverId.value) } catch { /* silent */ }
-  }, 4000)
+  }, intervalMs)
 }
 function stopStatusPolling() {
-  if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; statusTimerInterval = 0 }
 }
 
 watch(() => server.value?.status, (status) => {
-  if (status && transitionalStatuses.has(status)) startStatusPolling()
-  else stopStatusPolling()
+  if (!status) { stopStatusPolling(); return }
+  ensureStatusPolling(transitionalStatuses.has(status) ? 4000 : 15000)
 }, { immediate: true })
 
 useHead({
@@ -255,6 +258,11 @@ const hytaleAuthDismissed = ref(false)
 const hytaleAuthRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/device\/verify\?user_code=([A-Za-z0-9_-]+)/
 
 watch(logs, (lines) => {
+  // Only react while the server is actually provisioning.  After provisioning
+  // the same log line is still in history but the device-code session has
+  // long since expired, so showing the modal would dead-end the user with
+  // an "invalid user_code" error from Hytale's OAuth server.
+  if (server.value?.status !== 'installing') return
   if (hytaleAuthUrl.value || hytaleAuthDismissed.value) return
   for (const line of lines) {
     const m = hytaleAuthRegex.exec(line.message)
@@ -276,7 +284,9 @@ watch(() => server.value?.status, (status) => {
 })
 
 const showHytaleAuthModal = computed(() =>
-  !!hytaleAuthUrl.value && !hytaleAuthDismissed.value
+  server.value?.status === 'installing'
+  && !!hytaleAuthUrl.value
+  && !hytaleAuthDismissed.value
 )
 
 async function copyHytaleAuthCode() {
