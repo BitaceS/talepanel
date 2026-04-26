@@ -110,9 +110,8 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 	sid := &serverID
 	return []models.GameCommand{
 		// ── Server Management ─────────────────────────────────
-		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "save-all", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
+		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "save", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "Server Management", Name: "Stop Server", Description: "Gracefully shut down the server", CommandTemplate: "stop", Icon: "power", SortOrder: 2, IsDefault: true, MinRole: models.RoleAdmin, Params: json.RawMessage("[]")},
-		{ServerID: sid, Category: "Server Management", Name: "Reload Config", Description: "Reload server configuration files", CommandTemplate: "reload", Icon: "refresh-cw", SortOrder: 3, IsDefault: true, MinRole: models.RoleAdmin, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "Server Management", Name: "List Players", Description: "Show all currently connected players", CommandTemplate: "list", Icon: "users", SortOrder: 4, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
 
 		// ── Player Management ─────────────────────────────────
@@ -146,18 +145,27 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 			)},
+		{ServerID: sid, Category: "Player Management", Name: "Give Item", Description: "Give an item to a player", CommandTemplate: "give {player} {item} {count}", Icon: "package", SortOrder: 8, IsDefault: true, MinRole: models.RoleAdmin,
+			Params: paramJSON(
+				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
+				models.CommandParam{Name: "item", Type: "string", Required: true, Placeholder: "item id"},
+				models.CommandParam{Name: "count", Type: "number", Required: false, Placeholder: "1"},
+			)},
 
 		// ── World Management ──────────────────────────────────
 		{ServerID: sid, Category: "World Management", Name: "Set Time Day", Description: "Set world time to day", CommandTemplate: "time set day", Icon: "sun", SortOrder: 1, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "World Management", Name: "Set Time Night", Description: "Set world time to night", CommandTemplate: "time set night", Icon: "moon", SortOrder: 2, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
-		{ServerID: sid, Category: "World Management", Name: "Weather Clear", Description: "Set weather to clear", CommandTemplate: "weather clear", Icon: "sun", SortOrder: 3, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
-		{ServerID: sid, Category: "World Management", Name: "Weather Rain", Description: "Set weather to rain", CommandTemplate: "weather rain", Icon: "cloud-rain", SortOrder: 4, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "World Management", Name: "Teleport Player", Description: "Teleport a player to coordinates", CommandTemplate: "tp {player} {x} {y} {z}", Icon: "navigation", SortOrder: 5, IsDefault: true, MinRole: models.RoleModerator,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 				models.CommandParam{Name: "x", Type: "number", Required: true, Placeholder: "X"},
 				models.CommandParam{Name: "y", Type: "number", Required: true, Placeholder: "Y"},
 				models.CommandParam{Name: "z", Type: "number", Required: true, Placeholder: "Z"},
+			)},
+		{ServerID: sid, Category: "World Management", Name: "Set Gamemode", Description: "Change a player's gamemode", CommandTemplate: "gamemode {mode} {player}", Icon: "gamepad-2", SortOrder: 6, IsDefault: true, MinRole: models.RoleAdmin,
+			Params: paramJSON(
+				models.CommandParam{Name: "mode", Type: "string", Required: true, Placeholder: "survival|creative|adventure|spectator"},
+				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 			)},
 
 		// ── Chat & Communication ──────────────────────────────

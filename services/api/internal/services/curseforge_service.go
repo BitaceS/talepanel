@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 )
 
 const curseForgeAPIBase = "https://api.curseforge.com/v1"
@@ -27,8 +28,10 @@ func (e *CurseForgeError) Error() string {
 	}
 }
 
-// CurseForgeService wraps the CurseForge REST API.
+// CurseForgeService wraps the CurseForge REST API.  apiKey is mutable at
+// runtime so the admin UI can update it without restarting the API.
 type CurseForgeService struct {
+	mu     sync.RWMutex
 	apiKey string
 	gameID int
 	client *http.Client
@@ -40,6 +43,27 @@ func NewCurseForgeService(apiKey string, gameID int) *CurseForgeService {
 		gameID: gameID,
 		client: &http.Client{},
 	}
+}
+
+// SetAPIKey replaces the in-memory key.  Called by the admin handler after a
+// successful save so subsequent CurseForge calls use the new credential.
+func (s *CurseForgeService) SetAPIKey(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.apiKey = key
+}
+
+// HasAPIKey reports whether a key is currently configured (without leaking it).
+func (s *CurseForgeService) HasAPIKey() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.apiKey != ""
+}
+
+func (s *CurseForgeService) currentKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.apiKey
 }
 
 // ─── Response types ───────────────────────────────────────────────────────────
@@ -88,7 +112,7 @@ type CFPagination struct {
 
 // SearchMods queries the CurseForge search endpoint for the configured game.
 func (s *CurseForgeService) SearchMods(ctx context.Context, query string, page, pageSize int) (*CFSearchResult, error) {
-	if s.apiKey == "" {
+	if s.currentKey() == "" {
 		return nil, &CurseForgeError{Status: 403}
 	}
 	params := url.Values{}
@@ -102,7 +126,7 @@ func (s *CurseForgeService) SearchMods(ctx context.Context, query string, page, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", s.apiKey)
+	req.Header.Set("x-api-key", s.currentKey())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -129,7 +153,7 @@ func (s *CurseForgeService) GetModFiles(ctx context.Context, modID int) ([]CFFil
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", s.apiKey)
+	req.Header.Set("x-api-key", s.currentKey())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := s.client.Do(req)

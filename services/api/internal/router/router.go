@@ -52,6 +52,14 @@ func SetupRouter(
 	nodeSvc := services.NewNodeService(db)
 	modSvc := services.NewModService(db)
 	cfSvc := services.NewCurseForgeService(cfg.CurseForgeAPIKey, cfg.CurseForgeGameID)
+	appSettingsSvc := services.NewAppSettingsService(db, cfg.TOTPEncKey)
+	// Override env-baked CurseForge key with the DB-stored one if present.
+	// Errors are logged but non-fatal: the env value remains active.
+	if dbKey, err := appSettingsSvc.Get(ctx, "curseforge_api_key"); err != nil {
+		log.Warn("could not load curseforge_api_key from app_settings", zap.Error(err))
+	} else if dbKey != "" {
+		cfSvc.SetAPIKey(dbKey)
+	}
 
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
@@ -294,6 +302,11 @@ func SetupRouter(
 
 		// Update check
 		adminGroup.GET("/update/check", adminH.CheckUpdate)
+
+		// Integration settings (CurseForge etc.)
+		integrationsH := handlers.NewIntegrationsHandler(appSettingsSvc, cfSvc)
+		adminGroup.GET("/integrations/curseforge", integrationsH.GetCurseForge)
+		adminGroup.PUT("/integrations/curseforge", integrationsH.UpdateCurseForge)
 	}
 
 	// Public enrollment redemption — the token itself is the authentication.

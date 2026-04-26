@@ -2,6 +2,7 @@
 import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
+  Plug, Save, ExternalLink,
 } from 'lucide-vue-next'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
@@ -12,7 +13,61 @@ const api = useApi()
 const authStore = useAuthStore()
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const activeTab = ref<'users' | 'nodes' | 'logs'>('users')
+const activeTab = ref<'users' | 'nodes' | 'logs' | 'integrations'>('users')
+
+// ── Integrations ─────────────────────────────────────────────────────────────
+interface CurseForgeStatus { configured: boolean; preview: string }
+const cfStatus = ref<CurseForgeStatus>({ configured: false, preview: '' })
+const cfKeyInput = ref('')
+const cfSaving = ref(false)
+const cfLoading = ref(false)
+
+async function fetchCurseForgeStatus() {
+  cfLoading.value = true
+  try {
+    cfStatus.value = await api.get<CurseForgeStatus>('/admin/integrations/curseforge')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to load CurseForge status', 'error')
+  } finally {
+    cfLoading.value = false
+  }
+}
+
+async function saveCurseForgeKey() {
+  cfSaving.value = true
+  try {
+    await api.put('/admin/integrations/curseforge', { api_key: cfKeyInput.value })
+    cfKeyInput.value = ''
+    await fetchCurseForgeStatus()
+    showToast('CurseForge API key saved')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to save key', 'error')
+  } finally {
+    cfSaving.value = false
+  }
+}
+
+function onTabChange(key: 'users' | 'nodes' | 'logs' | 'integrations') {
+  activeTab.value = key
+  if (key === 'integrations') fetchCurseForgeStatus()
+}
+
+async function clearCurseForgeKey() {
+  if (!confirm('Clear the stored CurseForge API key? Mod browsing will stop working until a new key is provided.')) return
+  cfSaving.value = true
+  try {
+    await api.put('/admin/integrations/curseforge', { api_key: '' })
+    await fetchCurseForgeStatus()
+    showToast('CurseForge API key cleared')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to clear key', 'error')
+  } finally {
+    cfSaving.value = false
+  }
+}
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 const toast = ref('')
@@ -380,6 +435,7 @@ async function submitCreateUser() {
           { key: 'users', label: 'Users', icon: Users, count: users.length },
           { key: 'nodes', label: 'Nodes', icon: Network, count: nodes.length },
           { key: 'logs', label: 'Activity Logs', icon: Activity, count: activityLogs.length },
+          { key: 'integrations', label: 'Integrations', icon: Plug, count: 0 },
         ]"
         :key="tab.key"
         :class="[
@@ -388,7 +444,7 @@ async function submitCreateUser() {
             ? 'bg-tp-primary text-white shadow-sm'
             : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2',
         ]"
-        @click="activeTab = tab.key as 'users' | 'nodes' | 'logs'"
+        @click="onTabChange(tab.key as 'users' | 'nodes' | 'logs' | 'integrations')"
       >
         <component :is="tab.icon" class="w-4 h-4" />
         {{ tab.label }}
@@ -648,6 +704,71 @@ async function submitCreateUser() {
         <div v-if="activityLogs.length === 0 && !logsLoading" class="p-8 text-center text-tp-muted text-sm">
           No activity logs yet
         </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         INTEGRATIONS TAB
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <div v-else-if="activeTab === 'integrations'" class="space-y-4">
+      <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
+              <Plug class="w-4 h-4 text-tp-primary" />
+              CurseForge
+            </h3>
+            <p class="text-tp-muted text-sm mt-1">
+              Required for the in-panel mod browser. Get a key at
+              <a href="https://console.curseforge.com/" target="_blank" rel="noopener"
+                class="text-tp-primary hover:underline inline-flex items-center gap-1">
+                console.curseforge.com <ExternalLink class="w-3 h-3" />
+              </a>.
+            </p>
+          </div>
+          <span
+            :class="[
+              'text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap',
+              cfStatus.configured
+                ? 'bg-tp-success/15 text-tp-success'
+                : 'bg-tp-warning/15 text-tp-warning',
+            ]">
+            {{ cfStatus.configured ? 'Configured' : 'Not configured' }}
+          </span>
+        </div>
+
+        <div v-if="cfStatus.configured" class="text-tp-muted text-sm">
+          Current key: <code class="font-mono text-tp-text">{{ cfStatus.preview || '••••' }}</code>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">API key</label>
+          <input
+            v-model="cfKeyInput"
+            type="password"
+            autocomplete="off"
+            placeholder="$2a$10$…"
+            class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm font-mono placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all"
+          />
+        </div>
+
+        <div class="flex items-center gap-2">
+          <UiButton variant="primary" size="sm" :loading="cfSaving" :disabled="!cfKeyInput.trim()" @click="saveCurseForgeKey">
+            <Save class="w-3.5 h-3.5" /> Save
+          </UiButton>
+          <UiButton v-if="cfStatus.configured" variant="danger" size="sm" :loading="cfSaving" @click="clearCurseForgeKey">
+            <Trash2 class="w-3.5 h-3.5" /> Clear
+          </UiButton>
+          <UiButton variant="secondary" size="sm" :loading="cfLoading" @click="fetchCurseForgeStatus">
+            <RefreshCw class="w-3.5 h-3.5" />
+          </UiButton>
+        </div>
+
+        <p class="text-tp-outline text-xs">
+          Stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code>. Takes effect immediately —
+          no API restart required. Clearing falls back to the <code class="font-mono">CURSEFORGE_API_KEY</code>
+          env value (if set) on the next API restart.
+        </p>
       </div>
     </div>
 
