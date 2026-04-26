@@ -255,38 +255,32 @@ function onConsoleScroll() {
 const hytaleAuthUrl = ref('')
 const hytaleAuthCode = ref('')
 const hytaleAuthDismissed = ref(false)
-const hytaleAuthRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/device\/verify\?user_code=([A-Za-z0-9_-]+)/
+// Two flows ship in different Hytale releases:
+//   (1) Device code:    /oauth2/device/verify?user_code=XXXX
+//   (2) Auth code+PKCE: /oauth2/auth?response_type=code&client_id=hytale-server&...
+const hytaleDeviceRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/device\/verify\?user_code=([A-Za-z0-9_-]+)/
+const hytaleAuthCodeRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/auth\?[^\s"'<>]+/
 
 watch(logs, (lines) => {
-  // Only react while the server is actually provisioning.  After provisioning
-  // the same log line is still in history but the device-code session has
-  // long since expired, so showing the modal would dead-end the user with
-  // an "invalid user_code" error from Hytale's OAuth server.
-  if (server.value?.status !== 'installing') return
   if (hytaleAuthUrl.value || hytaleAuthDismissed.value) return
   for (const line of lines) {
-    const m = hytaleAuthRegex.exec(line.message)
-    if (m) {
-      hytaleAuthUrl.value = m[0]
-      hytaleAuthCode.value = m[1]
+    const dm = hytaleDeviceRegex.exec(line.message)
+    if (dm) {
+      hytaleAuthUrl.value = dm[0]
+      hytaleAuthCode.value = dm[1]
+      break
+    }
+    const am = hytaleAuthCodeRegex.exec(line.message)
+    if (am) {
+      hytaleAuthUrl.value = am[0]
+      hytaleAuthCode.value = ''
       break
     }
   }
 }, { deep: true })
 
-watch(() => server.value?.status, (status) => {
-  // Once the server leaves the installing state the OAuth dance is over.
-  if (status && status !== 'installing') {
-    hytaleAuthUrl.value = ''
-    hytaleAuthCode.value = ''
-    hytaleAuthDismissed.value = false
-  }
-})
-
 const showHytaleAuthModal = computed(() =>
-  server.value?.status === 'installing'
-  && !!hytaleAuthUrl.value
-  && !hytaleAuthDismissed.value
+  !!hytaleAuthUrl.value && !hytaleAuthDismissed.value
 )
 
 async function copyHytaleAuthCode() {
@@ -365,6 +359,24 @@ function formatLogTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString('en-US', { hour12: false })
   } catch { return '' }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const urlRegex = /(https?:\/\/[^\s"'<>]+)/g
+
+function renderLogMessage(message: string): string {
+  const safe = escapeHtml(message)
+  return safe.replace(urlRegex, (url) =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline text-tp-accent hover:text-tp-primary break-all">${url}</a>`
+  )
 }
 
 // ── Clipboard copy ───────────────────────────────────────────────────────────
@@ -1142,7 +1154,7 @@ const sidebarMods = computed(() => {
               <span :class="['shrink-0 w-12', logLevelColor(line.level)]">
                 {{ line.level?.toUpperCase().slice(0, 6) }}
               </span>
-              <span :class="logLevelColor(line.level)" class="break-all">{{ line.message }}</span>
+              <span :class="logLevelColor(line.level)" class="break-all" v-html="renderLogMessage(line.message)" />
             </div>
           </div>
 
@@ -2041,13 +2053,13 @@ const sidebarMods = computed(() => {
     <!-- Hytale OAuth device-code prompt -->
     <UiModal :open="showHytaleAuthModal" title="Authenticate with Hytale" size="md" @close="hytaleAuthDismissed = true">
       <p class="text-tp-text text-sm mb-4">
-        The Hytale Downloader needs you to sign in with your Hytale account
-        before it can download the server files.
+        The Hytale server needs you to sign in with your Hytale account so it
+        can issue server tokens and accept multiplayer connections.
       </p>
       <ol class="list-decimal list-inside text-tp-muted text-sm space-y-2 mb-4">
-        <li>Open the verification URL below in a browser.</li>
+        <li>Open the authentication URL below in a browser.</li>
         <li>Sign in with the Hytale account that owns the game.</li>
-        <li>Confirm the device code matches.  Provisioning resumes automatically.</li>
+        <li>Approve the request — the server picks up the token automatically.</li>
       </ol>
 
       <a
@@ -2055,9 +2067,9 @@ const sidebarMods = computed(() => {
         target="_blank"
         rel="noopener"
         class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-4 hover:bg-tp-primary/90 transition-colors break-all"
-      >Open Hytale verification page →</a>
+      >Open Hytale authentication page →</a>
 
-      <div class="bg-tp-surface3 rounded-xl px-4 py-3 mb-2">
+      <div v-if="hytaleAuthCode" class="bg-tp-surface3 rounded-xl px-4 py-3 mb-2">
         <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-1">Device code</div>
         <div class="flex items-center justify-between gap-3">
           <code class="font-mono text-tp-text text-lg tracking-wider">{{ hytaleAuthCode }}</code>
