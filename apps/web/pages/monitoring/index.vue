@@ -21,8 +21,8 @@ onMounted(() => {
   fetchNetworkStats()
   pollInterval = setInterval(() => {
     fetchAllMetrics()
-    fetchNetworkStats()
-  }, 2000) // 2s poll for near-real-time
+    if (detailedTelemetrySupported.value !== false) fetchNetworkStats()
+  }, 5000)
 })
 
 onUnmounted(() => {
@@ -96,12 +96,16 @@ const activeNodeId = computed(() => {
   return s?.node_id ?? null
 })
 
+const detailedTelemetrySupported = ref<boolean | null>(null)
+
 async function fetchNetworkStats() {
   const nodeId = activeNodeId.value
   if (!nodeId) return
   networkLoading.value = true
   try {
-    net.value = await api.get<NetSnapshot>(`/nodes/${nodeId}/network-stats`)
+    const data = await api.get<NetSnapshot>(`/nodes/${nodeId}/network-stats`)
+    net.value = data
+    detailedTelemetrySupported.value = !!(data && (data as any).current && (data as any).averages)
   } catch { /* daemon may not be reachable */ }
   finally { networkLoading.value = false }
 }
@@ -299,7 +303,7 @@ const expandedTalker = ref<string | null>(null)
       <div v-if="networkTab === 'overview'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <Globe class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">Waiting for network monitor to initialise...</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor to initialise...' }}</p>
         </div>
         <div v-else class="p-4 space-y-4">
           <!-- PPS/BPS rate cards -->
@@ -395,7 +399,7 @@ const expandedTalker = ref<string | null>(null)
       <div v-if="networkTab === 'threats'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldAlert class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">Waiting for network monitor...</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor...' }}</p>
         </div>
         <div v-else-if="!net.threats" class="p-12 text-center">
           <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
@@ -524,7 +528,7 @@ const expandedTalker = ref<string | null>(null)
       <div v-if="networkTab === 'mitigation'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">Waiting for network monitor...</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor...' }}</p>
         </div>
         <div v-else class="p-4 space-y-4">
           <!-- Mitigation status -->
