@@ -363,7 +363,7 @@ EOF
   local resp node_id node_token
   resp="$(curl $curl_flags -X POST "$PANEL_URL/api/v1/nodes/enroll" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$ENROLL_TOKEN\",\"fqdn\":\"$DAEMON_HOST\",\"port\":$DAEMON_PORT}")"
+    -d "{\"token\":\"$ENROLL_TOKEN\",\"fqdn\":\"$DAEMON_HOST\",\"port\":$DAEMON_PORT,\"public_address\":\"${DAEMON_PUBLIC_ADDRESS:-}\"}")"
   node_id="$(echo "$resp" | jq -r .node_id)"
   node_token="$(echo "$resp" | jq -r .node_token)"
   if [ -z "$node_id" ] || [ "$node_id" = "null" ]; then
@@ -451,6 +451,8 @@ install_daemon_local() {
   # API runs in a container; reach the daemon (which binds 8444 on the host)
   # via the Docker host-gateway alias added to deploy/panel/docker-compose.yml.
   DAEMON_HOST="host.docker.internal"
+  # Players need a real public hostname, not host.docker.internal.
+  DAEMON_PUBLIC_ADDRESS="$DOMAIN"
   ASSUME_YES=1
   install_daemon
 }

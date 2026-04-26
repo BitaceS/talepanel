@@ -63,8 +63,9 @@ type Enrollment struct {
 
 // RedeemPayload is what the daemon sends when redeeming a token.
 type RedeemPayload struct {
-	FQDN string
-	Port int
+	FQDN          string
+	Port          int
+	PublicAddress string
 }
 
 // Create inserts a new enrollment and returns the plaintext token.  The caller
@@ -171,6 +172,10 @@ func (s *EnrollmentService) Redeem(ctx context.Context, plainToken string, paylo
 		MaxServers: enr.MaxServers,
 		Status:     "offline",
 	}
+	if payload.PublicAddress != "" {
+		pa := payload.PublicAddress
+		node.PublicAddress = &pa
+	}
 	if enr.TotalCPU != nil {
 		node.TotalCPU = *enr.TotalCPU
 	}
@@ -182,10 +187,10 @@ func (s *EnrollmentService) Redeem(ctx context.Context, plainToken string, paylo
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO nodes (id, name, fqdn, port, total_cpu, total_ram_mb,
+		INSERT INTO nodes (id, name, fqdn, public_address, port, total_cpu, total_ram_mb,
 		                   total_disk_mb, max_servers, token_hash, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, node.ID, node.Name, node.FQDN, node.Port, node.TotalCPU, node.TotalRAMMB,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, node.ID, node.Name, node.FQDN, node.PublicAddress, node.Port, node.TotalCPU, node.TotalRAMMB,
 		node.TotalDiskMB, node.MaxServers, nodeTokenHash, node.Status)
 	if err != nil {
 		return nil, "", fmt.Errorf("insert node: %w", err)

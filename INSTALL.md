@@ -16,7 +16,7 @@ The panel and daemon **should** run on separate hosts — the panel is the contr
 If you don't have separate machines for the panel and daemon yet, you can run them side-by-side on a single host. Use enough hardware to cover both roles — at least **2 vCPU / 6 GB RAM / 50 GB disk**, plus the gameserver port range open. The interactive installer offers a "both" option, or run it non-interactively:
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode both \
+sudo bash <(curl -fsSL h    ttps: //raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode both \
   --domain panel.example.com \
   --admin-email you@example.com \
   --admin-username your-handle \

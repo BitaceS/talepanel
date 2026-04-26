@@ -104,7 +104,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.cpu_limit, s.ram_limit_mb, s.disk_limit_mb, s.port, s.data_path,
 		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
 		       s.created_at, s.updated_at, s.metadata,
-		       COALESCE(n.fqdn, '')
+		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, '')
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1

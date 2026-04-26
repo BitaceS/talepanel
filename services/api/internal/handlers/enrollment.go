@@ -70,9 +70,10 @@ func (h *EnrollmentHandler) CreateEnrollment(c *gin.Context) {
 }
 
 type redeemEnrollmentBody struct {
-	Token string `json:"token" binding:"required"`
-	FQDN  string `json:"fqdn" binding:"required"`
-	Port  int    `json:"port" binding:"required,min=1,max=65535"`
+	Token         string `json:"token" binding:"required"`
+	FQDN          string `json:"fqdn" binding:"required"`
+	Port          int    `json:"port" binding:"required,min=1,max=65535"`
+	PublicAddress string `json:"public_address"`
 }
 
 // Redeem handles POST /nodes/enroll.  No user auth — the token IS the auth.
@@ -85,8 +86,9 @@ func (h *EnrollmentHandler) Redeem(c *gin.Context) {
 	}
 
 	node, plainNodeToken, err := h.svc.Redeem(c.Request.Context(), body.Token, services.RedeemPayload{
-		FQDN: body.FQDN,
-		Port: body.Port,
+		FQDN:          body.FQDN,
+		Port:          body.Port,
+		PublicAddress: body.PublicAddress,
 	})
 	if err != nil {
 		switch {
