@@ -159,7 +159,7 @@ function toggleMenu(id: string) {
 
 async function confirmDelete(server: ServerType) {
   openMenuId.value = null
-  if (!confirm(`Delete server "${server.name}"? This cannot be undone.`)) return
+  if (!window.confirm(`Delete server "${server.name}"? This cannot be undone.`)) return
   actionPending.value = server.id
   try {
     await serversStore.deleteServer(server.id)
@@ -184,9 +184,9 @@ async function restartFromMenu(server: ServerType) {
   }
 }
 
-if (process.client) {
+onMounted(() => {
   window.addEventListener('click', () => { openMenuId.value = null })
-}
+})
 </script>
 
 <template>
