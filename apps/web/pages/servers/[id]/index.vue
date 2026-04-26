@@ -316,7 +316,7 @@ function scrollConsoleToBottom() {
 watch(activeTab, (tab) => {
   if (tab === 'console') {
     fetchLogs()
-    logsTimer = setInterval(fetchLogs, 3000)
+    logsTimer = setInterval(fetchLogs, 1000)
   } else {
     clearInterval(logsTimer)
   }
@@ -342,6 +342,20 @@ async function sendCommand() {
 
 function handleConsoleKey(e: KeyboardEvent) {
   if (e.key === 'Enter') sendCommand()
+}
+
+async function triggerHytaleAuth() {
+  if (sendingCmd.value || server.value?.status !== 'running') return
+  hytaleAuthDismissed.value = false
+  sendingCmd.value = true
+  try {
+    await api.post(`/servers/${serverId.value}/console`, { cmd: 'auth login' })
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to send command', 'error')
+  } finally {
+    sendingCmd.value = false
+  }
 }
 
 function logLevelColor(level: string): string {
@@ -1180,6 +1194,15 @@ const sidebarMods = computed(() => {
             >
               <Send class="w-3.5 h-3.5" />
               Send
+            </UiButton>
+            <UiButton
+              variant="secondary"
+              size="sm"
+              :disabled="server.status !== 'running'"
+              title="Run 'auth login' on the server"
+              @click="triggerHytaleAuth"
+            >
+              Hytale Login
             </UiButton>
           </div>
           <p v-if="server.status !== 'running'" class="text-tp-muted text-xs">
