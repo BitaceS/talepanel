@@ -11,6 +11,21 @@ This is the reference for self-hosted installs. For a quick start, see the insta
 
 The panel and daemon **should** run on separate hosts — the panel is the control plane and only receives light web traffic; the daemon hosts carry real gameserver load. One daemon can manage up to 10 servers by default (configurable via `--max-servers` in the enrollment body).
 
+### Only have one server? Run both on the same host.
+
+If you don't have separate machines for the panel and daemon yet, you can run them side-by-side on a single host. Use enough hardware to cover both roles — at least **2 vCPU / 6 GB RAM / 50 GB disk**, plus the gameserver port range open. The interactive installer offers a "both" option, or run it non-interactively:
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode both \
+  --domain panel.example.com \
+  --admin-email you@example.com \
+  --admin-username your-handle \
+  --admin-password 'Correct-Horse-Battery-4!' \
+  --yes
+```
+
+The installer auto-enrolls the local daemon against the panel it just installed, so you skip the manual enrollment-token step. You can add additional daemon hosts later — when load grows past what one box can handle, just install in `--mode daemon` on the new host and the cluster scales horizontally.
+
 ## Supported operating systems
 
 - Ubuntu 22.04 LTS, 24.04 LTS
