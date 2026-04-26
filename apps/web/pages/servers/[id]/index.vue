@@ -349,7 +349,7 @@ async function triggerHytaleAuth() {
   hytaleAuthDismissed.value = false
   sendingCmd.value = true
   try {
-    await api.post(`/servers/${serverId.value}/console`, { cmd: 'auth login' })
+    await api.post(`/servers/${serverId.value}/console`, { cmd: 'auth login device' })
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
     showToast(e.data?.error ?? 'Failed to send command', 'error')
