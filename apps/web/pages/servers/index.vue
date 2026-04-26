@@ -153,6 +153,12 @@ function openSettings(server: ServerType) {
   router.push(`/servers/${server.id}`)
 }
 
+function onRowClick(ev: MouseEvent, server: ServerType) {
+  const target = ev.target as HTMLElement | null
+  if (target?.closest('[data-row-actions]')) return
+  router.push(`/servers/${server.id}`)
+}
+
 function toggleMenu(id: string) {
   openMenuId.value = openMenuId.value === id ? null : id
 }
@@ -285,11 +291,11 @@ onMounted(() => {
       </div>
 
       <!-- Server rows -->
-      <NuxtLink
+      <div
         v-for="server in paginatedServers"
         :key="server.id"
-        :to="`/servers/${server.id}`"
         class="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 items-center px-5 py-4 hover:bg-tp-surface3/50 transition-colors cursor-pointer"
+        @click="onRowClick($event, server)"
       >
         <!-- Server image placeholder -->
         <div class="w-12 h-12 rounded-xl bg-tp-surface3 flex items-center justify-center shrink-0">
@@ -330,7 +336,7 @@ onMounted(() => {
         </div>
 
         <!-- Quick actions -->
-        <div class="w-28 flex items-center justify-center gap-1 relative" @click.prevent.stop>
+        <div data-row-actions class="w-28 flex items-center justify-center gap-1 relative">
           <button
             class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
             title="Open server"
@@ -375,7 +381,7 @@ onMounted(() => {
             </button>
           </div>
         </div>
-      </NuxtLink>
+      </div>
 
       <!-- Pagination -->
       <div class="px-5 py-4 border-t border-tp-border/30 flex items-center justify-between">
