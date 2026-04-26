@@ -198,7 +198,7 @@ const expandedTalker = ref<string | null>(null)
         { label: 'Servers', value: `${runningCount}/${servers.length}`, icon: Activity, color: 'text-tp-primary', bg: 'bg-tp-primary/10' },
         { label: 'Avg CPU', value: totalCpu + '%', icon: Cpu, color: 'text-tp-warning', bg: 'bg-tp-warning/10' },
         { label: 'Inbound PPS', value: net?.current ? formatPps(net.current.pps_in) : '-', icon: TrendingUp, color: 'text-tp-success', bg: 'bg-tp-success/10' },
-        { label: 'Threat Level', value: net?.threats ? net.threats.level.toUpperCase() : '-', icon: Shield, color: net?.threats && net.threats.level !== 'clear' ? 'text-tp-danger' : 'text-tp-success', bg: net?.threats && net.threats.level !== 'clear' ? 'bg-tp-danger/10' : 'bg-tp-success/10' },
+        { label: 'Threat Level', value: net?.threats?.level ? net.threats.level.toUpperCase() : '-', icon: Shield, color: net?.threats?.level && net.threats.level !== 'clear' ? 'text-tp-danger' : 'text-tp-success', bg: net?.threats?.level && net.threats.level !== 'clear' ? 'bg-tp-danger/10' : 'bg-tp-success/10' },
       ]" :key="stat.label"
         class="bg-tp-surface rounded-xl p-4 flex items-center gap-4">
         <div :class="['w-10 h-10 rounded-xl flex items-center justify-center shrink-0', stat.bg]">
@@ -286,7 +286,7 @@ const expandedTalker = ref<string | null>(null)
             @click="networkTab = tab.key as any">
             <component :is="tab.icon" class="w-3.5 h-3.5" />
             {{ tab.label }}
-            <span v-if="tab.key === 'threats' && net && net.threats.level !== 'clear'"
+            <span v-if="tab.key === 'threats' && net?.threats?.level && net.threats.level !== 'clear'"
               :class="['ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase', threatColor(net.threats.level).badge]">
               {{ net.threats.level }}
             </span>
@@ -397,6 +397,10 @@ const expandedTalker = ref<string | null>(null)
           <ShieldAlert class="w-10 h-10 text-tp-muted mx-auto mb-3" />
           <p class="text-tp-muted text-sm">Waiting for network monitor...</p>
         </div>
+        <div v-else-if="!net.threats" class="p-12 text-center">
+          <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
+          <p class="text-tp-muted text-sm">Threat detection not available on this node.</p>
+        </div>
         <div v-else>
           <!-- Threat level banner -->
           <div :class="['px-5 py-3 border-b border-tp-border flex items-center justify-between', threatColor(net.threats.level).bg]">
@@ -410,7 +414,7 @@ const expandedTalker = ref<string | null>(null)
                   {{ net.threats.level === 'clear' ? 'No Threats Detected' : `Threat Level: ${net.threats.level.toUpperCase()}` }}
                 </p>
                 <p class="text-tp-muted text-xs">
-                  {{ formatPps(net.current.pps_in) }} PPS inbound | {{ net.current.total_connections }} game connections | {{ net.threats.top_talkers.length }} tracked IPs
+                  {{ formatPps(net.current.pps_in) }} PPS inbound | {{ net.current.total_connections }} game connections | {{ net.threats.top_talkers?.length ?? 0 }} tracked IPs
                 </p>
               </div>
             </div>
