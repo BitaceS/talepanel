@@ -62,7 +62,7 @@ func NewNodeService(db *pgxpool.Pool) *NodeService {
 // ListNodes returns all registered nodes ordered by name.
 func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 	const q = `
-		SELECT id, name, fqdn, port, location, cert_thumbprint,
+		SELECT id, name, fqdn, public_address, port, location, cert_thumbprint,
 		       total_cpu, total_ram_mb, total_disk_mb, max_servers,
 		       status, last_heartbeat, created_at, metadata
 		FROM nodes
@@ -79,7 +79,7 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 	for rows.Next() {
 		n := &models.Node{}
 		if err := rows.Scan(
-			&n.ID, &n.Name, &n.FQDN, &n.Port, &n.Location, &n.CertThumbprint,
+			&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 			&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 			&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
 		); err != nil {
@@ -99,7 +99,7 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 // GetNode returns a single node by ID.
 func (s *NodeService) GetNode(ctx context.Context, nodeID uuid.UUID) (*models.Node, error) {
 	const q = `
-		SELECT id, name, fqdn, port, location, cert_thumbprint,
+		SELECT id, name, fqdn, public_address, port, location, cert_thumbprint,
 		       total_cpu, total_ram_mb, total_disk_mb, max_servers,
 		       status, last_heartbeat, created_at, metadata
 		FROM nodes
@@ -108,7 +108,7 @@ func (s *NodeService) GetNode(ctx context.Context, nodeID uuid.UUID) (*models.No
 
 	n := &models.Node{}
 	err := s.db.QueryRow(ctx, q, nodeID).Scan(
-		&n.ID, &n.Name, &n.FQDN, &n.Port, &n.Location, &n.CertThumbprint,
+		&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 		&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 		&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
 	)
@@ -144,7 +144,7 @@ func (s *NodeService) RegisterNode(ctx context.Context, req RegisterNodeRequest)
 			$7, $8, $9, $10,
 			'offline', $11, NOW()
 		)
-		RETURNING id, name, fqdn, port, location, cert_thumbprint,
+		RETURNING id, name, fqdn, public_address, port, location, cert_thumbprint,
 		          total_cpu, total_ram_mb, total_disk_mb, max_servers,
 		          status, last_heartbeat, created_at, metadata
 	`
@@ -155,7 +155,7 @@ func (s *NodeService) RegisterNode(ctx context.Context, req RegisterNodeRequest)
 		req.TotalCPU, req.TotalRAMMB, req.TotalDiskMB, req.MaxServers,
 		tokenHash,
 	).Scan(
-		&n.ID, &n.Name, &n.FQDN, &n.Port, &n.Location, &n.CertThumbprint,
+		&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 		&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 		&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
 	)
@@ -462,14 +462,15 @@ func (s *NodeService) GetClusterStats(ctx context.Context) (*ClusterStats, error
 
 // UpdateNodeRequest carries the patchable fields for a node.
 type UpdateNodeRequest struct {
-	Name       *string `json:"name"`
-	Location   *string `json:"location"`
-	MaxServers *int    `json:"max_servers"`
+	Name          *string `json:"name"`
+	Location      *string `json:"location"`
+	MaxServers    *int    `json:"max_servers"`
+	PublicAddress *string `json:"public_address"`
 }
 
 // UpdateNode applies partial updates to a node and returns the updated record.
 func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req UpdateNodeRequest) (*models.Node, error) {
-	if req.Name == nil && req.Location == nil && req.MaxServers == nil {
+	if req.Name == nil && req.Location == nil && req.MaxServers == nil && req.PublicAddress == nil {
 		return s.GetNode(ctx, nodeID)
 	}
 
@@ -490,6 +491,11 @@ func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req Upda
 	if req.MaxServers != nil {
 		setClauses = append(setClauses, fmt.Sprintf("max_servers = $%d", argIdx))
 		args = append(args, *req.MaxServers)
+		argIdx++
+	}
+	if req.PublicAddress != nil {
+		setClauses = append(setClauses, fmt.Sprintf("public_address = NULLIF($%d, '')", argIdx))
+		args = append(args, *req.PublicAddress)
 		argIdx++
 	}
 

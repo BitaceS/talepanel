@@ -77,6 +77,7 @@ type Node struct {
 	ID              uuid.UUID       `json:"id"`
 	Name            string          `json:"name"`
 	FQDN            string          `json:"fqdn"`
+	PublicAddress   *string         `json:"public_address,omitempty"`
 	Port            int             `json:"port"`
 	Location        *string         `json:"location,omitempty"`
 	CertThumbprint  *string         `json:"cert_thumbprint,omitempty"`
