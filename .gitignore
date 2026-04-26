@@ -96,3 +96,4 @@ srv/
 # ─────────────────────────────────────────────
 CLAUDE.md
 docs/superpowers/
+.claude/
