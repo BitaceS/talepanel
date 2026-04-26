@@ -126,6 +126,67 @@ function ramPercent(server: ServerType): number {
   if (!server.ram_limit_mb) return 0
   return Math.min(100, Math.round(Math.random() * 80))
 }
+
+// Row action handlers
+const router = useRouter()
+const actionPending = ref<string | null>(null)
+const openMenuId = ref<string | null>(null)
+
+async function togglePower(server: ServerType) {
+  if (actionPending.value) return
+  actionPending.value = server.id
+  try {
+    if (server.status === 'running') {
+      await serversStore.stopServer(server.id)
+    } else {
+      await serversStore.startServer(server.id)
+    }
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    serversStore.error = e.data?.error ?? e.message ?? 'Action failed'
+  } finally {
+    actionPending.value = null
+  }
+}
+
+function openSettings(server: ServerType) {
+  router.push(`/servers/${server.id}`)
+}
+
+function toggleMenu(id: string) {
+  openMenuId.value = openMenuId.value === id ? null : id
+}
+
+async function confirmDelete(server: ServerType) {
+  openMenuId.value = null
+  if (!confirm(`Delete server "${server.name}"? This cannot be undone.`)) return
+  actionPending.value = server.id
+  try {
+    await serversStore.deleteServer(server.id)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    serversStore.error = e.data?.error ?? e.message ?? 'Delete failed'
+  } finally {
+    actionPending.value = null
+  }
+}
+
+async function restartFromMenu(server: ServerType) {
+  openMenuId.value = null
+  actionPending.value = server.id
+  try {
+    await serversStore.restartServer(server.id)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    serversStore.error = e.data?.error ?? e.message ?? 'Restart failed'
+  } finally {
+    actionPending.value = null
+  }
+}
+
+if (process.client) {
+  window.addEventListener('click', () => { openMenuId.value = null })
+}
 </script>
 
 <template>
@@ -269,16 +330,50 @@ function ramPercent(server: ServerType): number {
         </div>
 
         <!-- Quick actions -->
-        <div class="w-28 flex items-center justify-center gap-1" @click.prevent.stop>
-          <button class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors">
+        <div class="w-28 flex items-center justify-center gap-1 relative" @click.prevent.stop>
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
+            title="Open server"
+            @click="openSettings(server)"
+          >
             <span class="material-symbols-outlined text-base">settings</span>
           </button>
-          <button class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors">
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
+            :disabled="actionPending === server.id || ['starting','stopping','installing'].includes(server.status)"
+            :title="server.status === 'running' ? 'Stop' : 'Start'"
+            @click="togglePower(server)"
+          >
             <span class="material-symbols-outlined text-base">{{ server.status === 'running' ? 'stop' : 'play_arrow' }}</span>
           </button>
-          <button class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors">
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
+            :disabled="actionPending === server.id"
+            title="More"
+            @click.stop="toggleMenu(server.id)"
+          >
             <span class="material-symbols-outlined text-base">more_vert</span>
           </button>
+          <div
+            v-if="openMenuId === server.id"
+            class="absolute right-0 top-9 z-20 w-40 rounded-xl bg-tp-surface3 shadow-lg ring-1 ring-tp-border/40 py-1 text-left"
+          >
+            <button
+              class="w-full px-3 py-2 text-xs text-tp-text hover:bg-tp-surface text-left disabled:opacity-40"
+              :disabled="server.status !== 'running'"
+              @click="restartFromMenu(server)"
+            >
+              <span class="material-symbols-outlined text-sm align-middle mr-1.5">restart_alt</span>
+              Restart
+            </button>
+            <button
+              class="w-full px-3 py-2 text-xs text-tp-error hover:bg-tp-surface text-left"
+              @click="confirmDelete(server)"
+            >
+              <span class="material-symbols-outlined text-sm align-middle mr-1.5">delete</span>
+              Delete
+            </button>
+          </div>
         </div>
       </NuxtLink>
 
