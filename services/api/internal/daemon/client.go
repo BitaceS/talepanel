@@ -175,20 +175,16 @@ func (c *Client) GetServerMetrics(ctx context.Context, serverID string) (*Server
 	return &result, nil
 }
 
-// NetworkStats is returned by GET /network-stats
-type NetworkStats struct {
-	Interfaces      json.RawMessage `json:"interfaces"`
-	Connections     json.RawMessage `json:"connections"`
-	GamePortSummary json.RawMessage `json:"game_port_summary"`
-}
-
 // GetNetworkStats retrieves network traffic stats from the daemon.
-func (c *Client) GetNetworkStats(ctx context.Context) (*NetworkStats, error) {
-	var result NetworkStats
+// Returns the raw daemon JSON so all fields (current, averages, threats,
+// history, mitigation, etc.) pass through to the panel without a struct
+// definition that has to be kept in sync with the daemon.
+func (c *Client) GetNetworkStats(ctx context.Context) (json.RawMessage, error) {
+	var result json.RawMessage
 	if err := c.get(ctx, "/network-stats", &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return result, nil
 }
 
 // Health checks whether the daemon is reachable and returns its version info.
