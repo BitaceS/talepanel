@@ -320,7 +320,7 @@ func (h *NodeHandler) GetNetworkStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	c.Data(http.StatusOK, "application/json", []byte(stats))
 }
 
 // ─── GetNodeMetrics ───────────────────────────────────────────────────────────
