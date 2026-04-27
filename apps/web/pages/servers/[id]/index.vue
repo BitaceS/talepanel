@@ -2074,39 +2074,59 @@ const sidebarMods = computed(() => {
     </UiModal>
 
     <!-- Hytale OAuth device-code prompt -->
-    <UiModal :open="showHytaleAuthModal" title="Authenticate with Hytale" size="md" @close="hytaleAuthDismissed = true">
+    <UiModal :open="showHytaleAuthModal" :title="hytaleAuthCode ? 'Link your Hytale account' : 'Authenticate with Hytale'" size="md" @close="hytaleAuthDismissed = true">
       <p class="text-tp-text text-sm mb-4">
-        The Hytale server needs you to sign in with your Hytale account so it
-        can issue server tokens and accept multiplayer connections.
+        The server is requesting authorization from your Hytale account.
+        Approve it once and the server keeps its token.
       </p>
-      <ol class="list-decimal list-inside text-tp-muted text-sm space-y-2 mb-4">
-        <li>Open the authentication URL below in a browser.</li>
-        <li>Sign in with the Hytale account that owns the game.</li>
-        <li>Approve the request — the server picks up the token automatically.</li>
-      </ol>
 
-      <a
-        :href="hytaleAuthUrl"
-        target="_blank"
-        rel="noopener"
-        class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-4 hover:bg-tp-primary/90 transition-colors break-all"
-      >Open Hytale authentication page →</a>
-
-      <div v-if="hytaleAuthCode" class="bg-tp-surface3 rounded-xl px-4 py-3 mb-2">
-        <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-1">Device code</div>
-        <div class="flex items-center justify-between gap-3">
-          <code class="font-mono text-tp-text text-lg tracking-wider">{{ hytaleAuthCode }}</code>
-          <button
-            class="inline-flex items-center gap-1.5 text-xs text-tp-muted hover:text-tp-text transition-colors"
-            @click="copyHytaleAuthCode"
-          >
-            <Copy class="w-3.5 h-3.5" /> Copy
-          </button>
+      <template v-if="hytaleAuthCode">
+        <div class="bg-tp-surface3 rounded-xl px-4 py-4 mb-4">
+          <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-2">Your code</div>
+          <div class="flex items-center justify-between gap-3">
+            <code class="font-mono text-tp-text text-2xl tracking-[0.3em]">{{ hytaleAuthCode }}</code>
+            <button
+              class="inline-flex items-center gap-1.5 text-xs text-tp-muted hover:text-tp-text transition-colors"
+              @click="copyHytaleAuthCode"
+            >
+              <Copy class="w-3.5 h-3.5" /> Copy
+            </button>
+          </div>
         </div>
-      </div>
-      <p class="text-tp-outline text-xs">
-        URL: <span class="break-all">{{ hytaleAuthUrl }}</span>
-      </p>
+
+        <a
+          :href="hytaleAuthUrl"
+          target="_blank"
+          rel="noopener"
+          class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-3 hover:bg-tp-primary/90 transition-colors"
+        >Open verification page →</a>
+
+        <p class="text-tp-muted text-xs mb-1">
+          The link above pre-fills the code. If it doesn't, go to
+          <span class="text-tp-text">oauth.accounts.hytale.com/oauth2/device/verify</span>
+          and enter <code class="font-mono text-tp-text">{{ hytaleAuthCode }}</code> manually.
+        </p>
+        <p class="text-tp-outline text-xs">
+          Sign in, approve, and the server picks the token up automatically.
+        </p>
+      </template>
+
+      <template v-else>
+        <ol class="list-decimal list-inside text-tp-muted text-sm space-y-2 mb-4">
+          <li>Open the authentication URL below.</li>
+          <li>Sign in with the Hytale account that owns the game.</li>
+          <li>Approve the request — the server picks up the token automatically.</li>
+        </ol>
+        <a
+          :href="hytaleAuthUrl"
+          target="_blank"
+          rel="noopener"
+          class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-4 hover:bg-tp-primary/90 transition-colors break-all"
+        >Open Hytale authentication page →</a>
+        <p class="text-tp-outline text-xs">
+          URL: <span class="break-all">{{ hytaleAuthUrl }}</span>
+        </p>
+      </template>
 
       <template #footer>
         <UiButton variant="ghost" @click="hytaleAuthDismissed = true">Dismiss</UiButton>
