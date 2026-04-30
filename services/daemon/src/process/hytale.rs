@@ -223,7 +223,7 @@ impl HytaleServerProcess {
             c.arg("-jar").arg(&jar_path);
 
             // Hytale server arguments (matching official Pterodactyl egg format)
-            c.arg("--auth-mode").arg("offline");
+            c.arg("--auth-mode").arg("AUTHENTICATED");
             c.arg("--assets").arg("Assets.zip");
             c.arg("--bind").arg(format!("0.0.0.0:{}", self.config.port));
 
