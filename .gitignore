@@ -2,6 +2,10 @@
 # TalePanel monorepo .gitignore
 # ─────────────────────────────────────────────
 
+# Private TalePanel-internal tooling — not for public consumption
+services/discord-bot/
+scripts/discord-*.sh
+
 # Environment files — NEVER commit these
 .env
 .env.local
