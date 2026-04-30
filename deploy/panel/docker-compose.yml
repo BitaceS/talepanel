@@ -168,3 +168,21 @@ services:
       NUXT_PUBLIC_API_BASE: "/api/v1"
     networks:
       - talepanel
+
+  discord-bot:
+    build:
+      context: ../../services/discord-bot
+      dockerfile: Dockerfile
+    container_name: talepanel-discord-bot
+    restart: unless-stopped
+    environment:
+      PORT: "3030"
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      CH_RELEASES: ${DISCORD_CH_RELEASES:-}
+      CH_PULL_REQUESTS: ${DISCORD_CH_PULL_REQUESTS:-}
+      CH_COMMITS: ${DISCORD_CH_COMMITS:-}
+      CH_BUG_REPORTS: ${DISCORD_CH_BUG_REPORTS:-}
+    networks:
+      - talepanel
+    profiles: ["discord"]
