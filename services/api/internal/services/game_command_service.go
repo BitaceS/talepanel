@@ -114,15 +114,13 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 		{ServerID: sid, Category: "Server Management", Name: "Stop Server", Description: "Gracefully shut down the server", CommandTemplate: "stop", Icon: "power", SortOrder: 2, IsDefault: true, MinRole: models.RoleAdmin, Params: json.RawMessage("[]")},
 
 		// ── Player Management ─────────────────────────────────
-		{ServerID: sid, Category: "Player Management", Name: "Kick Player", Description: "Remove a player from the server", CommandTemplate: "kick {player} {reason}", Icon: "user-x", SortOrder: 1, IsDefault: true, MinRole: models.RoleModerator,
+		{ServerID: sid, Category: "Player Management", Name: "Kick Player", Description: "Remove a player from the server", CommandTemplate: "kick {player}", Icon: "user-x", SortOrder: 1, IsDefault: true, MinRole: models.RoleModerator,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
-				models.CommandParam{Name: "reason", Type: "string", Required: false, Placeholder: "Reason (optional)"},
 			)},
-		{ServerID: sid, Category: "Player Management", Name: "Ban Player", Description: "Permanently ban a player", CommandTemplate: "ban {player} {reason}", Icon: "shield-off", SortOrder: 2, IsDefault: true, MinRole: models.RoleModerator,
+		{ServerID: sid, Category: "Player Management", Name: "Ban Player", Description: "Permanently ban a player", CommandTemplate: "ban {player}", Icon: "shield-off", SortOrder: 2, IsDefault: true, MinRole: models.RoleModerator,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
-				models.CommandParam{Name: "reason", Type: "string", Required: false, Placeholder: "Reason (optional)"},
 			)},
 		{ServerID: sid, Category: "Player Management", Name: "Unban Player", Description: "Remove a player's ban", CommandTemplate: "unban {player}", Icon: "shield", SortOrder: 3, IsDefault: true, MinRole: models.RoleModerator,
 			Params: paramJSON(
@@ -136,7 +134,11 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 			)},
-		{ServerID: sid, Category: "Player Management", Name: "Op Player", Description: "Grant operator privileges", CommandTemplate: "op {player}", Icon: "star", SortOrder: 6, IsDefault: true, MinRole: models.RoleAdmin,
+		{ServerID: sid, Category: "Player Management", Name: "Op Player", Description: "Grant operator privileges", CommandTemplate: "op add {player}", Icon: "star", SortOrder: 6, IsDefault: true, MinRole: models.RoleAdmin,
+			Params: paramJSON(
+				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
+			)},
+		{ServerID: sid, Category: "Player Management", Name: "Deop Player", Description: "Revoke operator privileges", CommandTemplate: "op remove {player}", Icon: "star-off", SortOrder: 7, IsDefault: true, MinRole: models.RoleAdmin,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 			)},

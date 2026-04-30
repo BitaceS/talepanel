@@ -211,9 +211,9 @@ func (s *PlayerService) SetOp(ctx context.Context, serverID, playerID uuid.UUID,
 	}
 
 	// 3. Send daemon command (best-effort).
-	cmd := "op " + username
+	cmd := "op add " + username
 	if !op {
-		cmd = "deop " + username
+		cmd = "op remove " + username
 	}
 	payload, _ := json.Marshal(map[string]any{"cmd": cmd})
 	if _, err := s.db.Exec(ctx, `
