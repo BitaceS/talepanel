@@ -2,10 +2,6 @@
 # TalePanel monorepo .gitignore
 # ─────────────────────────────────────────────
 
-# Private TalePanel-internal tooling — not for public consumption
-services/discord-bot/
-scripts/discord-*.sh
-
 # Environment files — NEVER commit these
 .env
 .env.local
@@ -95,9 +91,3 @@ certs/
 srv/
 .worktrees/
 
-# ─────────────────────────────────────────────
-# Internal dev docs (not for public repo)
-# ─────────────────────────────────────────────
-CLAUDE.md
-docs/superpowers/
-.claude/
