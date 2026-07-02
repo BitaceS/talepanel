@@ -39,6 +39,12 @@ type Config struct {
 	// CORS
 	CORSOrigins []string
 
+	// TrustedProxies is the list of proxy CIDRs/IPs whose X-Forwarded-For /
+	// X-Real-IP headers may be trusted for client-IP resolution. Empty means
+	// trust none — the direct connection address is used, so a client cannot
+	// spoof its IP to evade rate limiting or poison audit logs.
+	TrustedProxies []string
+
 	// MinIO
 	MinIOEndpoint  string
 	MinIOAccessKey string
@@ -175,6 +181,16 @@ func Load() (*Config, error) {
 			trimmed := strings.TrimSpace(p)
 			if trimmed != "" {
 				cfg.CORSOrigins = append(cfg.CORSOrigins, trimmed)
+			}
+		}
+	}
+
+	// TRUSTED_PROXIES — optional, comma-separated proxy IPs/CIDRs.
+	if tpRaw := os.Getenv("TRUSTED_PROXIES"); tpRaw != "" {
+		for p := range strings.SplitSeq(tpRaw, ",") {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				cfg.TrustedProxies = append(cfg.TrustedProxies, trimmed)
 			}
 		}
 	}

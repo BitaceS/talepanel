@@ -571,6 +571,38 @@ func (h *ServerHandler) GetMetrics(c *gin.Context) {
 
 // ─── Daemon Callbacks ─────────────────────────────────────────────────────────
 
+// daemonOwnsServer verifies that the node authenticated by DaemonNodeAuth
+// actually hosts the target server. It aborts the request with 403 and returns
+// false on any mismatch, so a valid node token can only push data for its own
+// servers (prevents cross-node status/log forgery). Callers must return early
+// when it returns false.
+func (h *ServerHandler) daemonOwnsServer(c *gin.Context, serverID uuid.UUID) bool {
+	nodeIDStr, ok := middleware.GetDaemonNodeID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "node authentication required"})
+		return false
+	}
+	nodeID, err := uuid.Parse(nodeIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid node identity"})
+		return false
+	}
+	owns, err := h.svc.ServerBelongsToNode(c.Request.Context(), serverID, nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ownership check failed"})
+		return false
+	}
+	if !owns {
+		h.log.Warn("daemon callback for server on another node rejected",
+			zap.String("server_id", serverID.String()),
+			zap.String("node_id", nodeID.String()),
+		)
+		c.JSON(http.StatusForbidden, gin.H{"error": "server not hosted on this node"})
+		return false
+	}
+	return true
+}
+
 // DaemonStatusUpdate handles POST /servers/:id/daemon/status.
 // Called by TaleDaemon nodes to push lifecycle status changes (starting →
 // running, stopping → stopped, etc.) back to the control-plane database.
@@ -578,6 +610,9 @@ func (h *ServerHandler) GetMetrics(c *gin.Context) {
 func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {
+		return
+	}
+	if !h.daemonOwnsServer(c, serverID) {
 		return
 	}
 
@@ -630,6 +665,9 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 func (h *ServerHandler) DaemonLogsIngest(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {
+		return
+	}
+	if !h.daemonOwnsServer(c, serverID) {
 		return
 	}
 

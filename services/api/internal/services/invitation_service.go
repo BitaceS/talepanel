@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ var (
 	ErrInvitationNotFound = errors.New("invitation not found")
 	ErrInvitationExpired  = errors.New("invitation has expired")
 	ErrInvitationUsed     = errors.New("invitation already used or revoked")
+	ErrInvitationForbidden = errors.New("invitation was issued to a different account")
 )
 
 // InvitationService handles server invitations.
@@ -120,11 +122,18 @@ func (s *InvitationService) ListMyInvitations(ctx context.Context, email string)
 	return invs, rows.Err()
 }
 
-// AcceptInvitation accepts an invitation by token and adds the user as a server member.
-func (s *InvitationService) AcceptInvitation(ctx context.Context, token string, userID uuid.UUID) error {
+// AcceptInvitation accepts an invitation by token and adds the user as a server
+// member. userEmail is the authenticated caller's email; it must match the
+// invitation's invitee_email so a user cannot redeem an invitation addressed to
+// someone else (the token alone is not sufficient authorization).
+func (s *InvitationService) AcceptInvitation(ctx context.Context, token string, userID uuid.UUID, userEmail string) error {
 	inv, err := s.findByToken(ctx, token)
 	if err != nil {
 		return err
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(inv.InviteeEmail), strings.TrimSpace(userEmail)) {
+		return ErrInvitationForbidden
 	}
 
 	if inv.Status != "pending" {

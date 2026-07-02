@@ -4,18 +4,21 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/services"
 	"go.uber.org/zap"
 )
 
 // PluginHandler handles daemon-reported plugin detection.
 type PluginHandler struct {
-	modSvc *services.ModService
-	log    *zap.Logger
+	modSvc    *services.ModService
+	serverSvc *services.ServerService
+	log       *zap.Logger
 }
 
-func NewPluginHandler(modSvc *services.ModService, log *zap.Logger) *PluginHandler {
-	return &PluginHandler{modSvc: modSvc, log: log}
+func NewPluginHandler(modSvc *services.ModService, serverSvc *services.ServerService, log *zap.Logger) *PluginHandler {
+	return &PluginHandler{modSvc: modSvc, serverSvc: serverSvc, log: log}
 }
 
 // DaemonPluginReport handles POST /servers/:id/daemon/plugins.
@@ -23,6 +26,28 @@ func NewPluginHandler(modSvc *services.ModService, log *zap.Logger) *PluginHandl
 func (h *PluginHandler) DaemonPluginReport(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {
+		return
+	}
+
+	// Bind the authenticated node to the target server so a node cannot forge
+	// the plugin inventory of servers hosted elsewhere.
+	nodeIDStr, ok := middleware.GetDaemonNodeID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "node authentication required"})
+		return
+	}
+	nodeID, err := uuid.Parse(nodeIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid node identity"})
+		return
+	}
+	owns, err := h.serverSvc.ServerBelongsToNode(c.Request.Context(), serverID, nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ownership check failed"})
+		return
+	}
+	if !owns {
+		c.JSON(http.StatusForbidden, gin.H{"error": "server not hosted on this node"})
 		return
 	}
 

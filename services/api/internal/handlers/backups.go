@@ -12,24 +12,50 @@ import (
 
 type BackupHandler struct {
 	backupSvc *services.BackupService
+	permSvc   *services.PermissionService
 	log       *zap.Logger
 }
 
-func NewBackupHandler(backupSvc *services.BackupService, log *zap.Logger) *BackupHandler {
-	return &BackupHandler{backupSvc: backupSvc, log: log}
+func NewBackupHandler(backupSvc *services.BackupService, permSvc *services.PermissionService, log *zap.Logger) *BackupHandler {
+	return &BackupHandler{backupSvc: backupSvc, permSvc: permSvc, log: log}
+}
+
+// requireServerPerm checks that the current user holds perm on serverID and,
+// if not, writes the appropriate error and returns false. These handlers sit on
+// /backups and /backup-schedules routes keyed by backup/schedule IDs (not
+// :id), so router-level RequireServerPermission cannot cover them — the check
+// must happen here against the owning server.
+func (h *BackupHandler) requireServerPerm(c *gin.Context, serverID uuid.UUID, perm string) bool {
+	user := mustUser(c)
+	ok, err := h.permSvc.HasServerPermission(c.Request.Context(), user, serverID, perm)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+		return false
+	}
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+		return false
+	}
+	return true
 }
 
 func (h *BackupHandler) ListBackups(c *gin.Context) {
-	var serverID *uuid.UUID
-	if sid := c.Query("server_id"); sid != "" {
-		parsed, err := uuid.Parse(sid)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid server_id"})
-			return
-		}
-		serverID = &parsed
+	// server_id is mandatory: an unscoped list would return every tenant's
+	// backups. The caller must have view access to that specific server.
+	sid := c.Query("server_id")
+	if sid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "server_id is required"})
+		return
 	}
-	backups, err := h.backupSvc.ListBackups(c.Request.Context(), serverID)
+	serverID, err := uuid.Parse(sid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid server_id"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "server.view") {
+		return
+	}
+	backups, err := h.backupSvc.ListBackups(c.Request.Context(), &serverID)
 	if err != nil {
 		h.log.Error("failed to list backups", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not list backups"})
@@ -47,6 +73,9 @@ func (h *BackupHandler) CreateBackup(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !h.requireServerPerm(c, req.ServerID, "backup.create") {
+		return
+	}
 	backup, err := h.backupSvc.CreateBackup(c.Request.Context(), req)
 	if err != nil {
 		h.log.Error("failed to create backup", zap.Error(err))
@@ -61,6 +90,14 @@ func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 	if !ok {
 		return
 	}
+	serverID, err := h.backupSvc.BackupServerID(c.Request.Context(), backupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "backup not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "backup.create") {
+		return
+	}
 	if err := h.backupSvc.DeleteBackup(c.Request.Context(), backupID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,6 +108,14 @@ func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 func (h *BackupHandler) RestoreBackup(c *gin.Context) {
 	backupID, ok := parseUUID(c, "backupId")
 	if !ok {
+		return
+	}
+	serverID, err := h.backupSvc.BackupServerID(c.Request.Context(), backupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "backup not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "backup.restore") {
 		return
 	}
 	backup, err := h.backupSvc.RestoreBackup(c.Request.Context(), backupID)
@@ -106,6 +151,9 @@ func (h *BackupHandler) CreateSchedule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !h.requireServerPerm(c, req.ServerID, "backup.create") {
+		return
+	}
 	schedule, err := h.backupSvc.CreateSchedule(c.Request.Context(), req)
 	if err != nil {
 		h.log.Error("failed to create schedule", zap.Error(err))
@@ -118,6 +166,14 @@ func (h *BackupHandler) CreateSchedule(c *gin.Context) {
 func (h *BackupHandler) ToggleSchedule(c *gin.Context) {
 	scheduleID, ok := parseUUID(c, "scheduleId")
 	if !ok {
+		return
+	}
+	serverID, err := h.backupSvc.ScheduleServerID(c.Request.Context(), scheduleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "backup.create") {
 		return
 	}
 	var req struct {
@@ -137,6 +193,14 @@ func (h *BackupHandler) ToggleSchedule(c *gin.Context) {
 func (h *BackupHandler) DeleteSchedule(c *gin.Context) {
 	scheduleID, ok := parseUUID(c, "scheduleId")
 	if !ok {
+		return
+	}
+	serverID, err := h.backupSvc.ScheduleServerID(c.Request.Context(), scheduleID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "backup.create") {
 		return
 	}
 	if err := h.backupSvc.DeleteSchedule(c.Request.Context(), scheduleID); err != nil {
