@@ -35,6 +35,15 @@ func SetupRouter(
 
 	r := gin.New()
 
+	// Trust only explicitly configured proxies for X-Forwarded-For / X-Real-IP.
+	// With none configured this trusts no proxy, so ClientIP() returns the real
+	// peer address — a client cannot spoof its IP to bypass the per-IP rate
+	// limiter or poison audit logs. SetTrustedProxies only errors on malformed
+	// CIDRs; log and continue with Gin's safe internal default in that case.
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Warn("invalid TRUSTED_PROXIES, falling back to default", zap.Error(err))
+	}
+
 	// ── Global middleware ──────────────────────────────────────────────────────
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
@@ -91,14 +100,14 @@ func SetupRouter(
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)
 	playerH := handlers.NewPlayerHandler(playerSvc, log)
-	backupH := handlers.NewBackupHandler(backupSvc, log)
+	backupH := handlers.NewBackupHandler(backupSvc, permSvc, log)
 	alertH := handlers.NewAlertHandler(alertSvc, log)
 
 	// New handlers
 	profileH := handlers.NewProfileHandler(profileSvc, log)
 	invH := handlers.NewInvitationHandler(invSvc, log)
 	dbH := handlers.NewDatabaseHandler(dbSvc, log)
-	pluginH := handlers.NewPluginHandler(modSvc, log)
+	pluginH := handlers.NewPluginHandler(modSvc, serverSvc, log)
 
 	// ── Rate limiters ─────────────────────────────────────────────────────────
 	devMode := cfg.IsDevelopment()
@@ -156,79 +165,91 @@ func SetupRouter(
 		}
 	}
 
-	// Servers — requires user authentication, general rate limit
+	// Servers — requires user authentication, general rate limit.
+	//
+	// Every /servers/:id/* route is additionally guarded by
+	// RequireServerPermission, which enforces tenant isolation: the caller must
+	// be the server's owner, an explicit member with the mapped permission, or
+	// cluster staff (admin/owner). Without this, any authenticated user could
+	// act on any server by ID (IDOR). The permission passed to rsp() selects
+	// which action a non-owner member is allowed to perform.
+	rsp := func(perm string) gin.HandlerFunc {
+		return middleware.RequireServerPermission(permSvc, perm)
+	}
 	serverGroup := v1.Group("/servers")
 	serverGroup.Use(authRequired, generalLimiter)
 	{
+		// Collection routes have no :id and cannot be per-server scoped.
 		serverGroup.GET("", serverH.ListServers)
-		serverGroup.POST("", serverH.CreateServer)
-		serverGroup.GET("/:id", serverH.GetServer)
-		serverGroup.PATCH("/:id", serverH.UpdateServer)
-		serverGroup.DELETE("/:id", serverH.DeleteServer)
-		serverGroup.POST("/:id/start", serverH.StartServer)
-		serverGroup.POST("/:id/stop", serverH.StopServer)
-		serverGroup.POST("/:id/restart", serverH.RestartServer)
-		serverGroup.POST("/:id/kill", serverH.KillServer)
-		serverGroup.GET("/:id/metrics", serverH.GetMetrics)
-		serverGroup.GET("/:id/logs", serverH.GetLogs)
-		serverGroup.POST("/:id/console", serverH.SendConsoleCommand)
-		serverGroup.POST("/:id/migrate", serverH.MigrateServer)
+		serverGroup.POST("", middleware.RequirePermission(permSvc, "server.create"), serverH.CreateServer)
+
+		serverGroup.GET("/:id", rsp("server.view"), serverH.GetServer)
+		serverGroup.PATCH("/:id", rsp("server.manage"), serverH.UpdateServer)
+		serverGroup.DELETE("/:id", rsp("server.delete"), serverH.DeleteServer)
+		serverGroup.POST("/:id/start", rsp("server.start"), serverH.StartServer)
+		serverGroup.POST("/:id/stop", rsp("server.stop"), serverH.StopServer)
+		serverGroup.POST("/:id/restart", rsp("server.start"), serverH.RestartServer)
+		serverGroup.POST("/:id/kill", rsp("server.stop"), serverH.KillServer)
+		serverGroup.GET("/:id/metrics", rsp("server.view"), serverH.GetMetrics)
+		serverGroup.GET("/:id/logs", rsp("server.view"), serverH.GetLogs)
+		serverGroup.POST("/:id/console", rsp("server.console"), serverH.SendConsoleCommand)
+		serverGroup.POST("/:id/migrate", rsp("server.manage"), serverH.MigrateServer)
 
 		// File browser
-		serverGroup.GET("/:id/files", serverH.ListFiles)
-		serverGroup.GET("/:id/files/content", serverH.GetFileContent)
-		serverGroup.PUT("/:id/files/content", serverH.WriteFileContent)
-		serverGroup.DELETE("/:id/files", serverH.DeleteFile)
-		serverGroup.POST("/:id/files/directory", serverH.CreateDirectory)
-		serverGroup.POST("/:id/files/rename", serverH.RenameFile)
-		serverGroup.POST("/:id/files/upload", serverH.UploadFile)
-		serverGroup.GET("/:id/files/download", serverH.DownloadFile)
-		serverGroup.POST("/:id/files/extract", serverH.ExtractArchive)
-		serverGroup.POST("/:id/files/archive", serverH.CreateArchive)
+		serverGroup.GET("/:id/files", rsp("server.files"), serverH.ListFiles)
+		serverGroup.GET("/:id/files/content", rsp("server.files"), serverH.GetFileContent)
+		serverGroup.PUT("/:id/files/content", rsp("server.files"), serverH.WriteFileContent)
+		serverGroup.DELETE("/:id/files", rsp("server.files"), serverH.DeleteFile)
+		serverGroup.POST("/:id/files/directory", rsp("server.files"), serverH.CreateDirectory)
+		serverGroup.POST("/:id/files/rename", rsp("server.files"), serverH.RenameFile)
+		serverGroup.POST("/:id/files/upload", rsp("server.files"), serverH.UploadFile)
+		serverGroup.GET("/:id/files/download", rsp("server.files"), serverH.DownloadFile)
+		serverGroup.POST("/:id/files/extract", rsp("server.files"), serverH.ExtractArchive)
+		serverGroup.POST("/:id/files/archive", rsp("server.files"), serverH.CreateArchive)
 
-		serverGroup.GET("/:id/mods", modH.ListMods)
-		serverGroup.POST("/:id/mods/upload", modH.UploadMod)
-		serverGroup.POST("/:id/mods", modH.InstallMod)
-		serverGroup.DELETE("/:id/mods/:filename", modH.RemoveMod)
-		serverGroup.PATCH("/:id/mods/:filename/toggle", modH.ToggleMod)
-		serverGroup.PATCH("/:id/mods/:filename", modH.SwitchModVersion)
+		serverGroup.GET("/:id/mods", rsp("server.view"), modH.ListMods)
+		serverGroup.POST("/:id/mods/upload", rsp("mod.install"), modH.UploadMod)
+		serverGroup.POST("/:id/mods", rsp("mod.install"), modH.InstallMod)
+		serverGroup.DELETE("/:id/mods/:filename", rsp("mod.remove"), modH.RemoveMod)
+		serverGroup.PATCH("/:id/mods/:filename/toggle", rsp("mod.install"), modH.ToggleMod)
+		serverGroup.PATCH("/:id/mods/:filename", rsp("mod.install"), modH.SwitchModVersion)
 
 		// Game Control — predefined command templates
-		serverGroup.GET("/:id/game-commands", gameCmdH.ListGameCommands)
-		serverGroup.POST("/:id/game-commands", gameCmdH.CreateGameCommand)
-		serverGroup.POST("/:id/game-commands/execute", gameCmdH.ExecuteGameCommand)
-		serverGroup.DELETE("/:id/game-commands/:cmdId", gameCmdH.DeleteGameCommand)
+		serverGroup.GET("/:id/game-commands", rsp("server.view"), gameCmdH.ListGameCommands)
+		serverGroup.POST("/:id/game-commands", rsp("server.console"), gameCmdH.CreateGameCommand)
+		serverGroup.POST("/:id/game-commands/execute", rsp("server.console"), gameCmdH.ExecuteGameCommand)
+		serverGroup.DELETE("/:id/game-commands/:cmdId", rsp("server.console"), gameCmdH.DeleteGameCommand)
 
 		// Worlds
-		serverGroup.GET("/:id/worlds", worldH.ListWorlds)
-		serverGroup.POST("/:id/worlds", worldH.CreateWorld)
-		serverGroup.POST("/:id/worlds/:worldId/activate", worldH.SetActiveWorld)
-		serverGroup.DELETE("/:id/worlds/:worldId", worldH.DeleteWorld)
+		serverGroup.GET("/:id/worlds", rsp("server.view"), worldH.ListWorlds)
+		serverGroup.POST("/:id/worlds", rsp("server.manage"), worldH.CreateWorld)
+		serverGroup.POST("/:id/worlds/:worldId/activate", rsp("server.manage"), worldH.SetActiveWorld)
+		serverGroup.DELETE("/:id/worlds/:worldId", rsp("server.manage"), worldH.DeleteWorld)
 
 		// Players
-		serverGroup.GET("/:id/players", playerH.ListPlayers)
-		serverGroup.GET("/:id/players/:playerId", playerH.GetPlayer)
-		serverGroup.GET("/:id/players/:playerId/sessions", playerH.GetPlayerSessions)
-		serverGroup.POST("/:id/players/:playerId/ban", playerH.BanPlayer)
-		serverGroup.POST("/:id/players/:playerId/unban", playerH.UnbanPlayer)
-		serverGroup.POST("/:id/players/:playerId/kick", playerH.KickPlayer)
-		serverGroup.PATCH("/:id/players/:playerId/whitelist", playerH.SetWhitelist)
-		serverGroup.PATCH("/:id/players/:playerId/op", playerH.SetOp)
-		serverGroup.PATCH("/:id/players/:playerId/mute", playerH.SetMute)
+		serverGroup.GET("/:id/players", rsp("server.view"), playerH.ListPlayers)
+		serverGroup.GET("/:id/players/:playerId", rsp("server.view"), playerH.GetPlayer)
+		serverGroup.GET("/:id/players/:playerId/sessions", rsp("server.view"), playerH.GetPlayerSessions)
+		serverGroup.POST("/:id/players/:playerId/ban", rsp("player.ban"), playerH.BanPlayer)
+		serverGroup.POST("/:id/players/:playerId/unban", rsp("player.ban"), playerH.UnbanPlayer)
+		serverGroup.POST("/:id/players/:playerId/kick", rsp("player.ban"), playerH.KickPlayer)
+		serverGroup.PATCH("/:id/players/:playerId/whitelist", rsp("player.whitelist"), playerH.SetWhitelist)
+		serverGroup.PATCH("/:id/players/:playerId/op", rsp("player.ban"), playerH.SetOp)
+		serverGroup.PATCH("/:id/players/:playerId/mute", rsp("player.ban"), playerH.SetMute)
 
 		// Backup schedules (per-server)
-		serverGroup.GET("/:id/backup-schedules", backupH.ListSchedules)
+		serverGroup.GET("/:id/backup-schedules", rsp("server.view"), backupH.ListSchedules)
 
-		// Invitations (Phase 3)
-		serverGroup.POST("/:id/invitations", invH.CreateInvitation)
-		serverGroup.GET("/:id/invitations", invH.ListInvitations)
-		serverGroup.DELETE("/:id/invitations/:invId", invH.RevokeInvitation)
+		// Invitations (Phase 3) — managing members is a manage-level action.
+		serverGroup.POST("/:id/invitations", rsp("server.manage"), invH.CreateInvitation)
+		serverGroup.GET("/:id/invitations", rsp("server.manage"), invH.ListInvitations)
+		serverGroup.DELETE("/:id/invitations/:invId", rsp("server.manage"), invH.RevokeInvitation)
 
 		// Database (Phase 7)
-		serverGroup.GET("/:id/database", dbH.GetDatabase)
-		serverGroup.POST("/:id/database", dbH.CreateDatabase)
-		serverGroup.DELETE("/:id/database", dbH.DeleteDatabase)
-		serverGroup.POST("/:id/database/reset-password", dbH.ResetPassword)
+		serverGroup.GET("/:id/database", rsp("database.view"), dbH.GetDatabase)
+		serverGroup.POST("/:id/database", rsp("database.reset"), dbH.CreateDatabase)
+		serverGroup.DELETE("/:id/database", rsp("database.reset"), dbH.DeleteDatabase)
+		serverGroup.POST("/:id/database/reset-password", rsp("database.reset"), dbH.ResetPassword)
 	}
 
 	// Invitations — accept/decline by token, list my invitations

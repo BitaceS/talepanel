@@ -328,6 +328,22 @@ func (s *ServerService) GetServerStatus(ctx context.Context, serverID uuid.UUID)
 	return status, err
 }
 
+// ServerBelongsToNode reports whether the given server is hosted on the given
+// node. Daemon callbacks must call this so an authenticated node can only push
+// status/logs/plugin data for the servers it actually hosts — otherwise any
+// valid node token could forge state for servers on other nodes.
+func (s *ServerService) ServerBelongsToNode(ctx context.Context, serverID, nodeID uuid.UUID) (bool, error) {
+	var ok bool
+	err := s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND node_id = $2)`,
+		serverID, nodeID,
+	).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("checking server node ownership: %w", err)
+	}
+	return ok, nil
+}
+
 // ─── IngestLogs ───────────────────────────────────────────────────────────────
 
 // LogLineInput is one log line received from a daemon node.

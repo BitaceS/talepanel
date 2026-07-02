@@ -143,6 +143,10 @@ async fn poll_and_dispatch(
 
                 if data_path.is_empty() || filename.is_empty() || download_url.is_empty() {
                     CommandResult::err("install_mod payload missing required fields".to_string())
+                } else if !is_safe_mod_filename(&filename) {
+                    CommandResult::err(format!("install_mod: unsafe filename {filename}"))
+                } else if let Err(e) = validate_download_url(&download_url).await {
+                    CommandResult::err(format!("install_mod: {e}"))
                 } else {
                     match download_and_install_mod(&download_url, &data_path, &filename).await {
                         Ok(()) => {
@@ -163,6 +167,8 @@ async fn poll_and_dispatch(
 
                 if data_path.is_empty() || filename.is_empty() {
                     CommandResult::err("remove_mod payload missing required fields".to_string())
+                } else if !is_safe_mod_filename(&filename) {
+                    CommandResult::err(format!("remove_mod: unsafe filename {filename}"))
                 } else {
                     let path = format!("{data_path}/mods/{filename}");
                     match tokio::fs::remove_file(&path).await {
@@ -184,6 +190,8 @@ async fn poll_and_dispatch(
 
                 if data_path.is_empty() || filename.is_empty() {
                     CommandResult::err("enable_mod payload missing required fields".to_string())
+                } else if !is_safe_mod_filename(&filename) {
+                    CommandResult::err(format!("enable_mod: unsafe filename {filename}"))
                 } else {
                     let disabled = format!("{data_path}/mods/{filename}.disabled");
                     let enabled  = format!("{data_path}/mods/{filename}");
@@ -214,6 +222,8 @@ async fn poll_and_dispatch(
 
                 if data_path.is_empty() || filename.is_empty() {
                     CommandResult::err("disable_mod payload missing required fields".to_string())
+                } else if !is_safe_mod_filename(&filename) {
+                    CommandResult::err(format!("disable_mod: unsafe filename {filename}"))
                 } else {
                     let enabled  = format!("{data_path}/mods/{filename}");
                     let disabled = format!("{data_path}/mods/{filename}.disabled");
@@ -275,5 +285,70 @@ async fn download_and_install_mod(url: &str, data_path: &str, filename: &str) ->
     let mut file = tokio::fs::File::create(&file_path).await?;
     file.write_all(&bytes).await?;
 
+    Ok(())
+}
+
+/// Reject mod filenames that could escape the mods directory. Only a bare
+/// basename is permitted — no path separators, parent refs, or NUL bytes —
+/// so `{data_path}/mods/{filename}` cannot be steered elsewhere on the node.
+fn is_safe_mod_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && !name.contains('\0')
+}
+
+/// Returns true for addresses a mod download must never reach: loopback,
+/// private, link-local (incl. the 169.254.169.254 cloud-metadata endpoint),
+/// and unspecified ranges. Blocks SSRF into the node's internal network.
+fn is_disallowed_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.octets()[0] == 0
+        }
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+    }
+}
+
+/// Validate a mod download URL before fetching it. Requires https and resolves
+/// the host, rejecting any address inside the node's trust boundary. This is a
+/// best-effort SSRF guard (a rebinding attack could still race between this
+/// check and the fetch); pairing it with an allowlist is recommended.
+async fn validate_download_url(raw: &str) -> Result<(), String> {
+    let url = reqwest::Url::parse(raw).map_err(|e| format!("invalid url: {e}"))?;
+    if url.scheme() != "https" {
+        return Err("only https download URLs are allowed".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "url has no host".to_string())?
+        .to_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".internal") {
+        return Err("download host not allowed".to_string());
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let mut resolved_any = false;
+    match tokio::net::lookup_host((host.as_str(), port)).await {
+        Ok(addrs) => {
+            for addr in addrs {
+                resolved_any = true;
+                if is_disallowed_ip(&addr.ip()) {
+                    return Err("download host resolves to a disallowed address".to_string());
+                }
+            }
+        }
+        Err(e) => return Err(format!("could not resolve download host: {e}")),
+    }
+    if !resolved_any {
+        return Err("download host did not resolve".to_string());
+    }
     Ok(())
 }

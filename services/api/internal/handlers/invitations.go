@@ -85,10 +85,12 @@ func (h *InvitationHandler) AcceptInvitation(c *gin.Context) {
 	user := mustUser(c)
 	token := c.Param("token")
 
-	if err := h.invSvc.AcceptInvitation(c.Request.Context(), token, user.ID); err != nil {
+	if err := h.invSvc.AcceptInvitation(c.Request.Context(), token, user.ID, user.Email); err != nil {
 		switch {
 		case errors.Is(err, services.ErrInvitationNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found"})
+		case errors.Is(err, services.ErrInvitationForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "invitation was issued to a different account"})
 		case errors.Is(err, services.ErrInvitationExpired):
 			c.JSON(http.StatusGone, gin.H{"error": "invitation has expired"})
 		case errors.Is(err, services.ErrInvitationUsed):

@@ -30,6 +30,12 @@ const (
 	bcryptCost          = 12
 	accessTokenDuration = 15 * time.Minute
 	refreshTokenDuration = 7 * 24 * time.Hour
+
+	// dummyBcryptHash is a valid cost-12 bcrypt hash used only to equalize
+	// login timing when no user matches (see Login). It must remain a
+	// well-formed 60-char hash so CompareHashAndPassword actually stretches the
+	// key instead of failing fast.
+	dummyBcryptHash = "$2a$12$f1mD9Knlw9n3s9B83DNuuO7toV0p9pmMAuL9aFpM.Vv682gaCbeyO"
 )
 
 var (
@@ -182,19 +188,25 @@ func (s *AuthService) Login(ctx context.Context, email, password, ip, userAgent 
 	user, err := s.findUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Perform a dummy bcrypt comparison to resist timing attacks.
-			_ = bcrypt.CompareHashAndPassword([]byte("$2a$12$XXXXXX"), []byte(password))
+			// Compare against a real cost-12 hash so the no-user path spends the
+			// same ~180ms as a real bcrypt verify. A malformed/short hash would
+			// return instantly (ErrHashTooShort), leaking account existence via
+			// response timing.
+			_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(password))
 			return nil, ErrInvalidCreds
 		}
 		return nil, fmt.Errorf("finding user: %w", err)
 	}
 
-	if !user.IsActive {
-		return nil, ErrUserInactive
-	}
-
+	// Verify the password first. Only reveal a disabled-account status to a
+	// caller who already proved they know the password; a wrong password always
+	// yields the generic 401, so account status cannot be probed anonymously.
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, ErrInvalidCreds
+	}
+
+	if !user.IsActive {
+		return nil, ErrUserInactive
 	}
 
 	// TOTP gate — issue a short-lived partial token instead of full credentials.
@@ -455,8 +467,13 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, oldP
 	if err != nil {
 		return fmt.Errorf("hashing password: %w", err)
 	}
-	_, err = s.db.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, string(hash), userID)
-	return err
+	if _, err = s.db.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, string(hash), userID); err != nil {
+		return err
+	}
+	// Revoke all outstanding refresh sessions so a stolen/old token cannot
+	// outlive the password change (matches DeleteUser's behavior).
+	_, _ = s.db.Exec(ctx, `UPDATE sessions SET revoked = true WHERE user_id = $1`, userID)
+	return nil
 }
 
 // ─── Admin: ListUsers ────────────────────────────────────────────────────────

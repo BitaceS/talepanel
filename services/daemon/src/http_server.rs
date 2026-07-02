@@ -1035,23 +1035,43 @@ async fn extract_archive(
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
         let count = archive.len();
 
+        // Canonical base every extracted path must stay within. Guards against
+        // zip-slip: an entry name that is absolute (e.g. "/etc/cron.d/x") or
+        // uses ".." would otherwise escape the server directory and let a
+        // crafted archive write arbitrary files as the daemon user.
+        let base = extract_dir
+            .canonicalize()
+            .map_err(|e| format!("canonicalize base: {e}"))?;
+
         for i in 0..count {
             let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
-            let name = entry.name().to_string();
 
-            // Security: reject entries with path traversal
-            if name.contains("..") {
-                continue;
+            // Use the zip crate's own sanitized name, which strips absolute
+            // prefixes and drops any component that would traverse upward.
+            let sanitized = match entry.enclosed_name() {
+                Some(p) => p.to_path_buf(),
+                None => continue, // unsafe/absolute/traversing entry — skip
+            };
+
+            let out_path = base.join(&sanitized);
+
+            // Defense in depth: confirm the resolved parent is inside base.
+            let check_dir = if entry.is_dir() {
+                out_path.clone()
+            } else {
+                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
+            };
+            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
+            let real_dir = check_dir
+                .canonicalize()
+                .map_err(|e| format!("canonicalize entry: {e}"))?;
+            if !real_dir.starts_with(&base) {
+                continue; // escapes the sandbox — skip
             }
-
-            let out_path = extract_dir.join(&name);
 
             if entry.is_dir() {
                 std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
             } else {
-                if let Some(parent) = out_path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| format!("mkdir parent: {e}"))?;
-                }
                 let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
                 std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
             }

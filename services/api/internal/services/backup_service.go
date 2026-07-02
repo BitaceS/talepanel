@@ -103,6 +103,26 @@ func (s *BackupService) CreateBackup(ctx context.Context, req CreateBackupReques
 	return b, nil
 }
 
+// BackupServerID returns the server a backup belongs to, for ownership checks.
+func (s *BackupService) BackupServerID(ctx context.Context, backupID uuid.UUID) (uuid.UUID, error) {
+	var sid uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT server_id FROM backups WHERE id = $1`, backupID).Scan(&sid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrBackupNotFound
+	}
+	return sid, err
+}
+
+// ScheduleServerID returns the server a backup schedule belongs to.
+func (s *BackupService) ScheduleServerID(ctx context.Context, scheduleID uuid.UUID) (uuid.UUID, error) {
+	var sid uuid.UUID
+	err := s.db.QueryRow(ctx, `SELECT server_id FROM backup_schedules WHERE id = $1`, scheduleID).Scan(&sid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrBackupNotFound
+	}
+	return sid, err
+}
+
 func (s *BackupService) DeleteBackup(ctx context.Context, backupID uuid.UUID) error {
 	ct, err := s.db.Exec(ctx, `DELETE FROM backups WHERE id = $1`, backupID)
 	if err != nil {

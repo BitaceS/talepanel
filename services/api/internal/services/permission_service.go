@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/BitaceS/talepanel/api/internal/models"
 )
@@ -51,19 +53,51 @@ func (s *PermissionService) HasPermission(ctx context.Context, user *models.User
 }
 
 // HasServerPermission checks whether a user has a permission for a specific server.
-// Check order: server_members.permissions override → global permission check.
+//
+// Access is membership-first: a non-staff user must actually be tied to the
+// server (as its owner or as a server_members row) before any permission is
+// considered. This is the tenant-isolation gate — without it, the global role
+// fallback below would grant every authenticated user access to every server
+// (the default `user` role holds global server.* perms), which is an IDOR.
+//
+// Resolution order:
+//  1. Global owner/admin (cluster staff) → allow.
+//  2. Server owner (servers.owner_id) → allow (full control of own server).
+//  3. Not a server member → deny.
+//  4. Member: per-server permissions override → else global role default.
 func (s *PermissionService) HasServerPermission(ctx context.Context, user *models.User, serverID uuid.UUID, perm string) (bool, error) {
-	if user.Role == models.RoleOwner {
+	// Cluster-level staff manage all servers.
+	if user.Role == models.RoleOwner || user.Role == models.RoleAdmin {
 		return true, nil
 	}
 
-	// Check server member override.
+	// The server's own owner has full control of it regardless of global role.
+	var isOwner bool
+	if err := s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND owner_id = $2)`,
+		serverID, user.ID,
+	).Scan(&isOwner); err != nil {
+		return false, fmt.Errorf("checking server ownership: %w", err)
+	}
+	if isOwner {
+		return true, nil
+	}
+
+	// Must be an explicit member of this server; otherwise denied.
 	var permJSON json.RawMessage
 	err := s.db.QueryRow(ctx,
 		`SELECT permissions FROM server_members WHERE server_id = $1 AND user_id = $2`,
 		serverID, user.ID,
 	).Scan(&permJSON)
-	if err == nil && len(permJSON) > 2 { // not empty "{}"
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("checking server membership: %w", err)
+	}
+
+	// Member: an explicit per-server override wins over the role default.
+	if len(permJSON) > 2 { // not empty "{}"
 		var perms map[string]bool
 		if json.Unmarshal(permJSON, &perms) == nil {
 			if v, ok := perms[perm]; ok {
@@ -72,7 +106,7 @@ func (s *PermissionService) HasServerPermission(ctx context.Context, user *model
 		}
 	}
 
-	// Fall back to global permission.
+	// Member with no explicit override: fall back to their global role default.
 	return s.HasPermission(ctx, user, perm)
 }
 

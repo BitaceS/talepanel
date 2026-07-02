@@ -57,36 +57,45 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 	}
 
 	var req struct {
-		CommandID       string            `json:"command_id"`
-		CommandTemplate string            `json:"command_template" binding:"required"`
-		Params          map[string]string `json:"params"`
+		CommandID string            `json:"command_id" binding:"required"`
+		Params    map[string]string `json:"params"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
-	// Permission check: if command_id provided, verify user role against min_role
-	if req.CommandID != "" {
-		cmdUUID, err := uuid.Parse(req.CommandID)
-		if err == nil {
-			cmd, err := h.svc.GetCommand(c.Request.Context(), cmdUUID)
-			if err == nil && cmd != nil {
-				user, userOk := middleware.GetUserFromCtx(c)
-				if !userOk {
-					c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-					return
-				}
-				if models.RoleWeight(user.Role) < models.RoleWeight(cmd.MinRole) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this command"})
-					return
-				}
-			}
-		}
+	// The command template MUST come from a stored command, never from the
+	// client. Executing a client-supplied template would let any caller run
+	// arbitrary console commands and bypass the per-command min_role gate.
+	cmdUUID, err := uuid.Parse(req.CommandID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid command_id"})
+		return
+	}
+	cmd, err := h.svc.GetCommand(c.Request.Context(), cmdUUID)
+	if err != nil || cmd == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
+		return
+	}
+	// Command must belong to the server named in the path.
+	if cmd.ServerID == nil || *cmd.ServerID != serverID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
+		return
+	}
+	// Enforce the command's minimum role.
+	user, userOk := middleware.GetUserFromCtx(c)
+	if !userOk {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	if models.RoleWeight(user.Role) < models.RoleWeight(cmd.MinRole) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this command"})
+		return
 	}
 
-	// Resolve placeholders: replace {param} with values
-	resolved := req.CommandTemplate
+	// Resolve placeholders on the STORED template: replace {param} with values.
+	resolved := cmd.CommandTemplate
 	for key, val := range req.Params {
 		resolved = strings.ReplaceAll(resolved, "{"+key+"}", val)
 	}
@@ -112,7 +121,7 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 	}
 
 	// Send via existing console command infrastructure
-	err := h.serverSvc.SendConsoleCommand(c.Request.Context(), serverID, resolved)
+	err = h.serverSvc.SendConsoleCommand(c.Request.Context(), serverID, resolved)
 	if err != nil {
 		h.log.Error("execute game command failed",
 			zap.String("server_id", serverID.String()),
