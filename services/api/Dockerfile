@@ -7,8 +7,13 @@ RUN apk add --no-cache ca-certificates git
 WORKDIR /build
 
 # Download dependencies.
+# Use goproxy.io (CDN-backed, avoids the flaky storage.googleapis.com blob path)
+# with a retry loop so a transient network hiccup on the build host doesn't fail
+# the whole build.
+ENV GOPROXY=https://goproxy.io,direct
+ENV GOTOOLCHAIN=local
 COPY go.mod go.sum ./
-RUN go mod download
+RUN for i in 1 2 3 4 5; do go mod download && break || { echo "go mod download retry $i"; sleep 8; }; done
 
 # Copy the rest of the source and build both binaries.
 COPY . .
