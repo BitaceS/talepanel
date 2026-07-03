@@ -182,8 +182,16 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 	}
 
 	for _, rule := range rules {
-		// 2. For threshold rules: skip if value is below threshold.
-		if rule.threshold != nil && value < *rule.threshold {
+		// 2. For threshold rules: skip if value is below threshold. When a rule
+		// has no explicit threshold, fall back to a sane per-type default so a
+		// NULL threshold does not fire on every evaluation. Binary rule types
+		// (server_crashed, node_offline, ddos) pass value=0 and default 0, so
+		// they always fire.
+		threshold := defaultThreshold(ruleType)
+		if rule.threshold != nil {
+			threshold = *rule.threshold
+		}
+		if value < threshold {
 			continue
 		}
 
@@ -210,7 +218,7 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 		var eventServerID *uuid.UUID
 		var eventNodeID *uuid.UUID
 		switch ruleType {
-		case "node_offline":
+		case "node_offline", "ddos":
 			eventNodeID = &subjectID
 		default:
 			eventServerID = &subjectID
@@ -220,10 +228,8 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 		title := fmt.Sprintf("Alert: %s", ruleType)
 		severity := "warning"
 		switch ruleType {
-		case "node_offline", "server_crashed":
+		case "node_offline", "server_crashed", "ddos":
 			severity = "critical"
-		case "high_cpu", "high_ram", "high_disk":
-			severity = "warning"
 		}
 
 		// 5. Insert alert_event row.
@@ -273,6 +279,18 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 	}
 
 	return nil
+}
+
+// defaultThreshold returns the fallback threshold for a rule type when the rule
+// itself has no threshold configured. Percentage-metric rules default to 90%;
+// binary/event rules default to 0 so they always fire.
+func defaultThreshold(ruleType string) float64 {
+	switch ruleType {
+	case "cpu_high", "ram_high", "disk_high":
+		return 90
+	default:
+		return 0
+	}
 }
 
 // EvaluateNodeOffline checks for nodes that were online but have not sent a heartbeat

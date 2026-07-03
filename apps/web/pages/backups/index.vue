@@ -2,6 +2,7 @@
 import { DatabaseBackup, Calendar, Plus, Download, Trash2, RefreshCw, Play, Pause, Clock } from 'lucide-vue-next'
 import { useBackupsStore } from '~/stores/backups'
 import { useServersStore } from '~/stores/servers'
+import { useAuthStore } from '~/stores/auth'
 
 definePageMeta({ title: 'Backups', middleware: 'auth' })
 
@@ -82,11 +83,32 @@ async function deleteBackup(id: string) {
 }
 
 async function restoreBackup(id: string) {
-  if (!confirm('Restore this backup? The server will be stopped during restore.')) return
+  if (!confirm('Restore this backup? Current server files will be overwritten.')) return
   try {
     await backupsStore.restoreBackup(id)
     showToast('Restore initiated')
   } catch { showToast('Failed to restore', 'error') }
+}
+
+async function downloadBackup(id: string) {
+  try {
+    const config = useRuntimeConfig()
+    const authStore = useAuthStore()
+    const res = await fetch(`${config.public.apiBase}/backups/${id}/download`, {
+      headers: authStore.accessToken ? { Authorization: `Bearer ${authStore.accessToken}` } : {},
+      credentials: 'include',
+    })
+    if (!res.ok) throw new Error('download failed')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${id}.zip`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch { showToast('Failed to download', 'error') }
 }
 
 async function toggleSchedule(id: string, enabled: boolean) {
@@ -106,7 +128,7 @@ async function deleteSchedule(id: string) {
 
 function statusColor(status: string) {
   switch (status) {
-    case 'complete': return 'text-tp-success bg-tp-success/15'
+    case 'completed': return 'text-tp-success bg-tp-success/15'
     case 'running': return 'text-tp-primary bg-tp-primary/10'
     case 'pending': return 'text-tp-warning bg-tp-warning/15'
     case 'failed': return 'text-tp-error bg-tp-error/10'
@@ -194,8 +216,11 @@ onMounted(() => {
               <td class="px-4 py-3 text-tp-muted text-xs">{{ formatDate(b.created_at) }}</td>
               <td class="px-4 py-3">
                 <div class="flex items-center justify-end gap-1">
-                  <button v-if="b.status === 'complete'" title="Restore" class="p-1.5 rounded-lg text-tp-accent hover:bg-tp-primary/10 transition-colors" @click="restoreBackup(b.id)">
+                  <button v-if="b.status === 'completed'" title="Download" class="p-1.5 rounded-lg text-tp-accent hover:bg-tp-primary/10 transition-colors" @click="downloadBackup(b.id)">
                     <Download class="w-4 h-4" />
+                  </button>
+                  <button v-if="b.status === 'completed'" title="Restore" class="p-1.5 rounded-lg text-tp-warning hover:bg-tp-warning/10 transition-colors" @click="restoreBackup(b.id)">
+                    <RefreshCw class="w-4 h-4" />
                   </button>
                   <button title="Delete" class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="deleteBackup(b.id)">
                     <Trash2 class="w-4 h-4" />

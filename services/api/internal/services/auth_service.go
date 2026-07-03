@@ -821,7 +821,9 @@ func (s *AuthService) findUserByID(ctx context.Context, id uuid.UUID) (*models.U
 	if err != nil {
 		return user, err
 	}
-	if user.TOTPEnabled && user.TOTPSecret != "" {
+	// Decrypt whenever a secret exists — this includes the pending-enrollment
+	// state (totp_enabled = false) so ConfirmTOTP can validate the first code.
+	if user.TOTPSecret != "" {
 		plain, derr := tpcrypto.Decrypt(s.config.TOTPEncKey, user.TOTPSecret)
 		if derr != nil {
 			return nil, fmt.Errorf("decrypting TOTP secret: %w", derr)

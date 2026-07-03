@@ -50,7 +50,7 @@ func NewModService(db *pgxpool.Pool) *ModService {
 func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*models.ServerMod, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, server_id, filename, display_name, version, download_url,
-		       cf_mod_id, cf_file_id, installed_at
+		       cf_mod_id, cf_file_id, installed_at, COALESCE(source, ''), is_present
 		FROM server_mods
 		WHERE server_id = $1
 		ORDER BY installed_at DESC
@@ -66,6 +66,7 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 		if err := rows.Scan(
 			&m.ID, &m.ServerID, &m.Filename, &m.DisplayName, &m.Version,
 			&m.DownloadURL, &m.CFModID, &m.CFFileID, &m.InstalledAt,
+			&m.Source, &m.IsPresent,
 		); err != nil {
 			return nil, fmt.Errorf("scanning mod row: %w", err)
 		}
@@ -182,7 +183,8 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 // ToggleMod sets is_present on a mod and enqueues an enable_mod or disable_mod command.
 func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename string, enabled bool) error {
 	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
+	var dataPath string
+	err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath)
 	if err != nil {
 		return fmt.Errorf("toggle mod: fetch server: %w", err)
 	}
@@ -200,7 +202,7 @@ func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename
 	if enabled {
 		cmdType = "enable_mod"
 	}
-	payload, _ := json.Marshal(map[string]string{"filename": filename})
+	payload, _ := json.Marshal(map[string]string{"data_path": dataPath, "filename": filename})
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
 		VALUES ($1, $2, $3, $4)
@@ -221,7 +223,8 @@ type ModVersionSwitchRequest struct {
 // SwitchModVersion replaces the current mod version with a new CurseForge file atomically.
 func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
 	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
+	var dataPath string
+	err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath)
 	if err != nil {
 		return fmt.Errorf("switch mod version: fetch server: %w", err)
 	}
@@ -239,7 +242,7 @@ func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, o
 	}
 
 	// Enqueue remove_mod command for old file.
-	removePayload, _ := json.Marshal(map[string]string{"filename": oldFilename})
+	removePayload, _ := json.Marshal(map[string]string{"data_path": dataPath, "filename": oldFilename})
 	_, err = tx.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
 		VALUES ($1, $2, 'remove_mod', $3)
@@ -262,7 +265,11 @@ func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, o
 	}
 
 	// Enqueue install_mod command for new file.
-	installPayload, _ := json.Marshal(map[string]any{"filename": newFilename, "url": req.FileURL})
+	installPayload, _ := json.Marshal(map[string]any{
+		"data_path":    dataPath,
+		"filename":     newFilename,
+		"download_url": req.FileURL,
+	})
 	_, err = tx.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
 		VALUES ($1, $2, 'install_mod', $3)
@@ -276,30 +283,35 @@ func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, o
 
 // ─── Task 4: Custom JAR upload ────────────────────────────────────────────────
 
-// UploadMod records a custom-uploaded mod and enqueues an install_mod command.
-func (s *ModService) UploadMod(ctx context.Context, serverID uuid.UUID, filename, downloadURL, displayName string) error {
+// ServerNode returns the node a server is assigned to, for callers that must
+// reach the daemon directly (e.g. synchronous file uploads).
+func (s *ModService) ServerNode(ctx context.Context, serverID uuid.UUID) (uuid.UUID, error) {
 	var nodeID uuid.UUID
 	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
 	if err != nil {
-		return fmt.Errorf("upload mod: fetch server: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, ErrServerNotFound
+		}
+		return uuid.Nil, fmt.Errorf("fetching server node: %w", err)
 	}
+	return nodeID, nil
+}
 
-	_, err = s.db.Exec(ctx, `
+// RecordUpload persists a custom-uploaded mod. The file itself is delivered to
+// the daemon synchronously by the handler (see ModHandler.UploadMod), so the
+// record is marked present immediately and no install_mod command is enqueued.
+func (s *ModService) RecordUpload(ctx context.Context, serverID uuid.UUID, filename, displayName string) error {
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO server_mods (server_id, filename, display_name, download_url, source, is_present)
-		VALUES ($1, $2, $3, $4, 'custom', false)
-		ON CONFLICT (server_id, filename) DO NOTHING
-	`, serverID, filename, displayName, downloadURL)
+		VALUES ($1, $2, $3, '', 'custom', true)
+		ON CONFLICT (server_id, filename) DO UPDATE
+		  SET display_name = EXCLUDED.display_name,
+		      source       = 'custom',
+		      is_present   = true,
+		      installed_at = NOW()
+	`, serverID, filename, displayName)
 	if err != nil {
 		return fmt.Errorf("upload mod: insert record: %w", err)
-	}
-
-	payload, _ := json.Marshal(map[string]string{"filename": filename, "url": downloadURL})
-	_, err = s.db.Exec(ctx, `
-		INSERT INTO node_commands (node_id, server_id, command_type, payload)
-		VALUES ($1, $2, 'install_mod', $3)
-	`, nodeID, serverID, payload)
-	if err != nil {
-		return fmt.Errorf("upload mod: enqueue command: %w", err)
 	}
 	return nil
 }

@@ -121,7 +121,8 @@ async fn main() -> Result<()> {
     let net_mon = net_monitor::NetMonitor::new();
     let net_mon_handle = {
         let mon = net_mon.clone();
-        tokio::spawn(async move { mon.run().await; })
+        let api = Arc::clone(&api_client);
+        tokio::spawn(async move { mon.run(Some(api)).await; })
     };
 
     // 6e. Local Axum HTTP server
@@ -137,6 +138,7 @@ async fn main() -> Result<()> {
         node_id: config.daemon.node_id.clone(),
         node_token: config.daemon.node_token.clone(),
         servers_base_dir: format!("{}/servers", config.daemon.data_root),
+        backups_base_dir: format!("{}/backups", config.daemon.data_root),
         net_monitor: net_mon,
     };
 

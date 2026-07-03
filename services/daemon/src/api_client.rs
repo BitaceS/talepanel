@@ -312,6 +312,37 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Report a detected DDoS event for this node to the TalePanel API, which
+    /// fires any matching `ddos` alert rules. Fire-and-forget; non-2xx is logged.
+    #[instrument(skip(self), fields(node_id = %self.node_id, severity))]
+    pub async fn report_ddos(&self, severity: &str, description: &str, pps: f64) -> Result<()> {
+        let url = format!("{}/api/v1/nodes/{}/ddos", self.base_url, self.node_id);
+        debug!(%url, %severity, "Reporting DDoS event");
+
+        let body = serde_json::json!({
+            "severity": severity,
+            "description": description,
+            "pps": pps,
+        });
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("HTTP request failed for report_ddos")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            warn!(%status, response_body = %text, "report_ddos HTTP error (non-fatal)");
+        }
+
+        Ok(())
+    }
+
     /// Report detected plugins for a server to the TalePanel API.
     #[instrument(skip(self, plugins), fields(server_id, plugin_count = plugins.len()))]
     pub async fn report_plugins(&self, server_id: &str, plugins: &[crate::plugin_scanner::DetectedPlugin]) -> Result<()> {

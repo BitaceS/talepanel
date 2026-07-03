@@ -21,6 +21,10 @@ const errors = reactive({
 const serverError = ref('')
 const showPassword = ref(false)
 
+// 2FA challenge state — shown after a password login when the account has TOTP.
+const totpRequired = ref(false)
+const totpCode = ref('')
+
 function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
@@ -48,11 +52,39 @@ async function onSubmit() {
   if (!validate()) return
 
   try {
-    await authStore.login(form.email, form.password)
+    const done = await authStore.login(form.email, form.password)
+    if (!done) {
+      // Account has 2FA — switch to the verification code step.
+      totpRequired.value = true
+    }
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
     serverError.value = e.data?.error ?? e.message ?? 'Login failed. Please check your credentials.'
   }
+}
+
+async function onVerifyTotp() {
+  serverError.value = ''
+
+  const code = totpCode.value.trim()
+  if (!/^\d{6}$/.test(code)) {
+    serverError.value = 'Enter the 6-digit code from your authenticator app'
+    return
+  }
+
+  try {
+    await authStore.verifyTotp(code)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    serverError.value = e.data?.error ?? e.message ?? 'Verification failed. Please try again.'
+  }
+}
+
+function cancelTotp() {
+  totpRequired.value = false
+  totpCode.value = ''
+  serverError.value = ''
+  authStore.partialToken = null
 }
 </script>
 
@@ -60,8 +92,12 @@ async function onSubmit() {
   <div>
     <!-- Title -->
     <div class="mb-6">
-      <h2 class="text-tp-text font-display font-bold text-xl">Welcome back</h2>
-      <p class="text-tp-muted text-sm mt-1">Sign in to your command center</p>
+      <h2 class="text-tp-text font-display font-bold text-xl">
+        {{ totpRequired ? 'Two-factor authentication' : 'Welcome back' }}
+      </h2>
+      <p class="text-tp-muted text-sm mt-1">
+        {{ totpRequired ? 'Enter the 6-digit code from your authenticator app' : 'Sign in to your command center' }}
+      </p>
     </div>
 
     <!-- Server error -->
@@ -73,8 +109,54 @@ async function onSubmit() {
       <p class="text-tp-error text-sm">{{ serverError }}</p>
     </div>
 
+    <!-- 2FA verification step -->
+    <form v-if="totpRequired" class="space-y-5" @submit.prevent="onVerifyTotp">
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Authentication Code</label>
+        <div class="relative">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">pin</span>
+          <input
+            v-model="totpCode"
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            placeholder="000000"
+            autofocus
+            class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm tracking-[0.5em] placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all duration-150"
+          />
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        :disabled="authStore.loading"
+        class="w-full cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <svg
+          v-if="authStore.loading"
+          class="w-4 h-4 animate-spin shrink-0"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span>VERIFY</span>
+        <span class="material-symbols-outlined text-base">arrow_forward</span>
+      </button>
+
+      <button
+        type="button"
+        class="w-full text-tp-muted text-sm hover:text-tp-text transition-colors"
+        @click="cancelTotp"
+      >
+        Back to sign in
+      </button>
+    </form>
+
     <!-- Form -->
-    <form class="space-y-5" @submit.prevent="onSubmit">
+    <form v-else class="space-y-5" @submit.prevent="onSubmit">
       <!-- Email -->
       <div class="flex flex-col gap-1.5">
         <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>

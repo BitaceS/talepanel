@@ -479,53 +479,50 @@ type MigrateServerRequest struct {
 // MigrateServer enqueues a migrate_server command on the current node and then
 // re-assigns the server record to the target node.  The server must be stopped
 // before migration can be requested.
-func (s *ServerService) MigrateServer(ctx context.Context, serverID uuid.UUID, req MigrateServerRequest) error {
+// MigratePreflight validates a migration request and returns the current
+// (source) node. It does NOT move data or re-point the server — the handler
+// orchestrates the actual cross-node transfer and calls CompleteMigration only
+// once the target node holds the data, so a failed transfer never loses data.
+func (s *ServerService) MigratePreflight(ctx context.Context, serverID uuid.UUID, req MigrateServerRequest) (uuid.UUID, error) {
 	var nodeID uuid.UUID
 	var status string
 	err := s.db.QueryRow(ctx, `SELECT node_id, status FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &status)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrServerNotFound
+			return uuid.Nil, ErrServerNotFound
 		}
-		return fmt.Errorf("fetching server: %w", err)
+		return uuid.Nil, fmt.Errorf("fetching server: %w", err)
 	}
 	if status != "stopped" {
-		return fmt.Errorf("server must be stopped before migrating")
+		return uuid.Nil, fmt.Errorf("server must be stopped before migrating")
 	}
 	if nodeID == req.TargetNodeID {
-		return fmt.Errorf("server is already on the target node")
+		return uuid.Nil, fmt.Errorf("server is already on the target node")
 	}
 
 	var exists bool
 	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)`, req.TargetNodeID).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("checking target node: %w", err)
+		return uuid.Nil, fmt.Errorf("checking target node: %w", err)
 	}
 	if !exists {
-		return ErrNodeNotFound
+		return uuid.Nil, ErrNodeNotFound
 	}
 
-	payload, _ := json.Marshal(map[string]string{
-		"target_node_id": req.TargetNodeID.String(),
-		"server_id":      serverID.String(),
-	})
+	return nodeID, nil
+}
 
-	tx, err := s.db.Begin(ctx)
+// CompleteMigration re-points a server to the target node. Call only after the
+// server's data has been successfully transferred to that node.
+func (s *ServerService) CompleteMigration(ctx context.Context, serverID, targetNodeID uuid.UUID) error {
+	ct, err := s.db.Exec(ctx, `UPDATE servers SET node_id = $1 WHERE id = $2`, targetNodeID, serverID)
 	if err != nil {
-		return fmt.Errorf("beginning migration tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err = tx.Exec(ctx, `
-		INSERT INTO node_commands (node_id, server_id, command_type, payload, status)
-		VALUES ($1, $2, 'migrate_server', $3, 'pending')
-	`, nodeID, serverID, payload); err != nil {
-		return fmt.Errorf("enqueuing migrate_server: %w", err)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE servers SET node_id = $1 WHERE id = $2`, req.TargetNodeID, serverID); err != nil {
 		return fmt.Errorf("updating server node: %w", err)
 	}
-	return tx.Commit(ctx)
+	if ct.RowsAffected() == 0 {
+		return ErrServerNotFound
+	}
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

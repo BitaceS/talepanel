@@ -6,6 +6,7 @@ export const useAuthStore = defineStore('auth', {
     user: null as User | null,
     accessToken: null as string | null,
     loading: false,
+    partialToken: null as string | null,
   }),
 
   getters: {
@@ -35,7 +36,9 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    async login(email: string, password: string): Promise<void> {
+    // login returns true when fully authenticated, or false when the account
+    // has 2FA enabled and a TOTP code is still required (partialToken is set).
+    async login(email: string, password: string): Promise<boolean> {
       this.loading = true
       try {
         const config = useRuntimeConfig()
@@ -48,6 +51,11 @@ export const useAuthStore = defineStore('auth', {
           }
         )
 
+        if (response.requires_totp) {
+          this.partialToken = response.partial_token ?? null
+          return false
+        }
+
         if (response.access_token) {
           this.accessToken = response.access_token
           this._saveTokenToStorage(response.access_token)
@@ -56,6 +64,40 @@ export const useAuthStore = defineStore('auth', {
           this.user = response.user
         }
 
+        this.partialToken = null
+        await navigateTo('/')
+        return true
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // verifyTotp completes a 2FA-gated login using the partial token from login().
+    async verifyTotp(code: string): Promise<void> {
+      if (!this.partialToken) {
+        throw new Error('No pending 2FA challenge')
+      }
+      this.loading = true
+      try {
+        const config = useRuntimeConfig()
+        const response = await $fetch<LoginResponse>(
+          `${config.public.apiBase}/auth/totp/verify`,
+          {
+            method: 'POST',
+            body: { partial_token: this.partialToken, code },
+            credentials: 'include',
+          }
+        )
+
+        if (response.access_token) {
+          this.accessToken = response.access_token
+          this._saveTokenToStorage(response.access_token)
+        }
+        if (response.user) {
+          this.user = response.user
+        }
+
+        this.partialToken = null
         await navigateTo('/')
       } finally {
         this.loading = false

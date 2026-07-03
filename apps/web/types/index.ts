@@ -63,6 +63,7 @@ export interface LoginResponse {
   access_token?: string
   user?: User
   requires_totp?: boolean
+  partial_token?: string
 }
 
 export interface InstalledMod {

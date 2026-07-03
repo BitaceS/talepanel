@@ -12,6 +12,8 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+use crate::api_client::ApiClient;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -43,6 +45,8 @@ const THRESH_IP_PPS: f64 = 5_000.0;
 const THRESH_IP_BLACKLIST: f64 = 10_000.0;
 /// Blacklist duration in seconds.
 const BLACKLIST_DURATION_SECS: i64 = 300; // 5 minutes
+/// Minimum seconds between DDoS reports pushed to the panel (dedup at source).
+const DDOS_REPORT_COOLDOWN_SECS: i64 = 60;
 
 // ---------------------------------------------------------------------------
 // Public types (serialised to JSON for the HTTP endpoint)
@@ -223,6 +227,9 @@ struct MonitorState {
     nft_initialised: bool,
     mitigation_active: bool,
     rules_applied: usize,
+    // DDoS→panel bridge: set when the monitor is started with an API client.
+    reporter: Option<Arc<ApiClient>>,
+    last_ddos_report: Option<DateTime<Utc>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -247,17 +254,22 @@ impl NetMonitor {
                 nft_initialised: false,
                 mitigation_active: false,
                 rules_applied: 0,
+                reporter: None,
+                last_ddos_report: None,
             })),
         }
     }
 
     /// Start the background sampling loop. Runs until the task is cancelled.
-    pub async fn run(&self) {
+    /// When `reporter` is provided, high/critical floods are pushed to the panel
+    /// so `ddos` alert rules can fire.
+    pub async fn run(&self, reporter: Option<Arc<ApiClient>>) {
         // Check nftables availability
         let nft_ok = check_nft_available().await;
         {
             let mut st = self.state.write().await;
             st.nft_available = nft_ok;
+            st.reporter = reporter;
         }
         if nft_ok {
             info!("nftables available — DDoS mitigation enabled");
@@ -538,6 +550,37 @@ impl NetMonitor {
                 metrics: HashMap::from([("udp_pps".into(), sample.udp_pps_in)]),
             });
         }
+
+        // 5. Bridge high/critical floods to the panel's alert system (rate-limited).
+        let flood_pps = sample.pps_in.max(sample.udp_pps_in);
+        if flood_pps > THRESH_PPS_HIGH {
+            self.maybe_report_ddos(st, flood_pps, now);
+        }
+    }
+
+    /// Push a DDoS event to the panel if the per-node cooldown has elapsed.
+    /// Spawns a detached task so no HTTP await happens under the state lock.
+    fn maybe_report_ddos(&self, st: &mut MonitorState, pps: f64, now: DateTime<Utc>) {
+        let reporter = match &st.reporter {
+            Some(r) => Arc::clone(r),
+            None => return,
+        };
+        let elapsed = st
+            .last_ddos_report
+            .map(|t| (now - t).num_seconds())
+            .unwrap_or(i64::MAX);
+        if elapsed < DDOS_REPORT_COOLDOWN_SECS {
+            return;
+        }
+        st.last_ddos_report = Some(now);
+
+        let severity = if pps > THRESH_PPS_CRITICAL { "critical" } else { "high" };
+        let description = format!("DDoS detected: {:.0} PPS inbound", pps);
+        tokio::spawn(async move {
+            if let Err(e) = reporter.report_ddos(severity, &description, pps).await {
+                warn!(%e, "failed to report DDoS to panel");
+            }
+        });
     }
 }
 

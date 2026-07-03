@@ -29,6 +29,10 @@ pub struct AppState {
     /// Base directory containing all server data directories, e.g. `/srv/taledaemon/servers`.
     /// Each server's files live at `{servers_base_dir}/{server_id}`.
     pub servers_base_dir: String,
+    /// Base directory for backup archives, e.g. `/srv/taledaemon/backups`. Kept
+    /// outside `servers_base_dir` so archives are not themselves backed up.
+    /// A backup lives at `{backups_base_dir}/{server_id}/{backup_id}.zip`.
+    pub backups_base_dir: String,
     /// Network traffic monitor for DDoS detection.
     pub net_monitor: NetMonitor,
 }
@@ -1186,6 +1190,313 @@ async fn create_archive(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Backup handlers — full-server archive to a dedicated backups directory
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BackupRequest {
+    backup_id: String,
+}
+
+#[derive(Deserialize)]
+struct BackupQuery {
+    backup_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BackupCreatedResponse {
+    success: bool,
+    size_bytes: u64,
+    storage_path: String,
+}
+
+/// Validate a backup id (a UUID from the panel) so it cannot be used to escape
+/// the backups directory. Only hex digits and dashes are allowed.
+fn valid_backup_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// Absolute path of a backup archive: `{backups_base_dir}/{server_id}/{backup_id}.zip`.
+fn backup_archive_path(backups_base_dir: &str, server_id: &str, backup_id: &str) -> PathBuf {
+    PathBuf::from(backups_base_dir)
+        .join(server_id)
+        .join(format!("{backup_id}.zip"))
+}
+
+/// Recursively zip a directory into `archive_path`. Blocking; call under spawn_blocking.
+fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Result<u64, String> {
+    if let Some(parent) = archive_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create backup dir: {e}"))?;
+    }
+    let file = std::fs::File::create(archive_path).map_err(|e| format!("create archive: {e}"))?;
+    let mut zip_writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    fn add_dir(
+        writer: &mut zip::ZipWriter<std::fs::File>,
+        base: &std::path::Path,
+        current: &std::path::Path,
+        options: zip::write::SimpleFileOptions,
+    ) -> Result<(), String> {
+        for entry in std::fs::read_dir(current).map_err(|e| format!("read dir: {e}"))? {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
+            if path.is_dir() {
+                writer.add_directory(&format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
+                add_dir(writer, base, &path, options)?;
+            } else {
+                writer.start_file(&rel, options).map_err(|e| format!("start file: {e}"))?;
+                let data = std::fs::read(&path).map_err(|e| format!("read: {e}"))?;
+                std::io::Write::write_all(writer, &data).map_err(|e| format!("write: {e}"))?;
+            }
+        }
+        Ok(())
+    }
+
+    add_dir(&mut zip_writer, source, source, options)?;
+    zip_writer.finish().map_err(|e| format!("finish archive: {e}"))?;
+
+    let size = std::fs::metadata(archive_path).map(|m| m.len()).unwrap_or(0);
+    Ok(size)
+}
+
+/// `POST /servers/:id/backup` — archive the whole server data dir into the
+/// backups directory. Body: `{"backup_id": "<uuid>"}`.
+async fn create_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    if !valid_backup_id(&req.backup_id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid backup_id"}))).into_response();
+    }
+
+    // The server data dir is validated the same way as every other file op.
+    let source = match resolve_safe_path(&state.servers_base_dir, &server_id, "/").await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+    if !source.is_dir() {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "server data directory not found"}))).into_response();
+    }
+
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
+    let storage_path = archive_path.to_string_lossy().to_string();
+
+    let result = tokio::task::spawn_blocking(move || zip_dir_to(&source, &archive_path)).await;
+
+    match result {
+        Ok(Ok(size_bytes)) => Json(BackupCreatedResponse { success: true, size_bytes, storage_path }).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("backup task failed: {e}")}))).into_response(),
+    }
+}
+
+/// `POST /servers/:id/backup/restore` — extract a backup archive back into the
+/// server data dir. Body: `{"backup_id": "<uuid>"}`.
+async fn restore_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    if !valid_backup_id(&req.backup_id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid backup_id"}))).into_response();
+    }
+
+    let dest = match resolve_safe_path(&state.servers_base_dir, &server_id, "/").await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+    if !dest.is_dir() {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "server data directory not found"}))).into_response();
+    }
+
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
+    if !archive_path.is_file() {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
+        let count = archive.len();
+        let base = dest.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
+
+        for i in 0..count {
+            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
+            // zip-slip guard: skip absolute/traversing entries.
+            let sanitized = match entry.enclosed_name() {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            };
+            let out_path = base.join(&sanitized);
+            let check_dir = if entry.is_dir() {
+                out_path.clone()
+            } else {
+                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
+            };
+            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
+            let real_dir = check_dir.canonicalize().map_err(|e| format!("canonicalize entry: {e}"))?;
+            if !real_dir.starts_with(&base) {
+                continue;
+            }
+            if entry.is_dir() {
+                std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
+            } else {
+                let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
+                std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
+            }
+        }
+        Ok(count)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(count)) => ActionResponse::ok(format!("restored {count} entries")).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("restore task failed: {e}")}))).into_response(),
+    }
+}
+
+/// `GET /servers/:id/backup/download?backup_id=<uuid>` — stream a backup archive.
+async fn download_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Query(query): Query<BackupQuery>,
+) -> impl IntoResponse {
+    let backup_id = match query.backup_id {
+        Some(id) if valid_backup_id(&id) => id,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid or missing backup_id"}))).into_response(),
+    };
+
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
+    if !archive_path.is_file() {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+    }
+
+    match tokio::fs::read(&archive_path).await {
+        Ok(data) => {
+            let headers = [
+                (axum::http::header::CONTENT_TYPE, "application/zip".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{backup_id}.zip\"")),
+            ];
+            (headers, data).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to read archive: {e}")}))).into_response(),
+    }
+}
+
+/// `DELETE /servers/:id/backup?backup_id=<uuid>` — remove a backup archive.
+/// Missing files are treated as success (idempotent).
+async fn delete_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Query(query): Query<BackupQuery>,
+) -> impl IntoResponse {
+    let backup_id = match query.backup_id {
+        Some(id) if valid_backup_id(&id) => id,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid or missing backup_id"}))).into_response(),
+    };
+
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
+    match tokio::fs::remove_file(&archive_path).await {
+        Ok(_) => ActionResponse::ok("backup deleted").into_response(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ActionResponse::ok("backup already absent").into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to delete archive: {e}")}))).into_response(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Migration import — receive a server archive and reconstruct its data dir
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST /servers/:id/import` — accept a multipart "file" (a zip of a server's
+/// data dir) and extract it into `{servers_base_dir}/{server_id}`, creating the
+/// directory if needed. Used as the receiving half of a cross-node migration.
+async fn import_server(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    // The server id comes from the panel; guard against traversal regardless.
+    if server_id.contains('/') || server_id.contains('\\') || server_id.contains("..") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id"}))).into_response();
+    }
+
+    let dest = PathBuf::from(&state.servers_base_dir).join(&server_id);
+    if let Err(e) = tokio::fs::create_dir_all(&dest).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("create server dir: {e}")}))).into_response();
+    }
+
+    // Read the uploaded archive into memory (bounded), then extract in a blocking task.
+    const MAX_IMPORT: usize = 2 * 1024 * 1024 * 1024; // 2 GiB
+    let mut archive_bytes: Option<Vec<u8>> = None;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() != Some("file") {
+            continue;
+        }
+        match field.bytes().await {
+            Ok(data) => {
+                if data.len() > MAX_IMPORT {
+                    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "import archive exceeds size limit"}))).into_response();
+                }
+                archive_bytes = Some(data.to_vec());
+            }
+            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("failed to read upload: {e}")}))).into_response(),
+        }
+    }
+
+    let bytes = match archive_bytes {
+        Some(b) => b,
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "missing file field"}))).into_response(),
+    };
+
+    let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let reader = std::io::Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("read archive: {e}"))?;
+        let count = archive.len();
+        let base = dest.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
+
+        for i in 0..count {
+            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
+            let sanitized = match entry.enclosed_name() {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            };
+            let out_path = base.join(&sanitized);
+            let check_dir = if entry.is_dir() {
+                out_path.clone()
+            } else {
+                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
+            };
+            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
+            let real_dir = check_dir.canonicalize().map_err(|e| format!("canonicalize entry: {e}"))?;
+            if !real_dir.starts_with(&base) {
+                continue;
+            }
+            if entry.is_dir() {
+                std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
+            } else {
+                let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
+                std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
+            }
+        }
+        Ok(count)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(count)) => ActionResponse::ok(format!("imported {count} entries")).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("import task failed: {e}")}))).into_response(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Network stats handler (delegates to NetMonitor)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1259,6 +1570,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/files/download", get(download_file))
         .route("/servers/:id/files/extract", post(extract_archive))
         .route("/servers/:id/files/archive", post(create_archive))
+        .route("/servers/:id/backup", post(create_backup).delete(delete_backup))
+        .route("/servers/:id/backup/restore", post(restore_backup))
+        .route("/servers/:id/backup/download", get(download_backup))
+        .route("/servers/:id/import", post(import_server))
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     Router::new()
