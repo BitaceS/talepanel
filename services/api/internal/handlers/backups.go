@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +125,35 @@ func (h *BackupHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"backup": backup, "message": "restore initiated"})
+}
+
+func (h *BackupHandler) DownloadBackup(c *gin.Context) {
+	backupID, ok := parseUUID(c, "backupId")
+	if !ok {
+		return
+	}
+	serverID, err := h.backupSvc.BackupServerID(c.Request.Context(), backupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "backup not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "server.view") {
+		return
+	}
+
+	body, filename, err := h.backupSvc.DownloadBackup(c.Request.Context(), backupID)
+	if err != nil {
+		h.log.Warn("backup download failed", zap.String("backup_id", backupID.String()), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "could not download backup"})
+		return
+	}
+	defer body.Close()
+
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Header("Content-Type", "application/zip")
+	if _, err := io.Copy(c.Writer, body); err != nil {
+		h.log.Warn("backup download stream interrupted", zap.String("backup_id", backupID.String()), zap.Error(err))
+	}
 }
 
 // Schedules

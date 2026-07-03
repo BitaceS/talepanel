@@ -235,6 +235,45 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("heartbeat received from node %s", nodeID)})
 }
 
+// ─── ReportDDoS ───────────────────────────────────────────────────────────────
+
+type reportDDoSRequest struct {
+	Severity    string  `json:"severity"`
+	Description string  `json:"description"`
+	PPS         float64 `json:"pps"`
+}
+
+// ReportDDoS handles POST /nodes/:id/ddos.
+// Protected by DaemonNodeAuth. The daemon's network monitor calls this when it
+// detects a high/critical flood; it fires any matching `ddos` alert rules.
+func (h *NodeHandler) ReportDDoS(c *gin.Context) {
+	nodeID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	authedID, _ := middleware.GetDaemonNodeID(c)
+	if authedID != nodeID.String() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "token does not match node"})
+		return
+	}
+
+	var req reportDDoSRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if h.alertSvc != nil {
+		// ddos is a binary/event rule — value 0 always fires past the default threshold.
+		if err := h.alertSvc.EvaluateAndFire(c.Request.Context(), "ddos", nodeID, 0); err != nil {
+			h.log.Warn("ddos alert evaluation failed", zap.String("node_id", nodeID.String()), zap.Error(err))
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "ddos event recorded"})
+}
+
 // ─── GetPendingCommands ───────────────────────────────────────────────────────
 
 // GetPendingCommands handles GET /nodes/:id/commands/pending.

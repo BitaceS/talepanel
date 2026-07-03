@@ -162,9 +162,11 @@ async function submitMigrate() {
   migrateLoading.value = true
   migrateError.value = ''
   try {
+    // Migration transfers the server's data synchronously and can take a while
+    // for large worlds; the request resolves once the move is complete.
     await api.post(`/servers/${serverId.value}/migrate`, { target_node_id: migrateTargetId.value })
     showMigrateModal.value = false
-    showToast('Migration initiated')
+    showToast('Server migrated')
     await serversStore.fetchServer(serverId.value)
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
@@ -606,57 +608,61 @@ async function runPluginCommand(template: string) {
 }
 
 // ── Databases ────────────────────────────────────────────────────────────────
+// Each server has at most one MariaDB database; name/user/password are
+// auto-generated server-side. The API returns a single object under `database`.
 interface ServerDatabase {
-  name: string
-  type: string
+  id: string
+  server_id: string
+  db_name: string
+  db_user: string
+  db_password: string
   host: string
   port: number
-  username: string
-  status: string
-  size: string | null
-  connections: number
+  created_at: string
 }
 
-const databases = ref<ServerDatabase[]>([])
+const database = ref<ServerDatabase | null>(null)
 const dbLoading = ref(false)
-const showCreateDbModal = ref(false)
-const newDbForm = reactive({ name: '', type: 'mysql' })
+const creatingDb = ref(false)
 
 async function fetchDatabases() {
   dbLoading.value = true
   try {
-    const data = await api.get<{ databases: ServerDatabase[] }>(`/servers/${serverId.value}/database`)
-    databases.value = data.databases ?? []
+    const data = await api.get<{ database: ServerDatabase }>(`/servers/${serverId.value}/database`)
+    database.value = data.database ?? null
   } catch {
-    databases.value = []
+    // 404 => no database provisioned yet
+    database.value = null
   } finally {
     dbLoading.value = false
   }
 }
 
 async function createDatabase() {
+  creatingDb.value = true
   try {
-    const data = await api.post<{ database: ServerDatabase }>(`/servers/${serverId.value}/database`, newDbForm)
-    databases.value.push(data.database)
-    showCreateDbModal.value = false
-    newDbForm.name = ''; newDbForm.type = 'mysql'
+    const data = await api.post<{ database: ServerDatabase }>(`/servers/${serverId.value}/database`, {})
+    database.value = data.database
     showToast('Database created')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
     showToast(e.data?.error ?? 'Failed to create database', 'error')
+  } finally {
+    creatingDb.value = false
   }
 }
 
-async function deleteDatabase(name: string) {
+async function deleteDatabase() {
+  if (!confirm('Delete this database?\n\nAll data in it will be permanently lost.')) return
   try {
     await api.delete(`/servers/${serverId.value}/database`)
-    databases.value = databases.value.filter(d => d.name !== name)
+    database.value = null
     showToast('Database deleted')
   } catch { showToast('Failed to delete database', 'error') }
 }
 
-const rotatingDb = ref('')
-const rotatedCreds = ref<{ username: string; password: string; host: string; port: number; database: string } | null>(null)
+const rotatingDb = ref(false)
+const rotatedCreds = ref<ServerDatabase | null>(null)
 
 // ── Server invitations (shared access) ──────────────────────────────────────
 const inviteForm = reactive({ email: '', role: 'viewer' })
@@ -693,21 +699,23 @@ async function revokeServerInvitation(invitationId: string) {
   }
 }
 
-async function rotateDatabasePassword(name: string) {
-  if (!confirm(`Rotate password for database "${name}"?\n\nAny service using the old password will break until you update its connection string.`)) return
-  rotatingDb.value = name
+async function rotateDatabasePassword() {
+  if (!database.value) return
+  if (!confirm('Rotate the database password?\n\nAny service using the old password will break until you update its connection string.')) return
+  rotatingDb.value = true
   try {
-    const res = await api.post<{ credentials: { username: string; password: string; host: string; port: number; database: string } }>(
+    const res = await api.post<{ database: ServerDatabase }>(
       `/servers/${serverId.value}/database/reset-password`,
       {},
     )
-    rotatedCreds.value = res.credentials
+    database.value = res.database
+    rotatedCreds.value = res.database
     showToast('Password rotated — copy the new credentials now')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
     showToast(e.data?.error ?? 'Failed to rotate password', 'error')
   } finally {
-    rotatingDb.value = ''
+    rotatingDb.value = false
   }
 }
 
@@ -1815,64 +1823,69 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'databases'" class="space-y-4">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-tp-text font-display font-semibold text-lg">Databases</h3>
-            <p class="text-tp-muted text-sm">Manage databases for this server's plugins and mods</p>
+            <h3 class="text-tp-text font-display font-semibold text-lg">Database</h3>
+            <p class="text-tp-muted text-sm">A dedicated MariaDB database for this server's plugins and mods</p>
           </div>
-          <UiButton variant="primary" size="sm" @click="showCreateDbModal = true">
-            <Plus class="w-3.5 h-3.5" /> Create Database
-          </UiButton>
         </div>
 
         <div v-if="dbLoading" class="bg-tp-surface rounded-xl p-8 text-center">
           <Loader2 class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-          <p class="text-tp-muted text-sm">Loading databases...</p>
+          <p class="text-tp-muted text-sm">Loading database...</p>
         </div>
-        <div v-else-if="databases.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
+        <div v-else-if="!database" class="bg-tp-surface rounded-xl p-12 text-center">
           <Database class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No databases</p>
-          <p class="text-tp-muted text-xs">Create a database for your server's plugins to use.</p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">No database</p>
+          <p class="text-tp-muted text-xs mb-4">Provision a MariaDB database for your server's plugins to use.</p>
+          <UiButton variant="primary" size="sm" :disabled="creatingDb" @click="createDatabase">
+            <Loader2 v-if="creatingDb" class="w-3.5 h-3.5 animate-spin" />
+            <Plus v-else class="w-3.5 h-3.5" /> Create Database
+          </UiButton>
         </div>
-        <div v-else class="space-y-3">
-          <div v-for="db in databases" :key="db.name" class="bg-tp-surface rounded-xl p-5">
-            <div class="flex items-start justify-between">
-              <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-tp-primary/10 flex items-center justify-center">
-                  <Database class="w-4 h-4 text-tp-primary" />
-                </div>
-                <div>
-                  <p class="text-tp-text font-semibold text-sm">{{ db.name }}</p>
-                  <p class="text-tp-muted text-xs font-mono">{{ db.type }} | {{ db.host }}:{{ db.port }}</p>
-                </div>
+        <div v-else class="bg-tp-surface rounded-xl p-5">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-tp-primary/10 flex items-center justify-center">
+                <Database class="w-4 h-4 text-tp-primary" />
               </div>
-              <div class="flex items-center gap-2">
-                <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', db.status === 'active' ? 'text-tp-success bg-tp-success/15' : 'text-tp-muted bg-tp-surface2']">
-                  {{ db.status }}
-                </span>
-                <button class="p-1.5 rounded-xl text-tp-warning hover:bg-tp-warning/10 transition-colors"
-                  :disabled="rotatingDb === db.name"
-                  :title="'Rotate password'"
-                  @click="rotateDatabasePassword(db.name)">
-                  <RotateCcw class="w-3.5 h-3.5" />
-                </button>
-                <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors"
-                  @click="confirm('Delete database ' + db.name + '?') && deleteDatabase(db.name)">
-                  <Trash2 class="w-3.5 h-3.5" />
-                </button>
+              <div>
+                <p class="text-tp-text font-semibold text-sm font-mono">{{ database.db_name }}</p>
+                <p class="text-tp-muted text-xs font-mono">MariaDB | {{ database.host }}:{{ database.port }}</p>
               </div>
             </div>
-            <div class="grid grid-cols-3 gap-2 mt-3">
-              <div class="bg-tp-surface2 rounded-xl p-2 text-xs">
-                <span class="text-tp-outline">User:</span>
-                <span class="text-tp-text ml-1 font-mono">{{ db.username }}</span>
-              </div>
-              <div class="bg-tp-surface2 rounded-xl p-2 text-xs">
-                <span class="text-tp-outline">Size:</span>
-                <span class="text-tp-text ml-1">{{ db.size ?? '\u2014' }}</span>
-              </div>
-              <div class="bg-tp-surface2 rounded-xl p-2 text-xs">
-                <span class="text-tp-outline">Connections:</span>
-                <span class="text-tp-text ml-1">{{ db.connections ?? 0 }}</span>
-              </div>
+            <div class="flex items-center gap-2">
+              <button class="p-1.5 rounded-xl text-tp-warning hover:bg-tp-warning/10 transition-colors"
+                :disabled="rotatingDb"
+                title="Rotate password"
+                @click="rotateDatabasePassword">
+                <RotateCcw class="w-3.5 h-3.5" :class="{ 'animate-spin': rotatingDb }" />
+              </button>
+              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors"
+                title="Delete database"
+                @click="deleteDatabase">
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+            <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
+              <span class="text-tp-outline w-20 shrink-0">Host</span>
+              <code class="text-tp-text font-mono flex-1 break-all">{{ database.host }}</code>
+            </div>
+            <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
+              <span class="text-tp-outline w-20 shrink-0">Port</span>
+              <code class="text-tp-text font-mono flex-1">{{ database.port }}</code>
+            </div>
+            <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
+              <span class="text-tp-outline w-20 shrink-0">Database</span>
+              <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_name }}</code>
+            </div>
+            <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
+              <span class="text-tp-outline w-20 shrink-0">Username</span>
+              <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_user }}</code>
+            </div>
+            <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2 sm:col-span-2">
+              <span class="text-tp-outline w-20 shrink-0">Password</span>
+              <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_password }}</code>
             </div>
           </div>
         </div>
@@ -1885,9 +1898,9 @@ const sidebarMods = computed(() => {
               <div v-for="(val, label) in {
                 Host: rotatedCreds.host,
                 Port: String(rotatedCreds.port),
-                Database: rotatedCreds.database,
-                Username: rotatedCreds.username,
-                Password: rotatedCreds.password,
+                Database: rotatedCreds.db_name,
+                Username: rotatedCreds.db_user,
+                Password: rotatedCreds.db_password,
               }" :key="label" class="flex items-center gap-2 bg-tp-surface2 rounded-xl px-3 py-2 text-xs">
                 <span class="text-tp-outline w-20 shrink-0">{{ label }}</span>
                 <code class="text-tp-text font-mono flex-1 break-all">{{ val }}</code>
@@ -1895,25 +1908,6 @@ const sidebarMods = computed(() => {
             </div>
             <div class="flex justify-end pt-2">
               <UiButton variant="primary" size="md" @click="rotatedCreds = null">Done</UiButton>
-            </div>
-          </div>
-        </UiModal>
-
-        <!-- Create DB Modal -->
-        <UiModal :open="showCreateDbModal" title="Create Database" @close="showCreateDbModal = false">
-          <div class="space-y-4">
-            <UiInput v-model="newDbForm.name" label="Database Name" placeholder="my_plugin_db" />
-            <div>
-              <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Type</label>
-              <select v-model="newDbForm.type" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-                <option value="mysql">MySQL</option>
-                <option value="postgres">PostgreSQL</option>
-                <option value="sqlite">SQLite</option>
-              </select>
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-              <UiButton variant="secondary" size="md" @click="showCreateDbModal = false">Cancel</UiButton>
-              <UiButton variant="primary" size="md" :disabled="!newDbForm.name" @click="createDatabase">Create</UiButton>
             </div>
           </div>
         </UiModal>

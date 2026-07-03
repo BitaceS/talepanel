@@ -1128,6 +1128,11 @@ func (h *ServerHandler) CreateArchive(c *gin.Context) {
 // ─── MigrateServer ────────────────────────────────────────────────────────────
 
 // MigrateServer handles POST /servers/:id/migrate  (admin only).
+//
+// It performs a real cross-node transfer: archive the server on the source node,
+// stream it to the target node which reconstructs the data dir, then re-point the
+// server record — and only then. If any step fails the server stays on its source
+// node with its data intact, so a failed migration never loses data.
 func (h *ServerHandler) MigrateServer(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {
@@ -1140,7 +1145,8 @@ func (h *ServerHandler) MigrateServer(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.MigrateServer(c.Request.Context(), serverID, req); err != nil {
+	sourceNodeID, err := h.svc.MigratePreflight(c.Request.Context(), serverID, req)
+	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrServerNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
@@ -1151,7 +1157,62 @@ func (h *ServerHandler) MigrateServer(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "server migration initiated"})
+
+	srcClient, err := h.daemonClient(sourceNodeID.String())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "source node is not reachable"})
+		return
+	}
+	tgtClient, err := h.daemonClient(req.TargetNodeID.String())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "target node is not reachable"})
+		return
+	}
+
+	// Detach from the client connection so a disconnect mid-transfer doesn't
+	// abort it; migration is a long, admin-triggered operation.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 30*time.Minute)
+	defer cancel()
+
+	migrationID := uuid.NewString()
+	sid := serverID.String()
+
+	// 1. Archive the server on the source node.
+	if _, err := srcClient.CreateBackup(ctx, sid, migrationID); err != nil {
+		h.log.Warn("migration: source archive failed", zap.String("server_id", sid), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to archive server on source node"})
+		return
+	}
+	// Always clean up the transient archive on the source when we're done.
+	defer func() {
+		if delErr := srcClient.DeleteBackupArchive(ctx, sid, migrationID); delErr != nil {
+			h.log.Warn("migration: cleanup source archive failed", zap.String("server_id", sid), zap.Error(delErr))
+		}
+	}()
+
+	// 2. Stream the archive from source to target, which reconstructs the data dir.
+	body, err := srcClient.DownloadBackup(ctx, sid, migrationID)
+	if err != nil {
+		h.log.Warn("migration: download from source failed", zap.String("server_id", sid), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read archive from source node"})
+		return
+	}
+	defer body.Close()
+
+	if err := tgtClient.ImportServer(ctx, sid, body); err != nil {
+		h.log.Warn("migration: import to target failed", zap.String("server_id", sid), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to transfer server to target node"})
+		return
+	}
+
+	// 3. Data is on the target — now (and only now) re-point the server.
+	if err := h.svc.CompleteMigration(ctx, serverID, req.TargetNodeID); err != nil {
+		h.log.Error("migration: re-point failed after transfer", zap.String("server_id", sid), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "transfer succeeded but re-pointing the server failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "server migrated"})
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

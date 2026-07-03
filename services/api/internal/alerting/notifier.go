@@ -26,15 +26,16 @@ type Notifier interface {
 	Dispatch(ctx context.Context, payload NotificationPayload, channels []string, targetEmail, webhookURL string)
 }
 
-// MultiNotifier fans out to SMTP and Webhook notifiers based on channels list.
+// MultiNotifier fans out to SMTP, Webhook and Discord notifiers based on channels list.
 type MultiNotifier struct {
 	smtp    *SMTPNotifier
 	webhook *WebhookNotifier
+	discord *DiscordNotifier
 	log     *zap.Logger
 }
 
-func NewMultiNotifier(smtp *SMTPNotifier, webhook *WebhookNotifier, log *zap.Logger) *MultiNotifier {
-	return &MultiNotifier{smtp: smtp, webhook: webhook, log: log}
+func NewMultiNotifier(smtp *SMTPNotifier, webhook *WebhookNotifier, discord *DiscordNotifier, log *zap.Logger) *MultiNotifier {
+	return &MultiNotifier{smtp: smtp, webhook: webhook, discord: discord, log: log}
 }
 
 func (m *MultiNotifier) Dispatch(ctx context.Context, payload NotificationPayload, channels []string, targetEmail, webhookURL string) {
@@ -47,6 +48,11 @@ func (m *MultiNotifier) Dispatch(ctx context.Context, payload NotificationPayloa
 		case "webhook":
 			if m.webhook != nil && webhookURL != "" {
 				go m.webhook.Post(ctx, payload, webhookURL)
+			}
+		case "discord":
+			// Discord reuses the rule's webhook_url, expecting a Discord webhook endpoint.
+			if m.discord != nil && webhookURL != "" {
+				go m.discord.Post(ctx, payload, webhookURL)
 			}
 		}
 	}
@@ -100,6 +106,57 @@ func (s *SMTPNotifier) Send(payload NotificationPayload, to string) {
 	}
 	if err := c.DialAndSend(m); err != nil {
 		s.log.Warn("alert smtp: send failed", zap.Error(err))
+	}
+}
+
+// DiscordNotifier posts alerts to a Discord webhook URL using Discord's embed format.
+type DiscordNotifier struct {
+	client *http.Client
+	log    *zap.Logger
+}
+
+func NewDiscordNotifier(log *zap.Logger) *DiscordNotifier {
+	return &DiscordNotifier{
+		client: &http.Client{Timeout: 10 * time.Second},
+		log:    log,
+	}
+}
+
+// Post delivers an alert to a Discord webhook. Called as a goroutine — errors are logged.
+func (d *DiscordNotifier) Post(ctx context.Context, payload NotificationPayload, url string) {
+	color := 0xE67E22 // orange for warning
+	if payload.Severity == "critical" {
+		color = 0xE74C3C // red
+	}
+	body, err := json.Marshal(map[string]any{
+		"embeds": []map[string]any{{
+			"title":       fmt.Sprintf("[%s] %s", payload.Severity, payload.RuleType),
+			"description": payload.Message,
+			"color":       color,
+			"fields": []map[string]any{
+				{"name": "Subject", "value": payload.SubjectID, "inline": true},
+				{"name": "Fired at", "value": payload.FiredAt.Format(time.RFC3339), "inline": true},
+			},
+		}},
+	})
+	if err != nil {
+		d.log.Warn("alert discord: marshal failed", zap.Error(err))
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		d.log.Warn("alert discord: request creation failed", zap.Error(err))
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := d.client.Do(req)
+	if err != nil {
+		d.log.Warn("alert discord: post failed", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		d.log.Warn("alert discord: non-2xx response", zap.Int("status", resp.StatusCode))
 	}
 }
 

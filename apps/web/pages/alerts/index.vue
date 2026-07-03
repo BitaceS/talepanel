@@ -22,17 +22,37 @@ function showToast(msg: string, type: 'success' | 'error' = 'success') {
 
 // Create rule modal
 const showCreateModal = ref(false)
-const ruleForm = reactive({ server_id: '', type: 'crash', threshold: 3, channels: [] as string[], webhook_url: '' })
+const ruleForm = reactive({ server_id: '', type: 'server_crashed', threshold: 90, channels: ['email'] as string[], webhook_url: '' })
 const creating = ref(false)
 
 const ruleTypes = [
-  { value: 'crash', label: 'Server Crash' },
+  { value: 'server_crashed', label: 'Server Crash' },
   { value: 'cpu_high', label: 'High CPU Usage' },
   { value: 'ram_high', label: 'High RAM Usage' },
   { value: 'disk_high', label: 'High Disk Usage' },
-  { value: 'offline', label: 'Server Offline' },
+  { value: 'node_offline', label: 'Node Offline' },
   { value: 'ddos', label: 'DDoS Detected' },
 ]
+
+// Threshold only applies to percentage-metric rule types.
+const thresholdTypes = ['cpu_high', 'ram_high', 'disk_high']
+const showThreshold = computed(() => thresholdTypes.includes(ruleForm.type))
+
+const channelOptions = [
+  { value: 'email', label: 'Email' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'webhook', label: 'Webhook' },
+]
+// Discord and generic webhook both deliver to the rule's webhook URL.
+const needsWebhookUrl = computed(() =>
+  ruleForm.channels.includes('discord') || ruleForm.channels.includes('webhook'),
+)
+
+function toggleChannel(value: string) {
+  const i = ruleForm.channels.indexOf(value)
+  if (i === -1) ruleForm.channels.push(value)
+  else ruleForm.channels.splice(i, 1)
+}
 
 async function createRule() {
   creating.value = true
@@ -213,7 +233,7 @@ onMounted(() => {
             <option v-for="rt in ruleTypes" :key="rt.value" :value="rt.value">{{ rt.label }}</option>
           </select>
         </div>
-        <div v-if="['cpu_high', 'ram_high', 'disk_high'].includes(ruleForm.type)">
+        <div v-if="showThreshold">
           <label class="block text-sm font-medium mb-1">Threshold (%)</label>
           <input
             v-model.number="ruleForm.threshold"
@@ -225,17 +245,45 @@ onMounted(() => {
           />
         </div>
         <div>
-          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Webhook URL (optional)</label>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Notify via</label>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="ch in channelOptions"
+              :key="ch.value"
+              type="button"
+              :class="[
+                'px-3 py-1.5 rounded-xl text-sm border transition-colors',
+                ruleForm.channels.includes(ch.value)
+                  ? 'bg-tp-primary/15 border-tp-primary text-tp-text'
+                  : 'bg-tp-surface2 border-tp-border text-tp-muted hover:text-tp-text',
+              ]"
+              @click="toggleChannel(ch.value)"
+            >
+              {{ ch.label }}
+            </button>
+          </div>
+          <p v-if="ruleForm.channels.length === 0" class="text-tp-warning text-xs mt-1">Select at least one channel or the alert won't be delivered.</p>
+        </div>
+        <div v-if="needsWebhookUrl">
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">
+            {{ ruleForm.channels.includes('discord') ? 'Discord webhook URL' : 'Webhook URL' }}
+          </label>
           <input
             v-model="ruleForm.webhook_url"
             type="url"
-            placeholder="https://hooks.example.com/…"
+            placeholder="https://discord.com/api/webhooks/…"
             class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
           />
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <UiButton variant="secondary" size="md" @click="showCreateModal = false">Cancel</UiButton>
-          <UiButton variant="primary" size="md" :loading="creating" @click="createRule">Create</UiButton>
+          <UiButton
+            variant="primary"
+            size="md"
+            :loading="creating"
+            :disabled="ruleForm.channels.length === 0 || (needsWebhookUrl && !ruleForm.webhook_url)"
+            @click="createRule"
+          >Create</UiButton>
         </div>
       </div>
     </UiModal>

@@ -343,6 +343,146 @@ func (c *Client) CreateArchive(ctx context.Context, serverID, path string) error
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Backups — archiving a whole server can take minutes, so these bypass the
+// client's default 30s timeout and rely on the caller's context deadline.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// BackupCreatedResponse mirrors the daemon's create_backup response.
+type BackupCreatedResponse struct {
+	Success     bool   `json:"success"`
+	SizeBytes   int64  `json:"size_bytes"`
+	StoragePath string `json:"storage_path"`
+}
+
+// longClient returns an HTTP client with no fixed timeout for long-running
+// backup operations. The caller's context governs cancellation.
+func (c *Client) longClient() *http.Client {
+	return &http.Client{Timeout: 0}
+}
+
+// CreateBackup asks the daemon to archive the whole server data dir into the
+// backups directory and returns the archive size and on-node path.
+func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string) (*BackupCreatedResponse, error) {
+	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
+	url := fmt.Sprintf("%s/servers/%s/backup", c.baseURL, serverID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: build backup request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.nodeToken)
+
+	resp, err := c.longClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: create backup: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("daemon: create backup failed (%d): %s", resp.StatusCode, b)
+	}
+
+	var out BackupCreatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: decode backup response: %w", err)
+	}
+	return &out, nil
+}
+
+// RestoreBackup asks the daemon to extract a backup archive back into the server.
+func (c *Client) RestoreBackup(ctx context.Context, serverID, backupID string) error {
+	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
+	url := fmt.Sprintf("%s/servers/%s/backup/restore", c.baseURL, serverID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("daemon: build restore request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.nodeToken)
+
+	resp, err := c.longClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon: restore backup: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("daemon: restore backup failed (%d): %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
+// DownloadBackup streams a backup archive from the daemon.
+func (c *Client) DownloadBackup(ctx context.Context, serverID, backupID string) (io.ReadCloser, error) {
+	url := fmt.Sprintf("%s/servers/%s/backup/download?backup_id=%s", c.baseURL, serverID, backupID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: build backup download request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.nodeToken)
+
+	resp, err := c.longClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: download backup: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("daemon: download backup failed (%d): %s", resp.StatusCode, b)
+	}
+	return resp.Body, nil
+}
+
+// DeleteBackupArchive removes a backup archive from the node (idempotent).
+func (c *Client) DeleteBackupArchive(ctx context.Context, serverID, backupID string) error {
+	return c.doRequest(ctx, http.MethodDelete, fmt.Sprintf("/servers/%s/backup", serverID),
+		map[string]string{"backup_id": backupID}, nil)
+}
+
+// ImportServer streams a server archive to the daemon, which reconstructs the
+// server's data directory. Used as the receiving half of a cross-node migration.
+// The archive is streamed from `data` without buffering the whole thing.
+func (c *Client) ImportServer(ctx context.Context, serverID string, data io.Reader) error {
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	go func() {
+		part, err := writer.CreateFormFile("file", serverID+".zip")
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, data); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		pw.CloseWithError(writer.Close())
+	}()
+
+	url := fmt.Sprintf("%s/servers/%s/import", c.baseURL, serverID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
+	if err != nil {
+		return fmt.Errorf("daemon: build import request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+c.nodeToken)
+
+	resp, err := c.longClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon: import server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("daemon: import server failed (%d): %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Internal HTTP helpers
 // ─────────────────────────────────────────────────────────────────────────────
 

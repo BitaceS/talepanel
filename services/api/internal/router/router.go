@@ -72,13 +72,15 @@ func SetupRouter(
 
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
-	backupSvc := services.NewBackupService(db)
+	backupSvc := services.NewBackupService(db, daemonPool, log)
 	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
 	webhookNotifier := alerting.NewWebhookNotifier(log)
-	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, log)
+	discordNotifier := alerting.NewDiscordNotifier(log)
+	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, discordNotifier, log)
 	alertSvc := services.NewAlertService(db, notifier, log)
 	evaluator := alerting.NewAlertEvaluator(alertSvc, log)
 	go evaluator.Start(ctx)
+	go backupSvc.StartScheduler(ctx)
 
 	// New services
 	permSvc := services.NewPermissionService(db)
@@ -95,7 +97,7 @@ func SetupRouter(
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion)
-	modH := handlers.NewModHandler(modSvc, cfSvc)
+	modH := handlers.NewModHandler(modSvc, cfSvc, daemonPool)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)
@@ -277,6 +279,7 @@ func SetupRouter(
 		backupGroup.POST("", backupH.CreateBackup)
 		backupGroup.DELETE("/:backupId", backupH.DeleteBackup)
 		backupGroup.POST("/:backupId/restore", backupH.RestoreBackup)
+		backupGroup.GET("/:backupId/download", backupH.DownloadBackup)
 	}
 
 	// Backup schedules — requires user authentication, general rate limit
@@ -380,6 +383,8 @@ func SetupRouter(
 		// Command queue — daemon polls and acks.
 		daemonNodeGroup.GET("/:id/commands/pending", nodeH.GetPendingCommands)
 		daemonNodeGroup.POST("/:id/commands/:cmd_id/ack", nodeH.AckCommand)
+		// DDoS detection pushed by the daemon's network monitor.
+		daemonNodeGroup.POST("/:id/ddos", nodeH.ReportDDoS)
 	}
 
 	return r

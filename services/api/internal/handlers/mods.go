@@ -1,13 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/BitaceS/talepanel/api/internal/daemon"
 	"github.com/BitaceS/talepanel/api/internal/services"
 	"go.uber.org/zap"
 )
@@ -27,13 +29,14 @@ func cfErrStatus(err error) int {
 
 // ModHandler groups CurseForge search and per-server mod management handlers.
 type ModHandler struct {
-	modSvc *services.ModService
-	cfSvc  *services.CurseForgeService
-	log    *zap.Logger
+	modSvc  *services.ModService
+	cfSvc   *services.CurseForgeService
+	daemons *daemon.ClientPool
+	log     *zap.Logger
 }
 
-func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService) *ModHandler {
-	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc, log: zap.NewNop()}
+func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService, daemons *daemon.ClientPool) *ModHandler {
+	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc, daemons: daemons, log: zap.NewNop()}
 }
 
 // ─── CurseForge proxy ─────────────────────────────────────────────────────────
@@ -200,13 +203,10 @@ func (h *ModHandler) SwitchModVersion(c *gin.Context) {
 // ─── Task 4: Custom JAR upload ────────────────────────────────────────────────
 
 // UploadMod handles POST /servers/:id/mods/upload.
-// Accepts a multipart form with a "file" field. The file is read into memory
-// and its name is used as the mod filename. The daemon will pull the file from
-// the URL recorded in the install_mod command payload (a local file:// path on
-// the daemon node is not feasible over the network, so we pass a placeholder
-// URL and rely on the daemon's existing install_mod handler to fetch from the
-// panel's file endpoint). For now we record source='custom' and enqueue an
-// install_mod command with the filename so the daemon can request the file.
+// Accepts a multipart form with a "file" field. The file is streamed straight
+// to the daemon node's mods directory (synchronous delivery), then the mod is
+// recorded as present. No install_mod command is enqueued — the file is already
+// in place by the time this returns.
 func (h *ModHandler) UploadMod(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {
@@ -221,7 +221,7 @@ func (h *ModHandler) UploadMod(c *gin.Context) {
 	defer file.Close()
 
 	filename := path.Base(header.Filename)
-	if filename == "" || filename == "." {
+	if filename == "" || filename == "." || filename == ".." {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
 		return
 	}
@@ -231,15 +231,41 @@ func (h *ModHandler) UploadMod(c *gin.Context) {
 		displayName = filename
 	}
 
-	// Build a panel-hosted download URL the daemon can use to fetch the file.
-	// The daemon will call GET /api/v1/servers/:id/files/download?path=mods/<filename>
-	// once the panel-side file write is done. For this endpoint we only enqueue
-	// the DB record + command; actual file delivery to the daemon is out of scope
-	// and should be handled by a subsequent file-upload to the server's file browser.
-	placeholderURL := fmt.Sprintf("/api/v1/servers/%s/files/download?path=mods/%s", serverID, filename)
+	nodeID, err := h.modSvc.ServerNode(c.Request.Context(), serverID)
+	if err != nil {
+		if errors.Is(err, services.ErrServerNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+			return
+		}
+		h.log.Error("upload mod: resolve node failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed"})
+		return
+	}
 
-	if err := h.modSvc.UploadMod(c.Request.Context(), serverID, filename, placeholderURL, displayName); err != nil {
-		h.log.Error("upload mod failed", zap.Error(err))
+	client, err := h.daemons.Get(nodeID.String())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "daemon not connected"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	// Ensure the mods directory exists before uploading into it. The daemon's
+	// upload handler rejects a non-existent target dir; CreateDirectory is a
+	// no-op if it already exists.
+	if err := client.CreateDirectory(ctx, serverID.String(), "mods"); err != nil {
+		h.log.Warn("upload mod: create mods dir failed", zap.Error(err))
+	}
+
+	if err := client.UploadFile(ctx, serverID.String(), "mods", filename, file); err != nil {
+		h.log.Warn("upload mod: daemon upload failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to upload mod to daemon"})
+		return
+	}
+
+	if err := h.modSvc.RecordUpload(c.Request.Context(), serverID, filename, displayName); err != nil {
+		h.log.Error("upload mod: record failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed"})
 		return
 	}
