@@ -328,6 +328,19 @@ func (s *ServerService) GetServerStatus(ctx context.Context, serverID uuid.UUID)
 	return status, err
 }
 
+// ActiveWorld returns the server's currently active world name (may be empty).
+func (s *ServerService) ActiveWorld(ctx context.Context, serverID uuid.UUID) (string, error) {
+	var world string
+	err := s.db.QueryRow(ctx, `SELECT COALESCE(active_world, '') FROM servers WHERE id = $1`, serverID).Scan(&world)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrServerNotFound
+		}
+		return "", fmt.Errorf("fetching active world: %w", err)
+	}
+	return world, nil
+}
+
 // ServerBelongsToNode reports whether the given server is hosted on the given
 // node. Daemon callbacks must call this so an authenticated node can only push
 // status/logs/plugin data for the servers it actually hosts — otherwise any

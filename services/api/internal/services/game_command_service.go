@@ -110,7 +110,7 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 	sid := &serverID
 	return []models.GameCommand{
 		// ── Server Management ─────────────────────────────────
-		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "world save", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
+		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "world save --confirm", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "Server Management", Name: "Stop Server", Description: "Gracefully shut down the server", CommandTemplate: "stop", Icon: "power", SortOrder: 2, IsDefault: true, MinRole: models.RoleAdmin, Params: json.RawMessage("[]")},
 
 		// ── Player Management ─────────────────────────────────
@@ -150,8 +150,8 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 			)},
 
 		// ── World Management ──────────────────────────────────
-		{ServerID: sid, Category: "World Management", Name: "Set Time Day", Description: "Set world time to day", CommandTemplate: "time set day", Icon: "sun", SortOrder: 1, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
-		{ServerID: sid, Category: "World Management", Name: "Set Time Night", Description: "Set world time to night", CommandTemplate: "time set night", Icon: "moon", SortOrder: 2, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
+		{ServerID: sid, Category: "World Management", Name: "Set Time Day", Description: "Set world time to day", CommandTemplate: "time set day --world {world}", Icon: "sun", SortOrder: 1, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
+		{ServerID: sid, Category: "World Management", Name: "Set Time Night", Description: "Set world time to night", CommandTemplate: "time set night --world {world}", Icon: "moon", SortOrder: 2, IsDefault: true, MinRole: models.RoleModerator, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "World Management", Name: "Teleport Player", Description: "Teleport a player to coordinates", CommandTemplate: "teleport {player} {x} {y} {z}", Icon: "navigation", SortOrder: 5, IsDefault: true, MinRole: models.RoleModerator,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},

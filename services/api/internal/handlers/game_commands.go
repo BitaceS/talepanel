@@ -100,6 +100,15 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 		resolved = strings.ReplaceAll(resolved, "{"+key+"}", val)
 	}
 
+	// Inject the server's active world for {world}. Console-run world commands
+	// (e.g. `time set day --world {world}`) need an explicit world because the
+	// console is not a player.
+	if strings.Contains(resolved, "{world}") {
+		if aw, awErr := h.serverSvc.ActiveWorld(c.Request.Context(), serverID); awErr == nil && aw != "" {
+			resolved = strings.ReplaceAll(resolved, "{world}", aw)
+		}
+	}
+
 	// Strip any unreplaced optional placeholders
 	// (optional params that weren't provided)
 	for {
