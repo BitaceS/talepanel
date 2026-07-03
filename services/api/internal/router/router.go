@@ -101,7 +101,7 @@ func SetupRouter(
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)
-	playerH := handlers.NewPlayerHandler(playerSvc, log)
+	playerH := handlers.NewPlayerHandler(playerSvc, serverSvc, log)
 	backupH := handlers.NewBackupHandler(backupSvc, permSvc, log)
 	alertH := handlers.NewAlertHandler(alertSvc, log)
 
@@ -350,6 +350,8 @@ func SetupRouter(
 		daemonGroup.POST("/:id/daemon/status", serverH.DaemonStatusUpdate)
 		daemonGroup.POST("/:id/daemon/logs", serverH.DaemonLogsIngest)
 		daemonGroup.POST("/:id/daemon/plugins", pluginH.DaemonPluginReport)
+		daemonGroup.POST("/:id/daemon/players", playerH.DaemonPlayerReport)
+		daemonGroup.POST("/:id/daemon/worlds", worldH.DaemonWorldReport)
 	}
 
 	// Nodes — requires admin role, general rate limit

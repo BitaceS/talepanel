@@ -38,6 +38,35 @@ func NewPlayerServiceWithLogger(db *pgxpool.Pool, log *zap.Logger) *PlayerServic
 	return &PlayerService{db: db, log: log}
 }
 
+// RecordPlayerEvent upserts a player seen by the daemon's log parser.
+// action is "join" (create/refresh the row and bump last_seen) or "leave"
+// (bump last_seen). Player rows are keyed by (server_id, hytale_uuid).
+func (s *PlayerService) RecordPlayerEvent(ctx context.Context, serverID uuid.UUID, action, username string, hytaleUUID uuid.UUID) error {
+	switch action {
+	case "join":
+		_, err := s.db.Exec(ctx, `
+			INSERT INTO players (server_id, hytale_uuid, username, first_seen, last_seen)
+			VALUES ($1, $2, $3, NOW(), NOW())
+			ON CONFLICT (server_id, hytale_uuid)
+			DO UPDATE SET username = EXCLUDED.username, last_seen = NOW()
+		`, serverID, hytaleUUID, username)
+		if err != nil {
+			return fmt.Errorf("recording player join: %w", err)
+		}
+	case "leave":
+		_, err := s.db.Exec(ctx, `
+			UPDATE players SET last_seen = NOW()
+			WHERE server_id = $1 AND hytale_uuid = $2
+		`, serverID, hytaleUUID)
+		if err != nil {
+			return fmt.Errorf("recording player leave: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown player event action: %q", action)
+	}
+	return nil
+}
+
 func (s *PlayerService) ListPlayers(ctx context.Context, serverID uuid.UUID) ([]*models.Player, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, server_id, hytale_uuid, username, first_seen, last_seen,

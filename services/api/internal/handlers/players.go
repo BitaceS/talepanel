@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
@@ -13,11 +14,58 @@ import (
 
 type PlayerHandler struct {
 	playerSvc *services.PlayerService
+	serverSvc *services.ServerService
 	log       *zap.Logger
 }
 
-func NewPlayerHandler(playerSvc *services.PlayerService, log *zap.Logger) *PlayerHandler {
-	return &PlayerHandler{playerSvc: playerSvc, log: log}
+func NewPlayerHandler(playerSvc *services.PlayerService, serverSvc *services.ServerService, log *zap.Logger) *PlayerHandler {
+	return &PlayerHandler{playerSvc: playerSvc, serverSvc: serverSvc, log: log}
+}
+
+// DaemonPlayerReport handles POST /servers/:id/daemon/players (DaemonNodeAuth).
+// The daemon's log parser reports player join/leave events; we upsert them.
+func (h *PlayerHandler) DaemonPlayerReport(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	nodeIDStr, ok := middleware.GetDaemonNodeID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "node authentication required"})
+		return
+	}
+	nodeID, err := uuid.Parse(nodeIDStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid node identity"})
+		return
+	}
+	owns, err := h.serverSvc.ServerBelongsToNode(c.Request.Context(), serverID, nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ownership check failed"})
+		return
+	}
+	if !owns {
+		c.JSON(http.StatusForbidden, gin.H{"error": "server not hosted on this node"})
+		return
+	}
+
+	var req struct {
+		Action     string    `json:"action" binding:"required"`
+		Username   string    `json:"username" binding:"required"`
+		HytaleUUID uuid.UUID `json:"hytale_uuid" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.playerSvc.RecordPlayerEvent(c.Request.Context(), serverID, req.Action, req.Username, req.HytaleUUID); err != nil {
+		h.log.Warn("failed to record player event", zap.String("server_id", serverID.String()), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not record player event"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h *PlayerHandler) ListPlayers(c *gin.Context) {

@@ -454,6 +454,15 @@ done
                     recv_result = rx.recv() => {
                         match recv_result {
                             Ok(line) => {
+                                // Detect player join/leave and report them so the
+                                // panel's player list stays populated.
+                                if let Some((action, username, hytale_uuid)) = parse_player_event(&line.message) {
+                                    let api = Arc::clone(&api_client);
+                                    let sid = server_id.clone();
+                                    tokio::spawn(async move {
+                                        let _ = api.report_player_event(&sid, action, &username, &hytale_uuid).await;
+                                    });
+                                }
                                 batch.push(line);
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -603,4 +612,78 @@ fn to_wire_log_lines(lines: Vec<LogLine>) -> Vec<crate::api_client::LogLine> {
             message: l.message,
         })
         .collect()
+}
+
+/// Parse a Hytale server log line for a player join/leave event.
+/// Join lines look like:  `... Adding player 'NAME (UUID)`
+/// Leave lines look like: `... Removing player 'NAME' (UUID)`
+/// Returns (action, username, hytale_uuid) with action "join" or "leave".
+fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
+    let line = strip_ansi(raw);
+
+    if let Some(pos) = line.find("Adding player '") {
+        let rest = &line[pos + "Adding player '".len()..];
+        if let Some(op) = rest.find(" (") {
+            let name = rest[..op].trim().to_string();
+            let after = &rest[op + 2..];
+            if let Some(cp) = after.find(')') {
+                let id = after[..cp].trim().to_string();
+                if !name.is_empty() && is_uuid(&id) {
+                    return Some(("join", name, id));
+                }
+            }
+        }
+    }
+
+    if let Some(pos) = line.find("Removing player '") {
+        let rest = &line[pos + "Removing player '".len()..];
+        if let Some(q) = rest.find('\'') {
+            let name = rest[..q].trim().to_string();
+            let after = &rest[q..];
+            if let Some(op) = after.find('(') {
+                let after2 = &after[op + 1..];
+                if let Some(cp) = after2.find(')') {
+                    let id = after2[..cp].trim().to_string();
+                    if !name.is_empty() && is_uuid(&id) {
+                        return Some(("leave", name, id));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// True if `s` is a canonical 8-4-4-4-12 hex UUID.
+fn is_uuid(s: &str) -> bool {
+    s.len() == 36
+        && s.as_bytes().iter().enumerate().all(|(i, &b)| {
+            if i == 8 || i == 13 || i == 18 || i == 23 {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        })
+}
+
+/// Strip ANSI CSI escape sequences (colour codes) from a log line.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(nc) = chars.next() {
+                    if nc.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }

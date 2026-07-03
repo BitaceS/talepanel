@@ -89,6 +89,13 @@ pub struct LogLine {
     pub message: String,
 }
 
+/// A world discovered on disk under `{data_path}/universe/worlds`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScannedWorld {
+    pub name: String,
+    pub size_bytes: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Internal request bodies
 // ---------------------------------------------------------------------------
@@ -340,6 +347,54 @@ impl ApiClient {
             warn!(%status, response_body = %text, "report_ddos HTTP error (non-fatal)");
         }
 
+        Ok(())
+    }
+
+    /// Report a player join/leave event parsed from the server's log stream.
+    /// action is "join" or "leave". Fire-and-forget; non-2xx is logged.
+    pub async fn report_player_event(&self, server_id: &str, action: &str, username: &str, hytale_uuid: &str) -> Result<()> {
+        let url = format!("{}/api/v1/servers/{}/daemon/players", self.base_url, server_id);
+        let body = serde_json::json!({
+            "action": action,
+            "username": username,
+            "hytale_uuid": hytale_uuid,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("HTTP request failed for report_player_event")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            warn!(%status, response_body = %text, "report_player_event HTTP error (non-fatal)");
+        }
+        Ok(())
+    }
+
+    /// Report the worlds discovered on disk plus the active world (config.json).
+    pub async fn report_worlds(&self, server_id: &str, worlds: &[ScannedWorld], active_world: &str) -> Result<()> {
+        let url = format!("{}/api/v1/servers/{}/daemon/worlds", self.base_url, server_id);
+        let body = serde_json::json!({
+            "worlds": worlds,
+            "active_world": active_world,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("HTTP request failed for report_worlds")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            warn!(%status, response_body = %text, "report_worlds HTTP error (non-fatal)");
+        }
         Ok(())
     }
 
