@@ -65,6 +65,10 @@ pub async fn run_plugin_scanner(
 
     info!(interval_secs, "Plugin scanner started");
 
+    // Initial scan so worlds/plugins appear promptly rather than after the
+    // first interval elapses.
+    scan_all_servers(&api, &data_root).await;
+
     loop {
         tokio::select! {
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)) => {
@@ -76,6 +80,60 @@ pub async fn run_plugin_scanner(
             }
         }
     }
+}
+
+/// Scan `{server_dir}/universe/worlds` for world directories and read the
+/// active world from `{server_dir}/config.json` (`Defaults.World`).
+fn scan_server_worlds(server_dir: &Path) -> (Vec<crate::api_client::ScannedWorld>, String) {
+    let mut worlds = Vec::new();
+    let worlds_dir = server_dir.join("universe").join("worlds");
+    if let Ok(entries) = std::fs::read_dir(&worlds_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                worlds.push(crate::api_client::ScannedWorld {
+                    name: name.to_string(),
+                    size_bytes: dir_size(&p),
+                });
+            }
+        }
+    }
+    (worlds, read_active_world(server_dir))
+}
+
+/// Read the active world name from a server's `config.json` (`Defaults.World`).
+fn read_active_world(server_dir: &Path) -> String {
+    let cfg_path = server_dir.join("config.json");
+    if let Ok(contents) = std::fs::read_to_string(&cfg_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&contents) {
+            if let Some(w) = v
+                .get("Defaults")
+                .and_then(|d| d.get("World"))
+                .and_then(|w| w.as_str())
+            {
+                return w.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Recursively sum the byte size of a directory's files.
+fn dir_size(path: &Path) -> i64 {
+    let mut total: i64 = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            match entry.metadata() {
+                Ok(md) if md.is_dir() => total += dir_size(&entry.path()),
+                Ok(md) => total += md.len() as i64,
+                Err(_) => {}
+            }
+        }
+    }
+    total
 }
 
 async fn scan_all_servers(api: &ApiClient, servers_dir: &str) {
@@ -103,6 +161,15 @@ async fn scan_all_servers(api: &ApiClient, servers_dir: &str) {
             Some(name) => name.to_string(),
             None => continue,
         };
+
+        // Scan universe/worlds and report worlds + the active world. Done first
+        // so it runs even for servers with no plugins.
+        let (worlds, active_world) = scan_server_worlds(&entry_path);
+        if !worlds.is_empty() {
+            if let Err(err) = api.report_worlds(&server_id, &worlds, &active_world).await {
+                warn!(%err, server_id = %server_id, "Failed to report worlds to API");
+            }
+        }
 
         // Scan mods/ and plugins/ directories.
         let plugins = scan_server_plugins(&entry_path);

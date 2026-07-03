@@ -26,6 +26,45 @@ func NewWorldService(db *pgxpool.Pool) *WorldService {
 	return &WorldService{db: db}
 }
 
+// ScannedWorld is one world discovered on disk by the daemon world scanner.
+type ScannedWorld struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+// SyncWorlds upserts the worlds the daemon found under universe/worlds and,
+// when activeWorld is known (from config.json), flags the active one and
+// updates the server's active_world. Worlds are keyed by (server_id, name).
+func (s *WorldService) SyncWorlds(ctx context.Context, serverID uuid.UUID, worlds []ScannedWorld, activeWorld string) error {
+	for _, w := range worlds {
+		if activeWorld != "" {
+			active := w.Name == activeWorld
+			if _, err := s.db.Exec(ctx, `
+				INSERT INTO worlds (server_id, name, generator, size_bytes, is_active)
+				VALUES ($1, $2, 'imported', $3, $4)
+				ON CONFLICT (server_id, name)
+				DO UPDATE SET size_bytes = EXCLUDED.size_bytes, is_active = EXCLUDED.is_active, updated_at = NOW()
+			`, serverID, w.Name, w.SizeBytes, active); err != nil {
+				return fmt.Errorf("syncing world %q: %w", w.Name, err)
+			}
+		} else {
+			// Unknown active world — don't clobber is_active, just refresh size.
+			if _, err := s.db.Exec(ctx, `
+				INSERT INTO worlds (server_id, name, generator, size_bytes)
+				VALUES ($1, $2, 'imported', $3)
+				ON CONFLICT (server_id, name)
+				DO UPDATE SET size_bytes = EXCLUDED.size_bytes, updated_at = NOW()
+			`, serverID, w.Name, w.SizeBytes); err != nil {
+				return fmt.Errorf("syncing world %q: %w", w.Name, err)
+			}
+		}
+	}
+	if activeWorld != "" {
+		_, _ = s.db.Exec(ctx, `UPDATE servers SET active_world = $1, updated_at = NOW() WHERE id = $2`, activeWorld, serverID)
+	}
+	return nil
+}
+
 func (s *WorldService) ListWorlds(ctx context.Context, serverID uuid.UUID) ([]*models.World, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, server_id, name, seed, generator, is_active, size_bytes,
