@@ -621,6 +621,10 @@ fn to_wire_log_lines(lines: Vec<LogLine>) -> Vec<crate::api_client::LogLine> {
 fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
     let line = strip_ansi(raw);
 
+    // Only the "[Universe|P] Adding player 'NAME (UUID)" line is the canonical
+    // join. Other lines like "[World|x] Adding player 'NAME' to world ..." also
+    // contain "Adding player '" but are not clean join events — the username
+    // validity check below rejects them (they carry spaces/quotes).
     if let Some(pos) = line.find("Adding player '") {
         let rest = &line[pos + "Adding player '".len()..];
         if let Some(op) = rest.find(" (") {
@@ -628,7 +632,7 @@ fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
             let after = &rest[op + 2..];
             if let Some(cp) = after.find(')') {
                 let id = after[..cp].trim().to_string();
-                if !name.is_empty() && is_uuid(&id) {
+                if is_valid_username(&name) && is_uuid(&id) {
                     return Some(("join", name, id));
                 }
             }
@@ -644,7 +648,7 @@ fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
                 let after2 = &after[op + 1..];
                 if let Some(cp) = after2.find(')') {
                     let id = after2[..cp].trim().to_string();
-                    if !name.is_empty() && is_uuid(&id) {
+                    if is_valid_username(&name) && is_uuid(&id) {
                         return Some(("leave", name, id));
                     }
                 }
@@ -653,6 +657,14 @@ fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
     }
 
     None
+}
+
+/// True if `s` looks like a Hytale username (alphanumeric or underscore,
+/// 1..=32 chars). Rejects log fragments that leak into the join/leave lines.
+fn is_valid_username(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 32
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// True if `s` is a canonical 8-4-4-4-12 hex UUID.
