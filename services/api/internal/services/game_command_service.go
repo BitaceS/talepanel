@@ -110,7 +110,7 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 	sid := &serverID
 	return []models.GameCommand{
 		// ── Server Management ─────────────────────────────────
-		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "world save --confirm", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
+		{ServerID: sid, Category: "Server Management", Name: "Save World", Description: "Force-save all world data to disk", CommandTemplate: "world save --confirm --all", Icon: "save", SortOrder: 1, IsDefault: true, MinRole: models.RoleUser, Params: json.RawMessage("[]")},
 		{ServerID: sid, Category: "Server Management", Name: "Stop Server", Description: "Gracefully shut down the server", CommandTemplate: "stop", Icon: "power", SortOrder: 2, IsDefault: true, MinRole: models.RoleAdmin, Params: json.RawMessage("[]")},
 
 		// ── Player Management ─────────────────────────────────
