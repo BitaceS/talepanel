@@ -849,37 +849,119 @@ async function createFolder() {
 const uploadingFile = ref(false)
 const extractingPath = ref('')
 const archivingPath = ref('')
+const autoExtractZip = ref(true)
+const uploadProgress = ref<{ done: number; total: number; pct: number; name: string } | null>(null)
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
 
 function triggerUpload() {
   fileInputRef.value?.click()
 }
 
+function triggerFolderUpload() {
+  folderInputRef.value?.click()
+}
+
+// Upload a single file via XHR so we get upload progress events. The relative
+// path (from webkitdirectory) is preserved in the multipart filename; the
+// daemon recreates the directory tree underneath the current folder.
+function uploadOne(file: File, relName: string, onProgress: (loaded: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const config = useRuntimeConfig()
+    const fd = new FormData()
+    fd.append('file', file, relName)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${config.public.apiBase}/servers/${serverId.value}/files/upload?path=${encodeURIComponent(filePath.value)}`)
+    if (authStore.accessToken) xhr.setRequestHeader('Authorization', `Bearer ${authStore.accessToken}`)
+    xhr.withCredentials = true
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded) }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
+      } else {
+        let msg = 'Upload failed'
+        try { msg = JSON.parse(xhr.responseText)?.error ?? msg } catch { /* non-JSON */ }
+        reject(new Error(msg))
+      }
+    }
+    xhr.onerror = () => reject(new Error('Upload failed'))
+    xhr.send(fd)
+  })
+}
+
 async function handleFileUpload(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+  const files = Array.from(input.files ?? [])
+  input.value = '' // reset so re-selecting the same file/folder fires change
+  if (files.length === 0) return
+  await runUpload(files)
+}
 
+async function runUpload(files: File[]) {
   uploadingFile.value = true
+  const totalBytes = files.reduce((s, f) => s + f.size, 0)
+  const loadedPer = new Array(files.length).fill(0)
+  let done = 0
+  let failed = 0
+  uploadProgress.value = { done: 0, total: files.length, pct: 0, name: files[0]?.name ?? '' }
+
+  const recompute = (name?: string) => {
+    const loaded = loadedPer.reduce((s: number, n: number) => s + n, 0)
+    uploadProgress.value = {
+      done,
+      total: files.length,
+      pct: totalBytes > 0 ? Math.round((loaded / totalBytes) * 100) : 0,
+      name: name ?? uploadProgress.value?.name ?? '',
+    }
+  }
+
+  let idx = 0
+  const worker = async () => {
+    while (idx < files.length) {
+      const i = idx++
+      const file = files[i]
+      const relName = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath || file.name
+      recompute(relName)
+      try {
+        await uploadOne(file, relName, (loaded) => { loadedPer[i] = loaded; recompute() })
+        loadedPer[i] = file.size
+      } catch {
+        failed++
+      } finally {
+        done++
+        recompute()
+      }
+    }
+  }
+
   try {
-    const formData = new FormData()
-    formData.append('file', file)
-    const config = useRuntimeConfig()
-    await $fetch(`${config.public.apiBase}/servers/${serverId.value}/files/upload?path=${encodeURIComponent(filePath.value)}`, {
-      method: 'POST',
-      body: formData,
-      headers: authStore.accessToken ? { Authorization: `Bearer ${authStore.accessToken}` } : {},
-      credentials: 'include',
-    })
-    showToast(`${file.name} uploaded`)
+    const CONCURRENCY = 3
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker))
+
+    if (failed > 0) {
+      showToast(`${failed} of ${files.length} file(s) failed to upload`, 'error')
+    } else {
+      showToast(files.length === 1 ? `${files[0].name} uploaded` : `${files.length} files uploaded`)
+    }
+
+    // Auto-extract when a single .zip was uploaded and the option is enabled.
+    if (failed === 0 && autoExtractZip.value && files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
+      const name = files[0].name
+      const fpath = filePath.value === '/' ? '/' + name : filePath.value + '/' + name
+      try {
+        await api.post(`/servers/${serverId.value}/files/extract`, { path: fpath })
+        showToast(`${name} extracted`)
+      } catch (err: unknown) {
+        const e = err as { data?: { error?: string } }
+        showToast(e.data?.error ?? 'Extract failed', 'error')
+      }
+    }
+
     fetchFiles()
-  } catch (err: unknown) {
-    const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Upload failed', 'error')
   } finally {
     uploadingFile.value = false
-    input.value = '' // reset input
+    uploadProgress.value = null
   }
 }
 
@@ -1599,13 +1681,32 @@ const sidebarMods = computed(() => {
               <UiButton variant="secondary" size="sm" :loading="uploadingFile" @click="triggerUpload">
                 <Upload class="w-3.5 h-3.5" /> Upload
               </UiButton>
-              <input ref="fileInputRef" type="file" class="hidden" @change="handleFileUpload" />
+              <input ref="fileInputRef" type="file" multiple class="hidden" @change="handleFileUpload" />
+              <UiButton variant="secondary" size="sm" :loading="uploadingFile" @click="triggerFolderUpload">
+                <Upload class="w-3.5 h-3.5" /> Folder
+              </UiButton>
+              <input ref="folderInputRef" type="file" webkitdirectory class="hidden" @change="handleFileUpload" />
+              <label class="flex items-center gap-1.5 text-xs text-tp-muted cursor-pointer select-none">
+                <input v-model="autoExtractZip" type="checkbox" class="accent-tp-primary" />
+                Auto-extract .zip
+              </label>
               <UiButton variant="secondary" size="sm" @click="showNewFolder = !showNewFolder">
                 <FolderPlus class="w-3.5 h-3.5" /> New Folder
               </UiButton>
               <UiButton variant="secondary" size="sm" @click="fetchFiles()">
                 <RotateCcw class="w-3.5 h-3.5" />
               </UiButton>
+            </div>
+          </div>
+
+          <!-- Upload progress -->
+          <div v-if="uploadProgress" class="space-y-1">
+            <div class="flex items-center justify-between text-xs text-tp-muted gap-2">
+              <span class="truncate">Uploading {{ uploadProgress.done }}/{{ uploadProgress.total }} — {{ uploadProgress.name }}</span>
+              <span class="shrink-0">{{ uploadProgress.pct }}%</span>
+            </div>
+            <div class="h-1.5 bg-tp-surface2 rounded-full overflow-hidden">
+              <div class="h-full bg-tp-primary transition-all" :style="{ width: uploadProgress.pct + '%' }" />
             </div>
           </div>
 

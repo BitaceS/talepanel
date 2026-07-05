@@ -44,7 +44,10 @@ func AuditLog(db *pgxpool.Pool, logger *zap.Logger) gin.HandlerFunc {
 		var bodyBytes []byte
 		if c.Request.Method != http.MethodGet &&
 			c.Request.Method != http.MethodHead &&
-			c.Request.Body != nil {
+			c.Request.Body != nil &&
+			// Never buffer multipart bodies: they are streaming file uploads that
+			// can be many gigabytes, and truncating to 64 KB would corrupt them.
+			!strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/") {
 			bodyBytes, _ = io.ReadAll(io.LimitReader(c.Request.Body, 64*1024)) // cap at 64 KB
 			// Restore the body for downstream handlers.
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))

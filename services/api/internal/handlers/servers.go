@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -981,19 +982,19 @@ func (h *ServerHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file field is required"})
+	contentType := c.GetHeader("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "multipart/form-data body required"})
 		return
 	}
-	defer file.Close()
 
 	dir := c.DefaultQuery("path", "/")
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-
-	if err := client.UploadFile(ctx, serverID.String(), dir, header.Filename, file); err != nil {
+	// Stream the raw multipart body straight to the daemon — no FormFile
+	// parsing, no buffering — so multi-gigabyte uploads and whole folders pass
+	// through with flat memory usage. No artificial timeout: large uploads are
+	// bounded by the request context (client disconnect) only.
+	if err := client.UploadStream(c.Request.Context(), serverID.String(), dir, contentType, c.Request.Body); err != nil {
 		h.log.Warn("file upload failed", zap.String("server_id", serverID.String()), zap.Error(err))
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to upload file to daemon"})
 		return

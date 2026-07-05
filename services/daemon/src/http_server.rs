@@ -9,6 +9,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tracing::{info, instrument, warn};
 
@@ -885,49 +886,79 @@ async fn upload_file(
             .into_response();
     }
 
-    // 50 MB upload limit
-    const MAX_UPLOAD: usize = 50 * 1024 * 1024;
     let mut saved = 0u32;
 
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let file_name = match field.file_name() {
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        // The multipart filename may carry a relative sub-path (e.g.
+        // `mods/foo.jar`) when a whole folder is uploaded via the browser's
+        // `webkitdirectory` input. Sanitize each component and rebuild a safe
+        // destination underneath the (already validated) target directory.
+        let raw_name = match field.file_name() {
             Some(name) => name.to_string(),
             None => continue,
         };
 
-        // Validate filename — no path separators
-        if file_name.contains('/') || file_name.contains('\\') || file_name == ".." || file_name == "." {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("invalid filename: {file_name}")})),
-            )
-                .into_response();
-        }
-
-        let data = match field.bytes().await {
-            Ok(d) => d,
-            Err(e) => {
+        let dest = match safe_join(&target_dir, &raw_name) {
+            Ok(p) => p,
+            Err(msg) => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": format!("failed to read upload: {e}")})),
+                    Json(serde_json::json!({"error": msg})),
                 )
                     .into_response();
             }
         };
 
-        if data.len() > MAX_UPLOAD {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("file exceeds maximum upload size of {} MB", MAX_UPLOAD / 1024 / 1024)})),
-            )
-                .into_response();
+        // Create parent directories for nested uploads.
+        if let Some(parent) = dest.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("failed to create directory: {e}")})),
+                )
+                    .into_response();
+            }
         }
 
-        let dest = target_dir.join(&file_name);
-        if let Err(e) = tokio::fs::write(&dest, &data).await {
+        // Stream the field's chunks straight to disk so uploads are bounded by
+        // free disk space, not memory. No in-memory size cap.
+        let mut file = match tokio::fs::File::create(&dest).await {
+            Ok(f) => f,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("failed to create file: {e}")})),
+                )
+                    .into_response();
+            }
+        };
+
+        loop {
+            match field.chunk().await {
+                Ok(Some(chunk)) => {
+                    if let Err(e) = file.write_all(&chunk).await {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({"error": format!("failed to write file: {e}")})),
+                        )
+                            .into_response();
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error": format!("failed to read upload: {e}")})),
+                    )
+                        .into_response();
+                }
+            }
+        }
+
+        if let Err(e) = file.flush().await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("failed to save file: {e}")})),
+                Json(serde_json::json!({"error": format!("failed to flush file: {e}")})),
             )
                 .into_response();
         }
@@ -936,6 +967,38 @@ async fn upload_file(
     }
 
     ActionResponse::ok(format!("{saved} file(s) uploaded")).into_response()
+}
+
+/// Join a user-supplied (possibly nested) relative file name onto an already
+/// resolved, canonical base directory. Every path segment must be a plain
+/// `Normal` component — this rejects `..`, `.`, absolute paths and drive
+/// prefixes, so the result can never escape `base`.
+fn safe_join(base: &std::path::Path, raw_name: &str) -> Result<PathBuf, String> {
+    // Browsers send forward slashes in webkitRelativePath; normalize backslashes.
+    let normalized = raw_name.replace('\\', "/");
+    let mut dest = base.to_path_buf();
+    let mut had_component = false;
+
+    for segment in normalized.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        let seg_path = std::path::Path::new(segment);
+        let mut comps = seg_path.components();
+        match (comps.next(), comps.next()) {
+            (Some(std::path::Component::Normal(_)), None) => {
+                dest.push(segment);
+                had_component = true;
+            }
+            _ => return Err(format!("invalid filename: {raw_name}")),
+        }
+    }
+
+    if !had_component {
+        return Err(format!("invalid filename: {raw_name}"));
+    }
+
+    Ok(dest)
 }
 
 /// `GET /servers/:id/files/download?path=`
@@ -1566,7 +1629,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/files/content", get(read_file).put(write_file))
         .route("/servers/:id/files/directory", post(create_directory))
         .route("/servers/:id/files/rename", post(rename_file))
-        .route("/servers/:id/files/upload", post(upload_file))
+        .route(
+            "/servers/:id/files/upload",
+            // Disable the 2 MB default body limit — uploads stream to disk and
+            // may be multiple gigabytes (whole folders via webkitdirectory).
+            post(upload_file).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/servers/:id/files/download", get(download_file))
         .route("/servers/:id/files/extract", post(extract_archive))
         .route("/servers/:id/files/archive", post(create_archive))
