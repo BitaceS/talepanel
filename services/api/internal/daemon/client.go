@@ -14,6 +14,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -295,6 +296,33 @@ func (c *Client) UploadFile(ctx context.Context, serverID, dir string, fileName 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("daemon: upload failed (%d): %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
+// UploadStream forwards a raw multipart upload body to the daemon without
+// buffering it, so multi-gigabyte uploads (and whole folders) stream straight
+// through with flat memory usage. contentType must be the original client
+// Content-Type header — it carries the multipart boundary. Uses a client with
+// no timeout since large uploads can take a while.
+func (c *Client) UploadStream(ctx context.Context, serverID, dir, contentType string, body io.Reader) error {
+	uploadURL := fmt.Sprintf("%s/servers/%s/files/upload?path=%s", c.baseURL, serverID, url.QueryEscape(dir))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, body)
+	if err != nil {
+		return fmt.Errorf("daemon: build upload request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+c.nodeToken)
+
+	resp, err := c.longClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon: upload: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("daemon: upload failed (%d): %s", resp.StatusCode, b)
 	}
 	return nil
 }
