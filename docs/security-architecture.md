@@ -150,10 +150,10 @@ Content-Security-Policy: default-src 'self'
 - Passwords, tokens stripped from logged payloads
 - Logs are append-only (no update/delete endpoints)
 
-### Object Storage (MinIO/S3)
-- Backup bucket: private ACL (no public access)
-- Presigned URLs for downloads (short TTL)
-- MinIO credentials from env only
+### Backup Storage
+- **Today:** backups are Zip archives written by the daemon to the same node as the server. They are served through the authenticated API (RBAC-checked); there is no public URL and no object-storage upload path in the code.
+- MinIO ships in the compose file and its credentials are read from env, but no backup is uploaded to it yet.
+- **Planned (S3/object storage):** private bucket ACL, presigned download URLs with short TTL, credentials from env only.
 
 ---
 
@@ -189,5 +189,5 @@ Content-Security-Policy: default-src 'self'
 | SQL injection | Parameterized queries throughout |
 | Rogue daemon node | Node token authentication + future mTLS |
 | Privilege escalation | RBAC at middleware + service layer (dual check) |
-| Backup data exposure | Private bucket + presigned URLs |
+| Backup data exposure | Backups stay on the node, downloadable only through the RBAC-checked API |
 | Log injection | Structured logging (zap), no string interpolation |
