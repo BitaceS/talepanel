@@ -5,7 +5,7 @@
 - [ ] **TLS everywhere** — terminate at load balancer or Caddy/Nginx, no HTTP in production
 - [ ] **PostgreSQL SSL** — `sslmode=require` in DATABASE_URL
 - [ ] **Redis TLS** — `rediss://` scheme, require AUTH
-- [ ] **MinIO TLS** — HTTPS endpoint, set `MINIO_USE_SSL=true`
+- [ ] **MinIO TLS** — HTTPS endpoint, set `MINIO_USE_SSL=true` (MinIO ships in compose but is not yet used by the backup path — only relevant if you run it)
 - [ ] **Daemon mTLS** — deploy with mutual TLS certificates issued by API CA
 - [ ] **Private network** — API, DB, Redis, MinIO should NOT be publicly exposed; only the web panel/API reverse proxy should be
 
@@ -14,7 +14,7 @@
 - [ ] **Rotate all default passwords** — change all .env.example values
 - [ ] **Generate strong JWT secrets** — `openssl rand -hex 32` for each
 - [ ] **Use a secrets manager** — HashiCorp Vault, AWS Secrets Manager, or Doppler
-- [ ] **Delete seed admin** — remove or change `admin@talepanel.local` default account
+- [ ] **No seed admin** — TalePanel ships without a default account and without a default password. If you upgraded from a pre-0.9 build, verify the old `admin@talepanel.local` row is gone (migration 014 purges it).
 - [ ] **Node tokens** — generate unique token per node, rotate on compromise
 
 ## Authentication
@@ -37,7 +37,7 @@
 
 - [ ] **Create dedicated DB user** — not superuser; grant only SELECT/INSERT/UPDATE/DELETE on talepanel schema
 - [ ] **Enable pg_audit** — detailed query logging for compliance
-- [ ] **Regular backups** — automated PostgreSQL dumps to separate storage from MinIO backups
+- [ ] **Regular backups** — automated PostgreSQL dumps to storage outside the panel host
 - [ ] **Connection pool limits** — tune pgxpool MaxConns based on server RAM
 - [ ] **Enable SSL certificate verification** — `sslmode=verify-full` with CA cert
 
@@ -70,10 +70,12 @@
 
 ## Backup
 
+> **Know what TalePanel does and does not do.** TalePanel creates Zip snapshots of a server **on the node that runs it**. That protects you against a bad mod update or a wiped world — not against a dead disk or a lost host. Off-site upload (S3/object storage) is on the roadmap; until it lands, the off-site half is your job.
+
 - [ ] **Test restore** — verify backup restore works before going live
-- [ ] **Off-site backup storage** — store backups in a different region/provider than the panel
-- [ ] **Encrypt backups at rest** — AES-256 encryption before upload to S3
-- [ ] **Backup the panel itself** — export PostgreSQL dump nightly
+- [ ] **Off-site copy** — sync `/srv/taledaemon/backups` (rsync/restic/rclone to another provider) on a schedule
+- [ ] **Encrypt backups at rest** — if you sync them off the node, encrypt before upload
+- [ ] **Backup the panel itself** — export PostgreSQL dump nightly; TalePanel does not back up its own control plane
 - [ ] **3-2-1 rule** — 3 copies, 2 different media, 1 off-site
 
 ## Deployment

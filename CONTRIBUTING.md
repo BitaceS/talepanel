@@ -4,7 +4,7 @@ Thanks for thinking about contributing. Before you open a PR, please read this w
 
 ## Licence and CLA
 
-TalePanel is dual-licensed: AGPL-3.0 + commercial licence. All contributions are accepted under the Contributor License Agreement in `CLA.md`. Opening a pull request counts as accepting the CLA; the CLA-Assistant bot records your acceptance automatically.
+TalePanel is AGPL-3.0 — free for everyone, hosters included. There is no paid edition. All contributions are accepted under the Contributor License Agreement in `CLA.md`. Opening a pull request counts as accepting the CLA; the CLA-Assistant bot records your acceptance automatically.
 
 ## Project layout
 
@@ -12,8 +12,8 @@ TalePanel is dual-licensed: AGPL-3.0 + commercial licence. All contributions are
 services/api/        Go backend (Gin, pgx/v5)
 services/daemon/     Rust node agent (tokio, axum)
 apps/web/            Nuxt 3 panel
-apps/desktop/        Tauri wrapper
-apps/mobile/         Flutter app
+apps/desktop/        Tauri skeleton (not started, no releases)
+apps/mobile/         Flutter skeleton (not started, no releases)
 deploy/panel/        Production panel compose
 deploy/daemon/       Production daemon compose
 scripts/             install.sh (unified panel + daemon installer), lib/common.sh

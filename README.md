@@ -1,13 +1,41 @@
 # TalePanel
 
-**The modern control panel for Hytale servers.**
-Built by [Tyraxo](https://tyraxo.com)
+**The control panel that actually understands Hytale.**
+Built by [BitaceS](https://talepanel.com) · AGPL-3.0 · free, forever
 
 ---
 
 ## What is TalePanel?
 
-TalePanel is a full-stack server management platform built exclusively for Hytale. It gives server operators and hosting providers a unified dashboard for managing game servers, worlds, mods, players, and infrastructure — across single-node setups and multi-node clusters.
+TalePanel is a full-stack server management platform built exclusively for Hytale. Worlds, mods and players are first-class objects, not files in a generic file manager — and it scales from one box to a multi-node cluster.
+
+It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+
+---
+
+## Status — what works today
+
+**Shipped and working against real Hytale servers:**
+
+- **Servers** — create, start, stop, restart, kill, resource limits, per-server member roles.
+- **Live console + logs** — command input and log tail. Implemented as short-interval polling (logs ~1s, metrics ~5s, status 2–15s), not a socket. It feels live; it is honest about how.
+- **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
+- **Worlds** — list, create, switch, delete worlds as real objects.
+- **Files** — browse, edit, upload, download inside the server directory.
+- **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
+- **Backups** — create/restore/download a Zip snapshot of a server. **The archive is stored on the same node as the server.** No off-site copy yet.
+- **Players** — list, kick, ban, whitelist.
+- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest), RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password.
+- **Install** — one script for panel or daemon, automatic Let's Encrypt TLS, works without a domain via `sslip.io`.
+
+**Not there yet (roadmap, tracked publicly):**
+
+- **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
+- **Off-site backups (S3 / object storage)** — MinIO is in the compose file, but no backup is uploaded to it today. Backups live on the node.
+- **CurseForge mod browser** — the code exists but is **experimental and off by default**: it needs `CURSEFORGE_API_KEY` and `CURSEFORGE_GAME_ID`, and Hytale has no CurseForge game ID yet. Until it does, use the upload-based mod installer, which is fully supported.
+- **Desktop (Tauri) and mobile (Flutter) apps** — skeletons in the repo, not started as products, not built in the release workflow.
+- **Test coverage** — thin (a handful of Go tests, no Rust tests). Beta means beta.
+- **mTLS between panel and daemon, process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -50,10 +78,6 @@ as `online` within ~30 seconds.
 > provision in milliseconds via hardlink instead of pulling from the
 > Hytale CDN, which is IPv4-only.
 
-### Commercial hosting license
-
-Running TalePanel as a paid managed service? The AGPL-3.0 obligation to open-source your whole stack does not fit most hosters — contact `info@diengdoh.com` for a commercial license that waives it.
-
 ---
 
 ## Monorepo Structure
@@ -62,8 +86,8 @@ Running TalePanel as a paid managed service? The AGPL-3.0 obligation to open-sou
 talepanel/
 ├── apps/
 │   ├── web/           Nuxt 3 web panel
-│   ├── desktop/       Tauri desktop app
-│   └── mobile/        Flutter mobile app
+│   ├── desktop/       Tauri skeleton (not started — no releases)
+│   └── mobile/        Flutter skeleton (not started — no releases)
 ├── services/
 │   ├── api/           Go backend API
 │   └── daemon/        Rust node daemon (TaleDaemon)
@@ -85,7 +109,6 @@ talepanel/
 | Node.js | 20+ | `node -v` |
 | Go | 1.22+ | `go version` |
 | Rust + Cargo | 1.79+ | `rustc --version` |
-| Flutter | 3.22+ | `flutter --version` |
 
 ---
 
@@ -172,30 +195,6 @@ docker compose logs -f api
 
 ---
 
-## Desktop App (Tauri)
-
-```bash
-cd apps/desktop
-npm install
-npm run tauri:dev
-```
-
-Requires Rust + system WebView (WebKit2GTK on Linux, Edge WebView2 on Windows, WKWebView on macOS).
-
----
-
-## Mobile App (Flutter)
-
-```bash
-cd apps/mobile
-flutter pub get
-flutter run
-```
-
-Requires a connected device or emulator. On first launch, enter your API URL.
-
----
-
 ## API Reference
 
 Base URL: `http://localhost:8080/api/v1`
@@ -259,11 +258,11 @@ See `.env.example` for the full list with descriptions.
 
 | Service | Port | Notes |
 |---|---|---|
-| API (Go) | 8080 | REST API + WebSocket |
+| API (Go) | 8080 | REST API (the panel polls it; no WebSocket/SSE yet) |
 | Web Panel | 3000 | Nuxt 3 dev server |
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache + queue |
-| MinIO S3 API | 9000 | Object storage |
+| MinIO S3 API | 9000 | Object storage — shipped in compose, **not yet used by backups** |
 | MinIO Console | 9001 | MinIO web UI |
 | TaleDaemon | 8444 | Node daemon local API |
 
@@ -321,9 +320,7 @@ automatically during a fresh panel install.
 | Node Daemon | Rust, tokio, axum, reqwest, serde |
 | Database | PostgreSQL 16 |
 | Cache / Queue | Redis 7 |
-| Object Storage | MinIO (S3-compatible) |
-| Desktop App | Tauri 2, Vue 3 |
-| Mobile App | Flutter, Riverpod, GoRouter |
+| Object Storage | MinIO (S3-compatible) — infrastructure only; backups are node-local today |
 
 ---
 
@@ -342,6 +339,8 @@ cd services/daemon && cargo test
 cd apps/web && npm run lint && npm run typecheck
 ```
 
+Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are being back-filled per module. PRs that add regression tests for code they touch are the most welcome kind of PR.
+
 ### Code Style
 
 - Go: `gofmt` + `golangci-lint`
@@ -352,12 +351,20 @@ cd apps/web && npm run lint && npm run typecheck
 
 ## Roadmap
 
-| Phase | Focus | Status |
-|---|---|---|
-| MVP | Auth, servers, console, files, worlds, backups, basic monitoring | Done |
-| V2 | Mod manager, player tools, node cluster, alerts | Done |
-| V3 | Desktop app, mobile app, templates, webhooks | Planned |
-| V4 | Multi-tenant, billing, mod marketplace | Planned |
+| Item | Status |
+|---|---|
+| Auth, RBAC, 2FA, audit log | Shipped |
+| Servers, console + logs (polling), files, worlds, players | Shipped |
+| Multi-node with enrollment tokens | Shipped |
+| Upload-based mod installer | Shipped |
+| Node-local backups (create / restore / download) | Shipped |
+| WebSocket/SSE streaming instead of polling | Next |
+| Off-site backups (S3-compatible object storage) | Next |
+| mTLS panel ↔ daemon, per-server process isolation | Next |
+| Meaningful test coverage (Go + Rust) | Ongoing |
+| CurseForge mod browser | Experimental, disabled — blocked on Hytale having a CurseForge game ID |
+| Server templates, webhooks, alert channels | Planned |
+| Desktop app (Tauri), mobile app (Flutter) | Not started — skeletons only, no releases |
 
 ---
 
@@ -371,12 +378,9 @@ Security issues: do **not** open a public issue — see [`SECURITY.md`](SECURITY
 
 ## License
 
-TalePanel is dual-licensed:
+TalePanel is **[AGPL-3.0](LICENSE)**. Free for everyone — hobbyists, communities and hosting providers alike. There is no paid tier, no "enterprise edition", no license you have to buy to run it as a service.
 
-- **[AGPL-3.0](LICENSE)** for self-hosted and open-source use.
-- **[Commercial license](LICENSE-COMMERCIAL.md)** for hosters and service providers who cannot accept the AGPL's source-disclosure requirement — contact `info@diengdoh.com`.
-
-Copyright © 2025–2026 Tyraxo.
+Copyright © 2025–2026 BitaceS (Lukas Diengdoh).
 
 ---
 
