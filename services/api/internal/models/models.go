@@ -147,6 +147,9 @@ type ServerMod struct {
 	FileHash         *string         `json:"file_hash,omitempty"`
 	LastScannedAt    *time.Time      `json:"last_scanned_at,omitempty"`
 	IsPresent        bool            `json:"is_present"`
+	// ModDir is the directory the file lives in on the node: "mods" or
+	// "plugins". Toggling renames inside this directory.
+	ModDir string `json:"mod_dir"`
 }
 
 // GameCommand is a predefined command template shown in the Game Control panel.

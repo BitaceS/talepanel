@@ -1,12 +1,41 @@
 import { defineStore } from 'pinia'
 import { useApi } from '~/composables/useApi'
-import type { Player, PlayerSession } from '~/types'
+import type { NetworkPlayer, Player, PlayerSession } from '~/types'
 
 export const usePlayersStore = defineStore('players', () => {
   const api = useApi()
   const players = ref<Player[]>([])
+  const networkPlayers = ref<NetworkPlayer[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  // One row per human instead of one row per (player, server): a player is
+  // stored per server, and hytale_uuid is what makes them one person again.
+  async function fetchNetworkPlayers() {
+    loading.value = true
+    error.value = null
+    try {
+      const data = await api.get<{ players: NetworkPlayer[] }>('/network/players')
+      networkPlayers.value = data.players ?? []
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string }; message?: string }
+      error.value = e.data?.error ?? e.message ?? 'Failed to fetch network players'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function banNetworkPlayer(hytaleUuid: string, reason: string) {
+    await api.post(`/network/players/${hytaleUuid}/ban`, { reason })
+    const p = networkPlayers.value.find(p => p.hytale_uuid === hytaleUuid)
+    if (p) { p.is_banned = true; p.ban_reason = reason }
+  }
+
+  async function unbanNetworkPlayer(hytaleUuid: string) {
+    await api.post(`/network/players/${hytaleUuid}/unban`)
+    const p = networkPlayers.value.find(p => p.hytale_uuid === hytaleUuid)
+    if (p) { p.is_banned = false; p.ban_reason = null }
+  }
 
   async function fetchPlayers(serverId: string) {
     loading.value = true
@@ -65,5 +94,10 @@ export const usePlayersStore = defineStore('players', () => {
     return data.sessions ?? []
   }
 
-  return { players, loading, error, fetchPlayers, banPlayer, unbanPlayer, setWhitelist, kickPlayer, setOp, setMute, fetchPlayer, fetchPlayerSessions }
+  return {
+    players, networkPlayers, loading, error,
+    fetchPlayers, banPlayer, unbanPlayer, setWhitelist, kickPlayer, setOp, setMute,
+    fetchPlayer, fetchPlayerSessions,
+    fetchNetworkPlayers, banNetworkPlayer, unbanNetworkPlayer,
+  }
 })

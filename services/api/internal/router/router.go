@@ -216,6 +216,12 @@ func SetupRouter(
 		serverGroup.PATCH("/:id/mods/:filename/toggle", rsp("mod.install"), modH.ToggleMod)
 		serverGroup.PATCH("/:id/mods/:filename", rsp("mod.install"), modH.SwitchModVersion)
 
+		// Plugins — the daemon scans mods/ AND plugins/ into the same table.
+		// Toggling is the same rename-based mechanism as for mods; the row's
+		// mod_dir decides which directory the daemon renames in.
+		serverGroup.GET("/:id/plugins", rsp("server.view"), pluginH.ListPlugins)
+		serverGroup.PATCH("/:id/plugins/:filename/toggle", rsp("mod.install"), pluginH.TogglePlugin)
+
 		// Game Control — predefined command templates
 		serverGroup.GET("/:id/game-commands", rsp("server.view"), gameCmdH.ListGameCommands)
 		serverGroup.POST("/:id/game-commands", rsp("server.console"), gameCmdH.CreateGameCommand)
@@ -352,6 +358,19 @@ func SetupRouter(
 		daemonGroup.POST("/:id/daemon/plugins", pluginH.DaemonPluginReport)
 		daemonGroup.POST("/:id/daemon/players", playerH.DaemonPlayerReport)
 		daemonGroup.POST("/:id/daemon/worlds", worldH.DaemonWorldReport)
+	}
+
+	// Network — the installation seen as one network rather than a list of
+	// servers.  Not under /servers/:id because these routes are deliberately not
+	// scoped to a single server: one player, one identity, one ban.
+	networkGroup := v1.Group("/network")
+	networkGroup.Use(authRequired, generalLimiter)
+	{
+		networkGroup.GET("/players", playerH.ListNetworkPlayers)
+		networkGroup.POST("/players/:hytaleUuid/ban",
+			middleware.RequirePermission(permSvc, "player.network_ban"), playerH.BanNetworkPlayer)
+		networkGroup.POST("/players/:hytaleUuid/unban",
+			middleware.RequirePermission(permSvc, "player.network_ban"), playerH.UnbanNetworkPlayer)
 	}
 
 	// Nodes — requires admin role, general rate limit
