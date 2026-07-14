@@ -33,7 +33,6 @@ It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale se
 - **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
 - **Off-site backups (S3 / object storage)** — MinIO is in the compose file, but no backup is uploaded to it today. Backups live on the node.
 - **CurseForge mod browser** — the code exists but is **experimental and off by default**: it needs `CURSEFORGE_API_KEY` and `CURSEFORGE_GAME_ID`, and Hytale has no CurseForge game ID yet. Until it does, use the upload-based mod installer, which is fully supported.
-- **Desktop (Tauri) and mobile (Flutter) apps** — skeletons in the repo, not started as products, not built in the release workflow.
 - **Test coverage** — thin (a handful of Go tests, no Rust tests). Beta means beta.
 - **mTLS between panel and daemon, process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
@@ -85,9 +84,7 @@ as `online` within ~30 seconds.
 ```
 talepanel/
 ├── apps/
-│   ├── web/           Nuxt 3 web panel
-│   ├── desktop/       Tauri skeleton (not started — no releases)
-│   └── mobile/        Flutter skeleton (not started — no releases)
+│   └── web/           Nuxt 3 web panel
 ├── services/
 │   ├── api/           Go backend API
 │   └── daemon/        Rust node daemon (TaleDaemon)
@@ -364,7 +361,6 @@ Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are b
 | Meaningful test coverage (Go + Rust) | Ongoing |
 | CurseForge mod browser | Experimental, disabled — blocked on Hytale having a CurseForge game ID |
 | Server templates, webhooks, alert channels | Planned |
-| Desktop app (Tauri), mobile app (Flutter) | Not started — skeletons only, no releases |
 
 ---
 

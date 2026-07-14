@@ -39,7 +39,6 @@ Initial public beta. Self-hosted, Open Source under AGPL-3.0.
 - No WebSocket/SSE — console, logs and metrics poll the REST API.
 - Backups are node-local; no S3/off-site upload.
 - CurseForge mod browser experimental and disabled; the upload-based installer is the supported path.
-- Desktop (Tauri) and mobile (Flutter) apps are skeletons, not part of the release workflow.
 - Thin test coverage: a few Go test files, no Rust tests.
 
 See `SECURITY.md` for the `v1.1` security roadmap (mTLS, process isolation, 2FA backup codes, session cleanup cron, IP allowlist).
