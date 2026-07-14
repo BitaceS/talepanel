@@ -95,6 +95,15 @@ pub struct DaemonConfig {
     /// (e.g. an --no-domain panel install over a trusted network).
     #[serde(default)]
     pub insecure_tls: bool,
+
+    /// Allow provisioning to fall back to a fake "dev-mode" server stub when
+    /// the real Hytale binaries cannot be obtained.
+    ///
+    /// Off by default and ignored in production: a stub server *looks* like it
+    /// runs but hosts nothing, which is worse than a clear provisioning error.
+    /// Only TalePanel's own developers should ever switch this on.
+    #[serde(default)]
+    pub allow_dev_stub: bool,
 }
 
 impl DaemonConfig {
@@ -249,6 +258,10 @@ impl Config {
             .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
             .unwrap_or(false);
 
+        let allow_dev_stub = std::env::var("TALEDAEMON_ALLOW_DEV_STUB")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+            .unwrap_or(false);
+
         Ok(Config {
             daemon: DaemonConfig {
                 node_id,
@@ -259,6 +272,7 @@ impl Config {
                 log_level,
                 env,
                 insecure_tls,
+                allow_dev_stub,
             },
             resources: ResourcesConfig {
                 max_servers,
@@ -273,5 +287,47 @@ impl Config {
     /// Returns true if the daemon is configured to run in production mode.
     pub fn is_production(&self) -> bool {
         self.daemon.env.eq_ignore_ascii_case("production")
+    }
+
+    /// Returns true only if the operator has explicitly opted in to the fake
+    /// dev-mode server stub *and* the daemon is not running in production.
+    /// Everywhere else a failed download is a hard provisioning error.
+    pub fn dev_stub_allowed(&self) -> bool {
+        self.daemon.allow_dev_stub && !self.is_production()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(env: &str, allow_dev_stub: bool) -> Config {
+        Config {
+            daemon: DaemonConfig {
+                node_id: "node".into(),
+                api_url: "https://panel.example".into(),
+                node_token: "token".into(),
+                listen_port: DaemonConfig::default_listen_port(),
+                data_root: DaemonConfig::default_data_root(),
+                log_level: DaemonConfig::default_log_level(),
+                env: env.into(),
+                insecure_tls: false,
+                allow_dev_stub,
+            },
+            resources: ResourcesConfig::default(),
+            hytale: HytaleConfig::default(),
+        }
+    }
+
+    #[test]
+    fn dev_stub_is_off_unless_explicitly_enabled_outside_production() {
+        // The dangerous default: no flag set at all.
+        assert!(!cfg("development", false).dev_stub_allowed());
+        assert!(!cfg("production", false).dev_stub_allowed());
+        // Opted in, but production still refuses.
+        assert!(!cfg("production", true).dev_stub_allowed());
+        assert!(!cfg("PRODUCTION", true).dev_stub_allowed());
+        // The only combination that serves a fake server.
+        assert!(cfg("development", true).dev_stub_allowed());
     }
 }

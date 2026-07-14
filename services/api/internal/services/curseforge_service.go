@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -22,19 +23,26 @@ func (e *CurseForgeError) Error() string {
 	case 401, 403:
 		return "CurseForge API key is invalid or not configured"
 	case 404:
-		return "CurseForge game ID not found — Hytale may not be registered yet"
+		return "CurseForge rejected the game ID"
 	default:
 		return fmt.Sprintf("CurseForge returned HTTP %d", e.Status)
 	}
 }
 
+// hytaleSlug is how CurseForge names the game in its own catalogue.  We resolve
+// the numeric id from it at runtime rather than making every operator hunt down
+// a magic number: CURSEFORGE_GAME_ID stays available as an override, but an
+// empty one is no longer a broken install.
+const hytaleSlug = "hytale"
+
 // CurseForgeService wraps the CurseForge REST API.  apiKey is mutable at
 // runtime so the admin UI can update it without restarting the API.
 type CurseForgeService struct {
-	mu     sync.RWMutex
-	apiKey string
-	gameID int
-	client *http.Client
+	mu         sync.RWMutex
+	apiKey     string
+	gameID     int // operator override; 0 means "resolve it yourself"
+	resolvedID int // discovered from /v1/games, cached for the process lifetime
+	client     *http.Client
 }
 
 func NewCurseForgeService(apiKey string, gameID int) *CurseForgeService {
@@ -43,6 +51,76 @@ func NewCurseForgeService(apiKey string, gameID int) *CurseForgeService {
 		gameID: gameID,
 		client: &http.Client{},
 	}
+}
+
+type cfGame struct {
+	ID   int    `json:"id"`
+	Slug string `json:"slug"`
+}
+
+type cfGamesResult struct {
+	Data       []cfGame     `json:"data"`
+	Pagination CFPagination `json:"pagination"`
+}
+
+// gameID returns the CurseForge id for Hytale: the configured override if the
+// operator set one, otherwise the id looked up once from /v1/games by slug.
+func (s *CurseForgeService) resolveGameID(ctx context.Context) (int, error) {
+	s.mu.RLock()
+	if s.gameID != 0 {
+		defer s.mu.RUnlock()
+		return s.gameID, nil
+	}
+	if s.resolvedID != 0 {
+		defer s.mu.RUnlock()
+		return s.resolvedID, nil
+	}
+	s.mu.RUnlock()
+
+	const pageSize = 50
+	for index := 0; ; index += pageSize {
+		params := url.Values{}
+		params.Set("index", strconv.Itoa(index))
+		params.Set("pageSize", strconv.Itoa(pageSize))
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			curseForgeAPIBase+"/games?"+params.Encode(), nil)
+		if err != nil {
+			return 0, err
+		}
+		req.Header.Set("x-api-key", s.currentKey())
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("curseforge games request: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return 0, &CurseForgeError{Status: resp.StatusCode}
+		}
+
+		var result cfGamesResult
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		if err != nil {
+			return 0, fmt.Errorf("decoding games response: %w", err)
+		}
+
+		for _, g := range result.Data {
+			if strings.EqualFold(g.Slug, hytaleSlug) {
+				s.mu.Lock()
+				s.resolvedID = g.ID
+				s.mu.Unlock()
+				return g.ID, nil
+			}
+		}
+
+		if len(result.Data) < pageSize || index+pageSize >= result.Pagination.TotalCount {
+			break
+		}
+	}
+	return 0, fmt.Errorf("CurseForge does not list a game with slug %q — set CURSEFORGE_GAME_ID to override", hytaleSlug)
 }
 
 // SetAPIKey replaces the in-memory key.  Called by the admin handler after a
@@ -115,8 +193,12 @@ func (s *CurseForgeService) SearchMods(ctx context.Context, query string, page, 
 	if s.currentKey() == "" {
 		return nil, &CurseForgeError{Status: 403}
 	}
+	gameID, err := s.resolveGameID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	params := url.Values{}
-	params.Set("gameId", strconv.Itoa(s.gameID))
+	params.Set("gameId", strconv.Itoa(gameID))
 	params.Set("searchFilter", query)
 	params.Set("index", strconv.Itoa(page*pageSize))
 	params.Set("pageSize", strconv.Itoa(pageSize))

@@ -22,21 +22,29 @@ export const useWorldsStore = defineStore('worlds', () => {
     }
   }
 
-  async function createWorld(serverId: string, payload: { name: string; seed?: number; generator?: string }) {
-    const data = await api.post<{ world: World }>(`/servers/${serverId}/worlds`, payload)
-    worlds.value.unshift(data.world)
-    return data.world
-  }
+  // NOTE: there is no createWorld. The panel cannot generate a Hytale world —
+  // only the server can, and it does so itself under universe/worlds. Worlds
+  // show up here once the daemon has actually found them on disk.
 
+  /**
+   * Activate a world. The daemon writes Defaults.World into the server's
+   * config.json, which Hytale only reads at boot — so this takes effect on the
+   * next restart. The API says so explicitly and we pass that message through
+   * instead of claiming the running server switched.
+   */
   async function setActive(serverId: string, worldId: string) {
-    await api.post(`/servers/${serverId}/worlds/${worldId}/activate`)
+    const data = await api.post<{ message: string; restart_required: boolean }>(
+      `/servers/${serverId}/worlds/${worldId}/activate`,
+    )
     worlds.value.forEach(w => { w.is_active = w.id === worldId })
+    return data
   }
 
+  /** Deletes the world row AND the world directory on the node. */
   async function deleteWorld(serverId: string, worldId: string) {
     await api.delete(`/servers/${serverId}/worlds/${worldId}`)
     worlds.value = worlds.value.filter(w => w.id !== worldId)
   }
 
-  return { worlds, loading, error, fetchWorlds, createWorld, setActive, deleteWorld }
+  return { worlds, loading, error, fetchWorlds, setActive, deleteWorld }
 })

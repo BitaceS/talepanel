@@ -167,8 +167,15 @@ func (h *ModHandler) ToggleMod(c *gin.Context) {
 		return
 	}
 	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, req.Enabled); err != nil {
-		h.log.Error("toggle mod failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "toggle failed"})
+		switch {
+		case errors.Is(err, services.ErrModNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "mod not found"})
+		case errors.Is(err, services.ErrServerNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		default:
+			h.log.Error("toggle mod failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "toggle failed"})
+		}
 		return
 	}
 	c.Status(http.StatusNoContent)

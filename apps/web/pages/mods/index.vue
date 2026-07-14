@@ -103,14 +103,20 @@ async function removeMod(filename: string) {
   }
 }
 
-// ── Toggle mod (Task 5) ───────────────────────────────────────────────────────
-async function toggleMod(serverId: string, filename: string, currentEnabled: boolean) {
+// ── Toggle mod / plugin (Task 5) ──────────────────────────────────────────────
+// The daemon scans both mods/ and plugins/. Enabling/disabling renames the file
+// to/from a ".disabled" suffix — inside the directory the file actually lives
+// in, which is what `mod_dir` tells us. Sending every toggle to the mods route
+// used to silently do nothing for plugins.
+async function toggleMod(serverId: string, mod: typeof modsStore.installed[number]) {
+  const scope = mod.mod_dir === 'plugins' ? 'plugins' : 'mods'
   try {
     const api = useApi()
-    await api.patch(`/servers/${serverId}/mods/${encodeURIComponent(filename)}/toggle`, {
-      enabled: !currentEnabled,
+    await api.patch(`/servers/${serverId}/${scope}/${encodeURIComponent(mod.filename)}/toggle`, {
+      enabled: !mod.is_present,
     })
     await modsStore.fetchInstalled(serverId)
+    showToast(mod.is_present ? `${mod.filename} disabled` : `${mod.filename} enabled`)
   } catch {
     showToast('Toggle failed', 'error')
   }
@@ -294,13 +300,16 @@ const isInstalled = (filename: string) =>
 
               <!-- Action buttons -->
               <div class="flex items-center gap-1.5 shrink-0">
-                <!-- Toggle button -->
+                <!-- Toggle button — works for both mods/ and plugins/ -->
                 <button
-                  @click="toggleMod(selectedServerId, mod.filename, mod.is_present)"
+                  @click="toggleMod(selectedServerId, mod)"
                   class="text-xs px-2 py-1 rounded transition-colors"
                   :class="mod.is_present
                     ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
                     : 'bg-white/10 text-white/40 hover:bg-white/20'"
+                  :title="mod.is_present
+                    ? `Disable — renames ${mod.mod_dir}/${mod.filename} to .disabled on the node`
+                    : `Enable — restores ${mod.mod_dir}/${mod.filename} on the node`"
                 >
                   {{ mod.is_present ? 'Enabled' : 'Disabled' }}
                 </button>
@@ -337,6 +346,13 @@ const isInstalled = (filename: string) =>
                       :                               'bg-white/10 text-white/50'"
               >
                 {{ mod.source }}
+              </span>
+              <!-- Which directory the file lives in on the node. -->
+              <span
+                class="px-1.5 py-0.5 rounded font-mono"
+                :class="mod.mod_dir === 'plugins' ? 'bg-purple-500/20 text-purple-300' : 'bg-white/10 text-white/50'"
+              >
+                {{ mod.mod_dir || 'mods' }}/
               </span>
               <span v-if="mod.author">by {{ mod.author }}</span>
               <span v-if="mod.version">v{{ mod.version }}</span>
