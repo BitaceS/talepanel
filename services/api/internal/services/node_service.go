@@ -205,6 +205,17 @@ func (s *NodeService) DaemonSelfRegister(ctx context.Context, nodeID uuid.UUID, 
 		return fmt.Errorf("daemon self-register: reset server statuses: %w", err)
 	}
 
+	// Same reasoning for players: a restarted daemon has nobody online, so every
+	// session still open on this node's servers must be closed and credited.
+	if err := closeOpenSessions(ctx, s.db, `
+		player_id IN (
+			SELECT p.id FROM players p
+			JOIN servers sv ON sv.id = p.server_id
+			WHERE sv.node_id = $1
+		)`, nodeID); err != nil {
+		return fmt.Errorf("daemon self-register: close player sessions: %w", err)
+	}
+
 	return nil
 }
 

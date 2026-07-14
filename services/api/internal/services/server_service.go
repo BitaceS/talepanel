@@ -316,7 +316,18 @@ func (s *ServerService) UpdateServerStatus(ctx context.Context, serverID uuid.UU
 		`UPDATE servers SET status = $1, updated_at = NOW() WHERE id = $2`,
 		status, serverID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Nobody is online on a server that is down.  Close their sessions here, or a
+	// player who was online when the server stopped keeps an open session forever
+	// and never accrues playtime.
+	if status == "stopped" || status == "crashed" {
+		return closeOpenSessions(ctx, s.db,
+			`player_id IN (SELECT id FROM players WHERE server_id = $1)`, serverID)
+	}
+	return nil
 }
 
 // GetServerStatus returns the current status string for a server.

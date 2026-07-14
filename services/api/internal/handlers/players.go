@@ -60,6 +60,15 @@ func (h *PlayerHandler) DaemonPlayerReport(c *gin.Context) {
 		return
 	}
 
+	// The username ends up interpolated into console commands ("ban <user>"), so
+	// it is validated on the way IN with the same allowlist the daemon's parser
+	// uses — a blocklist further down the call chain would be one forgotten
+	// character away from a console injection if a node token were ever stolen.
+	if !isValidHytaleUsername(req.Username) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid username"})
+		return
+	}
+
 	if err := h.playerSvc.RecordPlayerEvent(c.Request.Context(), serverID, req.Action, req.Username, req.HytaleUUID); err != nil {
 		h.log.Warn("failed to record player event", zap.String("server_id", serverID.String()), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not record player event"})
@@ -83,6 +92,21 @@ func (h *PlayerHandler) ListPlayers(c *gin.Context) {
 		players = []*models.Player{}
 	}
 	c.JSON(http.StatusOK, gin.H{"players": players})
+}
+
+// isValidHytaleUsername mirrors is_valid_username in the daemon's log parser:
+// 1..=32 characters, ASCII alphanumeric or underscore.
+func isValidHytaleUsername(s string) bool {
+	if s == "" || len(s) > 32 {
+		return false
+	}
+	for _, r := range s {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if !isAlnum && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 type banRequest struct {

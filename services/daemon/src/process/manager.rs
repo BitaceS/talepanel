@@ -173,6 +173,7 @@ impl ProcessManager {
     ) -> Result<()> {
         let api_client = Arc::clone(&self.api_client);
         let data_root = self.config.daemon.data_root.clone();
+        let dev_stub_allowed = self.config.dev_stub_allowed();
 
         tokio::spawn(async move {
             info!(%server_id, %version, %data_path, "Starting server provisioning");
@@ -293,10 +294,37 @@ impl ProcessManager {
                 }
             };
 
+            if !download_ok && !dev_stub_allowed {
+                // Hard fail. Never fabricate a server: a stub that "runs" but
+                // hosts nothing is a lie the operator only discovers when
+                // players cannot connect.
+                let msg = format!(
+                    "Provisioning FAILED: could not obtain the Hytale server files. \
+                     TalePanel will not create a fake server. \
+                     Fix: place HytaleServer.jar and Assets.zip (plus the optional \
+                     HytaleServer.aot and Licenses/) into {}/hytale-bin/ on this node \
+                     and press Reinstall — the daemon will pick them up automatically. \
+                     Alternatively make the Hytale Downloader reachable from this node.",
+                    data_root
+                );
+                error!(%server_id, "Provisioning failed and dev stub is not allowed");
+                push_log(msg, "ERROR").await;
+                let _ = api_client.report_server_status(&server_id, "crashed").await;
+                return;
+            }
+
             if !download_ok {
-                // Fallback: create the directory structure with a dev-mode stub
-                // so the file manager works and the server process can be tested.
-                push_log("Download unavailable — creating dev-mode server stub...".into(), "INFO").await;
+                // Explicitly opted in via allow_dev_stub (non-production only):
+                // create the directory structure with a dev-mode stub so the file
+                // manager works and the server process can be tested.
+                warn!(%server_id, "Creating dev-mode server stub (allow_dev_stub = true) — this is NOT a real Hytale server");
+                push_log(
+                    "Download unavailable — creating dev-mode server stub (allow_dev_stub=true). \
+                     THIS IS NOT A REAL HYTALE SERVER: it accepts console input and nothing else."
+                        .into(),
+                    "WARN",
+                )
+                .await;
 
                 let server_dir = target.join("Server");
                 if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
@@ -353,7 +381,7 @@ done
                 ).await;
 
                 info!(%server_id, "Dev-mode server stub created");
-                push_log("Dev-mode server stub ready — provisioning complete".into(), "INFO").await;
+                push_log("Dev-mode server stub ready — NOT a real Hytale server".into(), "WARN").await;
             }
 
             let _ = api_client.report_server_status(&server_id, "stopped").await;
@@ -443,6 +471,30 @@ done
         let api_client = Arc::clone(&self.api_client);
         let server_id = server_id.to_string();
 
+        // Player events must reach the API in the order the log emitted them.
+        // Spawning a task per event does not guarantee that: on a reconnect the
+        // `join` request can overtake the stalled `leave`, and the API then
+        // closes the session the join just opened — the player stays online with
+        // no open session and their whole next session's playtime is lost.
+        //
+        // So they go through one ordered queue with a single consumer. The relay
+        // loop stays non-blocking (send on an unbounded channel does not await),
+        // but the HTTP calls happen strictly in sequence.
+        let (event_tx, mut event_rx) =
+            tokio::sync::mpsc::unbounded_channel::<(&'static str, String, String)>();
+        {
+            let api = Arc::clone(&api_client);
+            let sid = server_id.clone();
+            tokio::spawn(async move {
+                while let Some((action, username, hytale_uuid)) = event_rx.recv().await {
+                    if let Err(err) = api.report_player_event(&sid, action, &username, &hytale_uuid).await {
+                        warn!(server_id = %sid, %action, %username, error = %err,
+                            "Failed to report player event");
+                    }
+                }
+            });
+        }
+
         tokio::spawn(async move {
             let mut batch: Vec<LogLine> = Vec::new();
             let mut flush_interval =
@@ -457,11 +509,9 @@ done
                                 // Detect player join/leave and report them so the
                                 // panel's player list stays populated.
                                 if let Some((action, username, hytale_uuid)) = parse_player_event(&line.message) {
-                                    let api = Arc::clone(&api_client);
-                                    let sid = server_id.clone();
-                                    tokio::spawn(async move {
-                                        let _ = api.report_player_event(&sid, action, &username, &hytale_uuid).await;
-                                    });
+                                    // Receiver lives as long as this relay task; a
+                                    // send error means the server is going away.
+                                    let _ = event_tx.send((action, username, hytale_uuid));
                                 }
                                 batch.push(line);
                             }
@@ -698,4 +748,57 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UUID: &str = "550e8400-e29b-41d4-a716-446655440000";
+
+    #[test]
+    fn parses_a_join_line() {
+        let line = format!("12:03:41 [Universe|P] Adding player 'Steve ({UUID})");
+        let (action, name, id) = parse_player_event(&line).expect("join not parsed");
+        assert_eq!(action, "join");
+        assert_eq!(name, "Steve");
+        assert_eq!(id, UUID);
+    }
+
+    #[test]
+    fn parses_a_leave_line() {
+        let line = format!("12:44:02 [Universe|P] Removing player 'Steve' ({UUID})");
+        let (action, name, id) = parse_player_event(&line).expect("leave not parsed");
+        assert_eq!(action, "leave");
+        assert_eq!(name, "Steve");
+        assert_eq!(id, UUID);
+    }
+
+    #[test]
+    fn parses_through_ansi_colour_codes() {
+        let line = format!("\u{1b}[32m[Universe|P]\u{1b}[0m Adding player 'Alex_2 ({UUID})");
+        let (action, name, _) = parse_player_event(&line).expect("coloured join not parsed");
+        assert_eq!(action, "join");
+        assert_eq!(name, "Alex_2");
+    }
+
+    /// The world-level line also contains "Adding player '" but is not a join.
+    /// Only the username check keeps it out — if that check ever loosens, this
+    /// test is what catches the resulting phantom players.
+    #[test]
+    fn ignores_the_world_level_adding_player_line() {
+        let line = format!("[World|main] Adding player 'Steve' to world 'overworld' ({UUID})");
+        assert!(parse_player_event(&line).is_none());
+    }
+
+    #[test]
+    fn rejects_a_malformed_uuid() {
+        let line = "[Universe|P] Adding player 'Steve (not-a-uuid)";
+        assert!(parse_player_event(line).is_none());
+    }
+
+    #[test]
+    fn ignores_an_ordinary_log_line() {
+        assert!(parse_player_event("[Server] Done (4.21s)! For help, type 'help'").is_none());
+    }
 }
