@@ -1817,31 +1817,44 @@ const sidebarMods = computed(() => {
         </div>
         <div v-else-if="worldsStore.worlds.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
           <Globe class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No worlds</p>
-          <p class="text-tp-muted text-xs">Worlds will appear here when created.</p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">No worlds found on disk</p>
+          <p class="text-tp-muted text-xs">
+            The Hytale server generates worlds under <code class="font-mono">universe/worlds</code>.
+            They appear here once the daemon finds them.
+          </p>
         </div>
-        <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div v-for="w in worldsStore.worlds" :key="w.id"
-            :class="['bg-tp-surface rounded-xl p-4 flex items-center justify-between', w.is_active ? 'ring-1 ring-tp-success/40' : '']">
-            <div class="flex items-center gap-3">
-              <Globe :class="['w-5 h-5', w.is_active ? 'text-tp-success' : 'text-tp-muted']" />
-              <div>
-                <p class="text-tp-text text-sm font-medium">{{ w.name }}</p>
-                <p class="text-tp-muted text-xs">{{ w.is_active ? 'Active' : 'Inactive' }}</p>
+        <template v-else>
+          <p class="text-tp-muted text-xs">
+            Activating a world rewrites <code class="font-mono">config.json</code> on the node — it applies after a restart.
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div v-for="w in worldsStore.worlds" :key="w.id"
+              :class="['bg-tp-surface rounded-xl p-4 flex items-center justify-between', w.is_active ? 'ring-1 ring-tp-success/40' : '']">
+              <div class="flex items-center gap-3">
+                <Globe :class="['w-5 h-5', w.is_active ? 'text-tp-success' : 'text-tp-muted']" />
+                <div>
+                  <p class="text-tp-text text-sm font-medium">{{ w.name }}</p>
+                  <p class="text-tp-muted text-xs">{{ w.is_active ? 'Active' : 'Inactive' }}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-1">
+                <button v-if="!w.is_active" class="p-1.5 rounded-xl text-tp-muted hover:text-tp-success hover:bg-tp-success/10 transition-colors text-xs"
+                  title="Set active — applies after a server restart"
+                  @click="worldsStore.setActive(serverId, w.id).then(r => showToast(r?.message ?? 'Active world updated. Restart the server to load it.')).catch(() => showToast('Failed', 'error'))">
+                  Activate
+                </button>
+                <!-- Deleting the active world would leave the server booting into
+                     a world that no longer exists; the API rejects it (409). -->
+                <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                  :disabled="w.is_active"
+                  :title="w.is_active ? 'Activate another world first' : 'Delete this world from disk'"
+                  @click="confirm(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
-            <div class="flex items-center gap-1">
-              <button v-if="!w.is_active" class="p-1.5 rounded-xl text-tp-muted hover:text-tp-success hover:bg-tp-success/10 transition-colors text-xs" title="Set active"
-                @click="worldsStore.setActive(serverId, w.id).then(() => showToast('Active world updated')).catch(() => showToast('Failed', 'error'))">
-                Activate
-              </button>
-              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" title="Delete"
-                @click="confirm('Delete this world?') && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted')).catch(() => showToast('Failed', 'error'))">
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
-        </div>
+        </template>
       </div>
 
       <!-- ── Players tab ─────────────────────────────────────────────────── -->

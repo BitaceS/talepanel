@@ -84,7 +84,10 @@ export interface InstalledMod {
   config_files: string[]
   file_hash: string | null
   last_scanned_at: string | null
+  /** Doubles as the enabled flag: a disabled file is renamed to `<name>.disabled` on the node. */
   is_present: boolean
+  /** Directory the file lives in on the node. Decides which toggle endpoint applies. */
+  mod_dir: 'mods' | 'plugins'
 }
 
 export interface CFModFile {
@@ -153,6 +156,21 @@ export interface Player {
   is_muted: boolean
 }
 
+/** One human across the whole installation. A Player is per-server — the same
+ *  person is one Player row per server; hytale_uuid is the account identity that
+ *  joins them back together. */
+export interface NetworkPlayer {
+  hytale_uuid: string
+  username: string
+  first_seen: string | null
+  last_seen: string | null
+  playtime_s: number
+  server_ids: string[]
+  is_banned: boolean
+  ban_reason: string | null
+  banned_at: string | null
+}
+
 export interface PlayerSession {
   joined_at: string
   left_at: string | null
@@ -168,7 +186,9 @@ export interface Backup {
   storage_path: string
   size_bytes: number | null
   checksum: string | null
-  status: 'pending' | 'running' | 'complete' | 'failed'
+  // 'completed', not 'complete' — backup_service.go writes 'completed' and the
+  // download/restore endpoints reject anything else.
+  status: 'pending' | 'running' | 'completed' | 'failed'
   triggered_by: 'manual' | 'schedule'
   created_at: string
   completed_at: string | null

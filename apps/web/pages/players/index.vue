@@ -35,24 +35,59 @@ const filteredPlayers = computed(() => {
   }
 })
 
-// Ban modal
+const filteredNetworkPlayers = computed(() => {
+  const list = playersStore.networkPlayers
+  if (!searchQuery.value) return list
+  const q = searchQuery.value.toLowerCase()
+  return list.filter(p => p.username.toLowerCase().includes(q))
+})
+
+// Ban modal — shared by the per-server ban and the network-wide ban. banTarget
+// carries a player id for the former, a hytale_uuid for the latter.
 const showBanModal = ref(false)
 const banTarget = ref<{ id: string; username: string } | null>(null)
 const banReason = ref('')
+const banScope = ref<'server' | 'network'>('server')
 
 function openBan(player: { id: string; username: string }) {
   banTarget.value = player
   banReason.value = ''
+  banScope.value = 'server'
+  showBanModal.value = true
+}
+
+function openNetworkBan(player: { hytale_uuid: string; username: string }) {
+  banTarget.value = { id: player.hytale_uuid, username: player.username }
+  banReason.value = ''
+  banScope.value = 'network'
   showBanModal.value = true
 }
 
 async function confirmBan() {
-  if (!banTarget.value || !selectedServer.value) return
+  if (!banTarget.value) return
+
+  if (banScope.value === 'network') {
+    try {
+      await playersStore.banNetworkPlayer(banTarget.value.id, banReason.value)
+      showBanModal.value = false
+      showToast(`${banTarget.value.username} banned across the network`)
+    } catch { showToast('Failed to ban player', 'error') }
+    return
+  }
+
+  if (!selectedServer.value) return
   try {
     await playersStore.banPlayer(selectedServer.value, banTarget.value.id, banReason.value)
     showBanModal.value = false
     showToast(`${banTarget.value.username} banned`)
   } catch { showToast('Failed to ban player', 'error') }
+}
+
+async function unbanNetwork(hytaleUuid: string) {
+  try {
+    await playersStore.unbanNetworkPlayer(hytaleUuid)
+    showToast('Network ban lifted')
+  } catch { showToast('Failed to lift the network ban', 'error') }
 }
 
 async function unban(playerId: string) {
@@ -98,10 +133,13 @@ async function toggleMute(playerId: string, currentMuted: boolean) {
 
 watch(selectedServer, (sid) => {
   if (sid) playersStore.fetchPlayers(sid)
-  else playersStore.players = []
+  else { playersStore.players = []; playersStore.fetchNetworkPlayers() }
 })
 
-onMounted(() => { serversStore.fetchServers() })
+onMounted(() => {
+  serversStore.fetchServers()
+  playersStore.fetchNetworkPlayers()
+})
 
 function formatPlaytime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -131,12 +169,81 @@ function timeAgo(iso?: string | null): string {
       </select>
     </div>
 
-    <!-- No server -->
-    <div v-if="!selectedServer" class="bg-tp-surface rounded-xl p-12 text-center">
-      <Users class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-      <p class="text-tp-text font-display font-semibold mb-1">Select a server</p>
-      <p class="text-tp-muted text-sm">Choose a server to view and manage its players.</p>
-    </div>
+    <!-- No server selected: the network view. One row per person, not per
+         (person, server) — picking a server narrows this down, it is not a
+         precondition for seeing anything. -->
+    <template v-if="!selectedServer">
+      <div class="flex items-center gap-3">
+        <div class="relative flex-1 max-w-sm">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tp-muted" />
+          <input v-model="searchQuery" type="text" placeholder="Search players across the network..."
+            class="w-full bg-tp-surface rounded-xl pl-9 pr-4 py-2 text-sm text-tp-text placeholder-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
+        </div>
+        <UiButton variant="secondary" size="sm" :loading="playersStore.loading" @click="playersStore.fetchNetworkPlayers()">
+          <RefreshCw class="w-3.5 h-3.5" /> Refresh
+        </UiButton>
+      </div>
+
+      <div v-if="playersStore.loading" class="bg-tp-surface rounded-xl p-8 text-center">
+        <RefreshCw class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
+        <p class="text-tp-muted text-sm">Loading players...</p>
+      </div>
+
+      <div v-else-if="filteredNetworkPlayers.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
+        <Users class="w-10 h-10 text-tp-muted mx-auto mb-3" />
+        <p class="text-tp-text font-display font-semibold mb-1">No players yet</p>
+        <p class="text-tp-muted text-sm">Players appear here as soon as they join any server in the network.</p>
+      </div>
+
+      <div v-else class="bg-tp-surface rounded-xl overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-tp-border">
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Player</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Playtime (network)</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Seen on</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Last Seen</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Status</th>
+              <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in filteredNetworkPlayers" :key="p.hytale_uuid" class="border-b border-tp-border/50 hover:bg-tp-surface2/50 transition-colors">
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-full bg-tp-primary/20 flex items-center justify-center text-tp-primary text-xs font-semibold uppercase">{{ p.username.charAt(0) }}</div>
+                  <div>
+                    <p class="text-tp-text font-medium">{{ p.username }}</p>
+                    <p class="text-tp-muted text-xs font-mono">{{ p.hytale_uuid.substring(0, 8) }}...</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-tp-text text-xs">{{ formatPlaytime(p.playtime_s) }}</td>
+              <td class="px-4 py-3 text-tp-muted text-xs">{{ p.server_ids.length }} {{ p.server_ids.length === 1 ? 'server' : 'servers' }}</td>
+              <td class="px-4 py-3 text-tp-muted text-xs">{{ timeAgo(p.last_seen) }}</td>
+              <td class="px-4 py-3">
+                <span v-if="p.is_banned" class="text-xs font-medium px-2 py-0.5 rounded-full text-tp-error bg-tp-error/10">Banned</span>
+                <span v-else class="text-tp-muted text-xs">—</span>
+              </td>
+              <td class="px-4 py-3">
+                <div class="flex items-center justify-end gap-1">
+                  <button v-if="!p.is_banned" title="Ban across every server"
+                    class="text-xs px-2 py-1 rounded bg-tp-danger/20 text-tp-danger hover:bg-tp-danger/30 transition-colors"
+                    @click="openNetworkBan(p)">
+                    Ban network-wide
+                  </button>
+                  <button v-else title="Lift the network ban"
+                    class="text-xs px-2 py-1 rounded bg-tp-success/20 text-tp-success hover:bg-tp-success/30 transition-colors"
+                    @click="unbanNetwork(p.hytale_uuid)">
+                    Unban
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <template v-else>
       <!-- Filters -->
@@ -249,9 +356,14 @@ function timeAgo(iso?: string | null): string {
     </template>
 
     <!-- Ban Modal -->
-    <UiModal :show="showBanModal" title="Ban Player" @close="showBanModal = false">
+    <UiModal :open="showBanModal" :title="banScope === 'network' ? 'Ban Across the Network' : 'Ban Player'" @close="showBanModal = false">
       <div class="space-y-4">
-        <p class="text-tp-text text-sm">Ban <span class="font-semibold">{{ banTarget?.username }}</span> from this server?</p>
+        <p v-if="banScope === 'network'" class="text-tp-text text-sm">
+          Ban <span class="font-semibold">{{ banTarget?.username }}</span> from
+          <span class="font-semibold">every server</span> in this network — including servers added later.
+          They are kicked the moment they join anywhere.
+        </p>
+        <p v-else class="text-tp-text text-sm">Ban <span class="font-semibold">{{ banTarget?.username }}</span> from this server?</p>
         <UiInput v-model="banReason" label="Reason (optional)" placeholder="Rule violation..." />
         <div class="flex justify-end gap-2 pt-2">
           <UiButton variant="secondary" size="md" @click="showBanModal = false">Cancel</UiButton>

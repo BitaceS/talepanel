@@ -274,7 +274,7 @@ onMounted(() => {
     </div>
 
     <!-- Create Backup Modal -->
-    <UiModal :show="showCreateModal" title="Create Backup" @close="showCreateModal = false">
+    <UiModal :open="showCreateModal" title="Create Backup" @close="showCreateModal = false">
       <div class="space-y-4">
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Server</label>
@@ -303,7 +303,7 @@ onMounted(() => {
     </UiModal>
 
     <!-- Create Schedule Modal -->
-    <UiModal :show="showScheduleModal" title="Create Schedule" @close="showScheduleModal = false">
+    <UiModal :open="showScheduleModal" title="Create Schedule" @close="showScheduleModal = false">
       <div class="space-y-4">
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Server</label>
