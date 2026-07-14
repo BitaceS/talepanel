@@ -12,8 +12,6 @@ TalePanel is AGPL-3.0 — free for everyone, hosters included. There is no paid 
 services/api/        Go backend (Gin, pgx/v5)
 services/daemon/     Rust node agent (tokio, axum)
 apps/web/            Nuxt 3 panel
-apps/desktop/        Tauri skeleton (not started, no releases)
-apps/mobile/         Flutter skeleton (not started, no releases)
 deploy/panel/        Production panel compose
 deploy/daemon/       Production daemon compose
 scripts/             install.sh (unified panel + daemon installer), lib/common.sh
