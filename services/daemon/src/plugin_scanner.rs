@@ -13,6 +13,8 @@ use crate::config::Config;
 /// Detected plugin metadata reported to the panel API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedPlugin {
+    /// Base filename *without* a trailing `.disabled` suffix, so the panel key
+    /// stays stable across enable/disable toggles.
     pub filename: String,
     pub plugin_name: String,
     pub version: String,
@@ -21,6 +23,22 @@ pub struct DetectedPlugin {
     pub commands: Vec<String>,
     pub config_files: Vec<String>,
     pub file_hash: String,
+    /// False when the file on disk carries the `.disabled` suffix — the same
+    /// rename-based convention `enable_mod`/`disable_mod` use.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory the file was found in: "mods" or "plugins". The panel echoes
+    /// this back in the toggle command so the daemon renames the right file.
+    #[serde(default = "default_source_dir")]
+    pub source_dir: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_source_dir() -> String {
+    "mods".to_string()
 }
 
 /// Metadata extracted from plugin.yml (Bukkit/Spigot/Paper style).
@@ -185,6 +203,24 @@ async fn scan_all_servers(api: &ApiClient, servers_dir: &str) {
     }
 }
 
+/// Classify a directory entry's file name.
+///
+/// Returns the base filename (without a trailing `.disabled`) and whether the
+/// file is currently enabled, or `None` if it is not a mod/plugin archive.
+/// `foo.jar` → `("foo.jar", true)`, `foo.jar.disabled` → `("foo.jar", false)`.
+fn classify_archive_name(filename: &str) -> Option<(String, bool)> {
+    let (base, enabled) = match filename.strip_suffix(".disabled") {
+        Some(base) => (base, false),
+        None => (filename, true),
+    };
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with(".jar") || lower.ends_with(".zip") {
+        Some((base.to_string(), enabled))
+    } else {
+        None
+    }
+}
+
 fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
     let mut plugins = Vec::new();
 
@@ -201,38 +237,45 @@ fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            if ext != "jar" && ext != "zip" {
-                continue;
-            }
+            let raw_name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
 
-            let filename = match path.file_name().and_then(|n| n.to_str()) {
-                Some(n) => n.to_string(),
+            // Disabled files keep their archive on disk under a `.disabled`
+            // suffix, so they must still be reported — otherwise the panel
+            // could never offer to re-enable them.
+            let (filename, enabled) = match classify_archive_name(raw_name) {
+                Some(v) => v,
                 None => continue,
             };
 
             match scan_archive(&path) {
                 Ok(Some(mut plugin)) => {
                     plugin.filename = filename;
+                    plugin.enabled = enabled;
+                    plugin.source_dir = subdir.to_string();
                     plugins.push(plugin);
                 }
                 Ok(None) => {
                     // No metadata found, still track it.
                     let hash = file_sha256(&path).unwrap_or_default();
+                    let plugin_name = filename
+                        .rsplit_once('.')
+                        .map(|(stem, _ext)| stem.to_string())
+                        .unwrap_or_else(|| filename.clone());
                     plugins.push(DetectedPlugin {
                         filename,
-                        plugin_name: path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
+                        plugin_name,
                         version: String::new(),
                         author: String::new(),
                         description: String::new(),
                         commands: Vec::new(),
                         config_files: Vec::new(),
                         file_hash: hash,
+                        enabled,
+                        source_dir: subdir.to_string(),
                     });
                 }
                 Err(err) => {
@@ -282,6 +325,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
             commands,
             config_files,
             file_hash: hash,
+            // Both are overwritten by the caller, which knows the directory
+            // the archive was found in and whether it is `.disabled`.
+            enabled: true,
+            source_dir: default_source_dir(),
         }));
     }
 
@@ -312,6 +359,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
             commands: Vec::new(),
             config_files,
             file_hash: hash,
+            // Both are overwritten by the caller, which knows the directory
+            // the archive was found in and whether it is `.disabled`.
+            enabled: true,
+            source_dir: default_source_dir(),
         }));
     }
 
@@ -327,6 +378,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
             commands: Vec::new(),
             config_files,
             file_hash: hash,
+            // Both are overwritten by the caller, which knows the directory
+            // the archive was found in and whether it is `.disabled`.
+            enabled: true,
+            source_dir: default_source_dir(),
         }));
     }
 
@@ -345,4 +400,64 @@ fn file_sha256(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(&data);
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("talescan-test-{tag}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    #[test]
+    fn classify_archive_name_detects_disabled_suffix() {
+        assert_eq!(classify_archive_name("cool.jar"), Some(("cool.jar".into(), true)));
+        assert_eq!(classify_archive_name("cool.JAR"), Some(("cool.JAR".into(), true)));
+        assert_eq!(classify_archive_name("pack.zip"), Some(("pack.zip".into(), true)));
+        assert_eq!(
+            classify_archive_name("cool.jar.disabled"),
+            Some(("cool.jar".into(), false))
+        );
+        assert_eq!(classify_archive_name("notes.txt"), None);
+        assert_eq!(classify_archive_name("notes.txt.disabled"), None);
+        assert_eq!(classify_archive_name("config"), None);
+    }
+
+    /// The 22-byte "end of central directory" record: a valid, empty zip.
+    /// Enough for ZipArchive to open it and find no plugin metadata.
+    const EMPTY_ZIP: &[u8] = &[
+        0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    #[test]
+    fn scan_server_plugins_reports_source_dir_and_enabled_state() {
+        let server_dir = scratch_dir("scan");
+        std::fs::create_dir_all(server_dir.join("mods")).unwrap();
+        std::fs::create_dir_all(server_dir.join("plugins")).unwrap();
+        std::fs::write(server_dir.join("mods").join("alpha.jar"), EMPTY_ZIP).unwrap();
+        std::fs::write(server_dir.join("plugins").join("beta.jar.disabled"), EMPTY_ZIP).unwrap();
+        std::fs::write(server_dir.join("plugins").join("readme.txt"), b"ignore me").unwrap();
+
+        let found = scan_server_plugins(&server_dir);
+        assert_eq!(found.len(), 2, "only archives are reported: {found:?}");
+
+        let alpha = found.iter().find(|p| p.filename == "alpha.jar").expect("alpha.jar");
+        assert!(alpha.enabled);
+        assert_eq!(alpha.source_dir, "mods");
+
+        // Reported under its base name, not "beta.jar.disabled".
+        let beta = found.iter().find(|p| p.filename == "beta.jar").expect("beta.jar");
+        assert!(!beta.enabled, "a .disabled file must report enabled=false");
+        assert_eq!(beta.source_dir, "plugins");
+
+        let _ = std::fs::remove_dir_all(&server_dir);
+    }
 }

@@ -25,6 +25,22 @@ type DetectedPlugin struct {
 	Commands    []string `json:"commands"`
 	ConfigFiles []string `json:"config_files"`
 	FileHash    string   `json:"file_hash"`
+	// Enabled is false when the file on disk carries the ".disabled" suffix.
+	Enabled bool `json:"enabled"`
+	// SourceDir is the directory the file was found in: "mods" or "plugins".
+	SourceDir string `json:"source_dir"`
+}
+
+// modDirs are the only directories the daemon will rename mod/plugin files in.
+// Anything else is coerced to "mods" before it reaches the command payload —
+// the daemon re-validates, but the API must not enqueue garbage either.
+var modDirs = map[string]bool{"mods": true, "plugins": true}
+
+func normalizeModDir(dir string) string {
+	if modDirs[dir] {
+		return dir
+	}
+	return "mods"
 }
 
 // InstallModRequest is the body for POST /servers/:id/mods.
@@ -50,7 +66,8 @@ func NewModService(db *pgxpool.Pool) *ModService {
 func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*models.ServerMod, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, server_id, filename, display_name, version, download_url,
-		       cf_mod_id, cf_file_id, installed_at, COALESCE(source, ''), is_present
+		       cf_mod_id, cf_file_id, installed_at, COALESCE(source, ''), is_present,
+		       COALESCE(mod_dir, 'mods')
 		FROM server_mods
 		WHERE server_id = $1
 		ORDER BY installed_at DESC
@@ -66,7 +83,7 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 		if err := rows.Scan(
 			&m.ID, &m.ServerID, &m.Filename, &m.DisplayName, &m.Version,
 			&m.DownloadURL, &m.CFModID, &m.CFFileID, &m.InstalledAt,
-			&m.Source, &m.IsPresent,
+			&m.Source, &m.IsPresent, &m.ModDir,
 		); err != nil {
 			return nil, fmt.Errorf("scanning mod row: %w", err)
 		}
@@ -99,9 +116,9 @@ func (s *ModService) InstallMod(ctx context.Context, serverID uuid.UUID, req Ins
 	// Upsert into server_mods.
 	m := &models.ServerMod{}
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_mod_id, cf_file_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (server_id, filename) DO UPDATE
+		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_mod_id, cf_file_id, mod_dir)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'mods')
+		ON CONFLICT (server_id, mod_dir, filename) DO UPDATE
 		  SET display_name = EXCLUDED.display_name,
 		      version      = EXCLUDED.version,
 		      download_url = EXCLUDED.download_url,
@@ -180,34 +197,54 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 
 // ─── Task 2: Toggle mod ───────────────────────────────────────────────────────
 
-// ToggleMod sets is_present on a mod and enqueues an enable_mod or disable_mod command.
+// ToggleMod sets is_present on a mod or plugin and enqueues an enable_mod or
+// disable_mod command. The daemon renames the file to/from a ".disabled"
+// suffix; the "dir" field tells it whether the file lives in mods/ or plugins/.
+// Without it, toggling a plugin renamed a non-existent file under mods/ and the
+// panel reported success anyway.
 func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename string, enabled bool) error {
 	var nodeID uuid.UUID
 	var dataPath string
 	err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrServerNotFound
+		}
 		return fmt.Errorf("toggle mod: fetch server: %w", err)
 	}
-	ct, err := s.db.Exec(ctx,
-		`UPDATE server_mods SET is_present = $1 WHERE server_id = $2 AND filename = $3`,
-		enabled, serverID, filename,
-	)
+
+	// RETURNING gives us the file's directory and tells us whether the row
+	// existed, in one round trip.
+	var modDir string
+	err = s.db.QueryRow(ctx, `
+		UPDATE server_mods SET is_present = $1
+		WHERE server_id = $2 AND filename = $3
+		RETURNING COALESCE(mod_dir, 'mods')
+	`, enabled, serverID, filename).Scan(&modDir)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrModNotFound
+		}
 		return fmt.Errorf("toggle mod: update: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
-		return fmt.Errorf("mod not found: %s", filename)
-	}
+
 	cmdType := "disable_mod"
 	if enabled {
 		cmdType = "enable_mod"
 	}
-	payload, _ := json.Marshal(map[string]string{"data_path": dataPath, "filename": filename})
+	payload, _ := json.Marshal(map[string]string{
+		"data_path": dataPath,
+		"filename":  filename,
+		"dir":       normalizeModDir(modDir),
+	})
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
 		VALUES ($1, $2, $3, $4)
 	`, nodeID, serverID, cmdType, payload)
-	return err
+	if err != nil {
+		return fmt.Errorf("toggle mod: enqueue %s: %w", cmdType, err)
+	}
+	return nil
 }
 
 // ─── Task 3: Version switch ───────────────────────────────────────────────────
@@ -302,9 +339,9 @@ func (s *ModService) ServerNode(ctx context.Context, serverID uuid.UUID) (uuid.U
 // record is marked present immediately and no install_mod command is enqueued.
 func (s *ModService) RecordUpload(ctx context.Context, serverID uuid.UUID, filename, displayName string) error {
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO server_mods (server_id, filename, display_name, download_url, source, is_present)
-		VALUES ($1, $2, $3, '', 'custom', true)
-		ON CONFLICT (server_id, filename) DO UPDATE
+		INSERT INTO server_mods (server_id, filename, display_name, download_url, source, is_present, mod_dir)
+		VALUES ($1, $2, $3, '', 'custom', true, 'mods')
+		ON CONFLICT (server_id, mod_dir, filename) DO UPDATE
 		  SET display_name = EXCLUDED.display_name,
 		      source       = 'custom',
 		      is_present   = true,
@@ -318,6 +355,10 @@ func (s *ModService) RecordUpload(ctx context.Context, serverID uuid.UUID, filen
 
 // SyncDetectedPlugins upserts detected plugins from daemon scanning.
 // Marks missing plugins as is_present=false, auto-adds commands to game_commands.
+//
+// is_present doubles as the enabled flag: the daemon reports a file renamed to
+// "<name>.disabled" under its base name with enabled=false, so a disabled
+// plugin stays listed (and can be re-enabled) instead of vanishing.
 func (s *ModService) SyncDetectedPlugins(ctx context.Context, serverID uuid.UUID, plugins []DetectedPlugin) error {
 	// Mark all existing detected plugins as not present.
 	_, err := s.db.Exec(ctx,
@@ -331,14 +372,15 @@ func (s *ModService) SyncDetectedPlugins(ctx context.Context, serverID uuid.UUID
 	for _, p := range plugins {
 		commandsJSON, _ := json.Marshal(p.Commands)
 		configJSON, _ := json.Marshal(p.ConfigFiles)
+		modDir := normalizeModDir(p.SourceDir)
 
 		// Upsert the detected plugin.
 		_, err := s.db.Exec(ctx, `
 			INSERT INTO server_mods (server_id, filename, display_name, version, download_url,
 				source, plugin_name, author, description, detected_commands, config_files,
-				file_hash, last_scanned_at, is_present)
-			VALUES ($1, $2, $3, $4, '', 'detected', $5, $6, $7, $8, $9, $10, NOW(), true)
-			ON CONFLICT (server_id, filename) DO UPDATE SET
+				file_hash, last_scanned_at, is_present, mod_dir)
+			VALUES ($1, $2, $3, $4, '', 'detected', $5, $6, $7, $8, $9, $10, NOW(), $11, $12)
+			ON CONFLICT (server_id, mod_dir, filename) DO UPDATE SET
 				display_name = EXCLUDED.display_name,
 				version = EXCLUDED.version,
 				source = 'detected',
@@ -349,10 +391,12 @@ func (s *ModService) SyncDetectedPlugins(ctx context.Context, serverID uuid.UUID
 				config_files = EXCLUDED.config_files,
 				file_hash = EXCLUDED.file_hash,
 				last_scanned_at = NOW(),
-				is_present = true
+				is_present = EXCLUDED.is_present,
+				mod_dir = EXCLUDED.mod_dir
 		`,
 			serverID, p.Filename, p.PluginName, p.Version,
 			p.PluginName, p.Author, p.Description, commandsJSON, configJSON, p.FileHash,
+			p.Enabled, modDir,
 		)
 		if err != nil {
 			return fmt.Errorf("upserting plugin %s: %w", p.Filename, err)

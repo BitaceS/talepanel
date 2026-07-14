@@ -1,9 +1,11 @@
 pub mod hytale;
 pub mod manager;
 
-// Keep mock available for unit tests only
-#[cfg(test)]
-pub mod mock;
+// NOTE: the former `mock` module was removed. It was gated behind #[cfg(test)],
+// referenced by nothing, and imported `rand` — a crate that is not in
+// Cargo.toml. That single dangling import made the *entire* test target fail to
+// compile, which is why this daemon had no runnable tests. `hytale.rs` is the
+// real process implementation the mock was a placeholder for.
 
 pub use hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
 pub use manager::ProcessManager;
