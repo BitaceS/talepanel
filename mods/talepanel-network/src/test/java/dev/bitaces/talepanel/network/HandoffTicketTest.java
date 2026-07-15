@@ -74,6 +74,15 @@ class HandoffTicketTest {
                 "the previous secret in the grace window must still verify (rotation)");
     }
 
+    @Test
+    void wrongVersionByteIsRejected() {
+        UUID target = UUID.randomUUID();
+        byte[] ticket = HandoffTicket.sign(SECRET, target, UUID.randomUUID(), 1L, 9_999_999_999L);
+        ticket[0] = 2;  // flip version byte from 1 to non-1 value
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), target, 5L).isEmpty(),
+                "a ticket with a wrong version byte must be rejected (breaks MAC check)");
+    }
+
     // Helper: pull the target UUID straight out of a ticket's payload for tests.
     private static UUID extractTarget(byte[] ticket) {
         java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(ticket);
