@@ -72,6 +72,7 @@ func SetupRouter(
 
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
+	networkRoutingSvc := services.NewNetworkRoutingServiceWithLogger(db, log)
 	backupSvc := services.NewBackupService(db, daemonPool, log)
 	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
 	webhookNotifier := alerting.NewWebhookNotifier(log)
@@ -102,6 +103,7 @@ func SetupRouter(
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)
 	playerH := handlers.NewPlayerHandler(playerSvc, serverSvc, log)
+	networkRoutingH := handlers.NewNetworkRoutingHandler(networkRoutingSvc, log)
 	backupH := handlers.NewBackupHandler(backupSvc, permSvc, log)
 	alertH := handlers.NewAlertHandler(alertSvc, log)
 
@@ -371,6 +373,10 @@ func SetupRouter(
 			middleware.RequirePermission(permSvc, "player.network_ban"), playerH.BanNetworkPlayer)
 		networkGroup.POST("/players/:hytaleUuid/unban",
 			middleware.RequirePermission(permSvc, "player.network_ban"), playerH.UnbanNetworkPlayer)
+		networkGroup.POST("/servers/:id/role",
+			middleware.RequirePermission(permSvc, "network.manage"), networkRoutingH.SetServerRole)
+		networkGroup.POST("/distribute",
+			middleware.RequirePermission(permSvc, "network.manage"), networkRoutingH.Distribute)
 	}
 
 	// Nodes — requires admin role, general rate limit
