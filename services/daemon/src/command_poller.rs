@@ -337,6 +337,26 @@ async fn poll_and_dispatch(
                 }
             }
 
+            "write_mod_config" => {
+                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let config = command.payload.get("config").cloned().unwrap_or(serde_json::Value::Null);
+
+                if data_path.is_empty() || config.is_null() {
+                    CommandResult::err("write_mod_config payload missing required fields".to_string())
+                } else {
+                    match write_mod_config_file(&data_path, &config).await {
+                        Ok(()) => {
+                            info!(%server_id, "Network mod config written");
+                            CommandResult::ok(format!("Network config written for {server_id}"))
+                        }
+                        Err(err) => {
+                            warn!(%err, %server_id, "Failed to write network mod config");
+                            CommandResult::err(err.to_string())
+                        }
+                    }
+                }
+            }
+
             unknown => {
                 warn!(
                     command_type = %unknown,
@@ -503,6 +523,26 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(anyhow::anyhow!("could not stat world directory: {e}")),
     }
+}
+
+/// Write the TalePanel network mod config to
+/// {data_path}/mods/talepanel-network/config.json, creating the directory if
+/// needed. Atomic via temp file + rename so a crash mid-write cannot leave a
+/// half-written config the mod would fail to parse. The path is fixed (no
+/// caller-supplied filename); data_path was already checked against the data
+/// root at the top of the poll loop.
+async fn write_mod_config_file(data_path: &str, config: &serde_json::Value) -> anyhow::Result<()> {
+    let dir = std::path::Path::new(data_path)
+        .join("mods")
+        .join("talepanel-network");
+    tokio::fs::create_dir_all(&dir).await?;
+
+    let cfg_path = dir.join("config.json");
+    let tmp_path = dir.join("config.json.tmp");
+    let body = serde_json::to_string_pretty(config)?;
+    tokio::fs::write(&tmp_path, body).await?;
+    tokio::fs::rename(&tmp_path, &cfg_path).await?;
+    Ok(())
 }
 
 /// Returns true for addresses a mod download must never reach: loopback,
@@ -753,6 +793,36 @@ mod tests {
             .expect_err("traversal must be rejected");
         assert!(err.to_string().contains("unsafe world name"));
         assert!(!data_path.join("config.json").exists(), "nothing must be written");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn write_mod_config_file_writes_atomically_into_mod_dir() {
+        let root = scratch_dir("modconfig");
+        let data_path = root.join("server");
+        std::fs::create_dir_all(&data_path).unwrap();
+
+        let config = serde_json::json!({
+            "version": 1,
+            "role": "hub",
+            "secrets": ["deadbeef"],
+        });
+
+        write_mod_config_file(data_path.to_str().unwrap(), &config)
+            .await
+            .expect("write should succeed");
+
+        let cfg_path = data_path.join("mods").join("talepanel-network").join("config.json");
+        assert!(cfg_path.exists(), "config.json must exist");
+        let raw = std::fs::read_to_string(&cfg_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["role"], "hub");
+        assert_eq!(parsed["secrets"][0], "deadbeef");
+        assert!(
+            !data_path.join("mods").join("talepanel-network").join("config.json.tmp").exists(),
+            "temp file must be renamed away"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
