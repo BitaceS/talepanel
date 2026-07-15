@@ -35,7 +35,7 @@ public final class NetworkConfig {
         NetworkConfig cfg = new NetworkConfig();
         cfg.version = dto.version;
         cfg.role = dto.role;
-        cfg.serverId = UUID.fromString(dto.serverId);
+        cfg.serverId = requireUuid(dto.serverId, "server_id");
         cfg.requireReferral = dto.requireReferral;
 
         cfg.secrets = new ArrayList<>();
@@ -49,13 +49,20 @@ public final class NetworkConfig {
         if (dto.gamemodes != null) {
             for (GamemodeDto g : dto.gamemodes) {
                 Gamemode gm = new Gamemode();
-                gm.serverId = UUID.fromString(g.serverId);
+                gm.serverId = requireUuid(g.serverId, "gamemodes[].server_id");
                 gm.name = g.name;
                 gm.address = g.address;
                 cfg.gamemodes.add(gm);
             }
         }
         return cfg;
+    }
+
+    private static UUID requireUuid(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("config.json: missing or blank required field '" + field + "'");
+        }
+        return UUID.fromString(value);
     }
 
     static byte[] hexToBytes(String hex) {

@@ -56,4 +56,21 @@ class NetworkConfigTest {
         assertNotNull(cfg.gamemodes, "a missing gamemodes key must yield an empty list, not null");
         assertTrue(cfg.gamemodes.isEmpty());
     }
+
+    @Test
+    void missingServerIdThrowsClearError() {
+        String json = """
+            {
+              "version": 1,
+              "role": "hub",
+              "require_referral": false,
+              "secrets": ["00ff10"]
+            }
+            """;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> NetworkConfig.parse(json));
+        assertTrue(ex.getMessage().contains("server_id"),
+                "error message must mention the missing field 'server_id': " + ex.getMessage());
+    }
 }

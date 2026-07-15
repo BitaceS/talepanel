@@ -55,6 +55,9 @@ public final class HandoffTicket {
 
         boolean macOk = false;
         for (byte[] secret : secrets) {
+            if (secret == null || secret.length == 0) {
+                continue;
+            }
             if (MessageDigest.isEqual(mac(secret, payload), presentedMac)) {
                 macOk = true;
                 break;

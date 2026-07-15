@@ -83,6 +83,28 @@ class HandoffTicketTest {
                 "a ticket with a wrong version byte must be rejected (breaks MAC check)");
     }
 
+    @Test
+    void emptySecretAlongsideValidSecretStillVerifies() {
+        UUID target = UUID.randomUUID();
+        UUID player = UUID.randomUUID();
+        byte[] ticket = HandoffTicket.sign(SECRET, target, player, 1L, 9_999_999_999L);
+
+        Optional<UUID> got = HandoffTicket.verify(ticket, List.of(new byte[0], SECRET), target, 5L);
+
+        assertTrue(got.isPresent(), "a valid secret alongside a misconfigured empty one must still verify");
+        assertEquals(player, got.get());
+    }
+
+    @Test
+    void onlyEmptySecretReturnsEmptyWithoutThrowing() {
+        UUID target = UUID.randomUUID();
+        byte[] ticket = HandoffTicket.sign(SECRET, target, UUID.randomUUID(), 1L, 9_999_999_999L);
+
+        Optional<UUID> got = HandoffTicket.verify(ticket, List.of(new byte[0]), target, 5L);
+
+        assertTrue(got.isEmpty(), "an empty secret can never match; verify must return empty, not throw");
+    }
+
     // Helper: pull the target UUID straight out of a ticket's payload for tests.
     private static UUID extractTarget(byte[] ticket) {
         java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(ticket);
