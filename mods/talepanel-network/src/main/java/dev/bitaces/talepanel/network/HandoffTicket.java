@@ -65,11 +65,20 @@ public final class HandoffTicket {
         }
 
         ByteBuffer buf = ByteBuffer.wrap(payload);
-        buf.get();        // version (guarded in a later task)
-        buf.getLong();    // iat
-        buf.getLong();    // exp (guarded in a later task)
-        buf.getLong();    // target msb (guarded in a later task)
-        buf.getLong();    // target lsb
+        byte version = buf.get();
+        if (version != VERSION) {
+            return Optional.empty();
+        }
+        buf.getLong();                 // iat — informational only
+        long exp = buf.getLong();
+        if (nowEpochSec >= exp) {
+            return Optional.empty();   // expired (exp is exclusive)
+        }
+        long tMsb = buf.getLong();
+        long tLsb = buf.getLong();
+        if (!new UUID(tMsb, tLsb).equals(selfServerId)) {
+            return Optional.empty();   // minted for a different server
+        }
         long pMsb = buf.getLong();
         long pLsb = buf.getLong();
         return Optional.of(new UUID(pMsb, pLsb));

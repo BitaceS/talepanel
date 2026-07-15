@@ -30,4 +30,58 @@ class HandoffTicketTest {
         byte[] ticket = HandoffTicket.sign(SECRET, UUID.randomUUID(), UUID.randomUUID(), 1L, 2L);
         assertEquals(65, ticket.length, "ticket must stay compact and well under the referral-data cap");
     }
+
+    @Test
+    void tamperedTicketIsRejected() {
+        byte[] ticket = HandoffTicket.sign(SECRET, UUID.randomUUID(), UUID.randomUUID(), 1L, 9_999_999_999L);
+        ticket[20] ^= 0x01; // flip a byte inside the signed payload
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), extractTarget(ticket), 5L).isEmpty(),
+                "a modified ticket must fail the MAC check");
+    }
+
+    @Test
+    void expiredTicketIsRejected() {
+        UUID target = UUID.randomUUID();
+        byte[] ticket = HandoffTicket.sign(SECRET, target, UUID.randomUUID(), 100L, 130L);
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), target, 131L).isEmpty(),
+                "a ticket must not verify once now >= exp");
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), target, 130L).isEmpty(),
+                "exp is exclusive: now == exp is already expired");
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), target, 129L).isPresent(),
+                "one second before exp must still verify");
+    }
+
+    @Test
+    void ticketForAnotherServerIsRejected() {
+        UUID target = UUID.randomUUID();
+        UUID otherServer = UUID.randomUUID();
+        byte[] ticket = HandoffTicket.sign(SECRET, target, UUID.randomUUID(), 1L, 9_999_999_999L);
+        assertTrue(HandoffTicket.verify(ticket, List.of(SECRET), otherServer, 5L).isEmpty(),
+                "a ticket minted for server A must not verify on server B");
+    }
+
+    @Test
+    void wrongSecretIsRejectedButPreviousSecretIsAccepted() {
+        UUID target = UUID.randomUUID();
+        byte[] current = "current-secret-current-secret!!!".getBytes();
+        byte[] previous = "previous-secret-previous-secret!".getBytes();
+        byte[] unrelated = "unrelated-secret-unrelated-secre".getBytes();
+
+        byte[] ticket = HandoffTicket.sign(previous, target, UUID.randomUUID(), 1L, 9_999_999_999L);
+        assertTrue(HandoffTicket.verify(ticket, List.of(unrelated), target, 5L).isEmpty(),
+                "an unrelated secret must not verify");
+        assertTrue(HandoffTicket.verify(ticket, List.of(current, previous), target, 5L).isPresent(),
+                "the previous secret in the grace window must still verify (rotation)");
+    }
+
+    // Helper: pull the target UUID straight out of a ticket's payload for tests.
+    private static UUID extractTarget(byte[] ticket) {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(ticket);
+        buf.get();        // version
+        buf.getLong();    // iat
+        buf.getLong();    // exp
+        long msb = buf.getLong();
+        long lsb = buf.getLong();
+        return new UUID(msb, lsb);
+    }
 }
