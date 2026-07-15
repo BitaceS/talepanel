@@ -30,3 +30,40 @@ func TestGetOrCreateSecrets_GeneratesStable64HexSecret(t *testing.T) {
 		t.Fatalf("secret must be stable across calls: %s != %s", second[0], first[0])
 	}
 }
+
+func TestSetServerRole_SetsAndClearsRole(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewNetworkRoutingService(pool)
+	owner := seedTestUser(t, pool, "user")
+	server := seedTestServer(t, pool, owner)
+
+	if err := svc.SetServerRole(ctx, server, "hub"); err != nil {
+		t.Fatalf("set hub: %v", err)
+	}
+	var role *string
+	pool.QueryRow(ctx, `SELECT network_role FROM servers WHERE id = $1`, server).Scan(&role)
+	if role == nil || *role != "hub" {
+		t.Fatalf("expected role hub, got %v", role)
+	}
+
+	if err := svc.SetServerRole(ctx, server, "none"); err != nil {
+		t.Fatalf("clear role: %v", err)
+	}
+	pool.QueryRow(ctx, `SELECT network_role FROM servers WHERE id = $1`, server).Scan(&role)
+	if role != nil {
+		t.Fatalf("expected role cleared, got %v", *role)
+	}
+}
+
+func TestSetServerRole_RejectsUnknownRole(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewNetworkRoutingService(pool)
+	owner := seedTestUser(t, pool, "user")
+	server := seedTestServer(t, pool, owner)
+
+	if err := svc.SetServerRole(ctx, server, "proxy"); err == nil {
+		t.Fatal("expected error for unknown role, got nil")
+	}
+}

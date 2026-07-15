@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
@@ -63,4 +64,32 @@ func (s *NetworkRoutingService) readSecrets(ctx context.Context) (current, previ
 		SELECT hmac_secret_current, hmac_secret_previous FROM network_settings WHERE id = true
 	`).Scan(&current, &previous)
 	return current, previous, err
+}
+
+// ErrInvalidNetworkRole is returned when a role other than hub/gamemode/none
+// is requested.
+var ErrInvalidNetworkRole = errors.New("invalid network role")
+
+// SetServerRole assigns a server's network role. "none" removes it from the
+// network. Roles are constrained to hub/gamemode by the DB too (belt and
+// braces) — this rejects early with a clear error.
+func (s *NetworkRoutingService) SetServerRole(ctx context.Context, serverID uuid.UUID, role string) error {
+	var value any
+	switch role {
+	case "hub", "gamemode":
+		value = role
+	case "none", "":
+		value = nil
+	default:
+		return ErrInvalidNetworkRole
+	}
+
+	ct, err := s.db.Exec(ctx, `UPDATE servers SET network_role = $1 WHERE id = $2`, value, serverID)
+	if err != nil {
+		return fmt.Errorf("setting network role: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrPlayerNotFound
+	}
+	return nil
 }
