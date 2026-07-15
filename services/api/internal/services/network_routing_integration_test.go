@@ -129,6 +129,42 @@ func TestBuildServerConfig_GamemodeHasNoGamemodeList(t *testing.T) {
 	}
 }
 
+func TestDistributeConfig_EnqueuesWriteModConfig(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewNetworkRoutingService(pool)
+	owner := seedTestUser(t, pool, "user")
+	hub := seedTestServer(t, pool, owner)
+	if err := svc.SetServerRole(ctx, hub, "hub"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DistributeConfig(ctx, hub); err != nil {
+		t.Fatalf("DistributeConfig: %v", err)
+	}
+
+	var count int
+	var dataPath string
+	var role string
+	err := pool.QueryRow(ctx, `
+		SELECT count(*), max(payload->>'data_path'), max(payload->'config'->>'role')
+		FROM node_commands
+		WHERE server_id = $1 AND command_type = 'write_mod_config'
+	`, hub).Scan(&count, &dataPath, &role)
+	if err != nil {
+		t.Fatalf("query node_commands: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one write_mod_config, got %d", count)
+	}
+	if dataPath == "" {
+		t.Fatal("expected data_path in payload")
+	}
+	if role != "hub" {
+		t.Fatalf("expected config.role=hub in payload, got %q", role)
+	}
+}
+
 func containsColon(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] == ':' {

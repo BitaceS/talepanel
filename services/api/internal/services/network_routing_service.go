@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -180,4 +181,65 @@ func (s *NetworkRoutingService) listGamemodes(ctx context.Context) ([]ModGamemod
 		out = append(out, gm)
 	}
 	return out, rows.Err()
+}
+
+// DistributeConfig writes one server's mod config out by enqueuing a
+// write_mod_config command the daemon picks up on its next poll. Best-effort in
+// spirit like the ban fan-out, but here the error IS surfaced: a missing config
+// means the mod has nothing to route with, so the caller should know.
+func (s *NetworkRoutingService) DistributeConfig(ctx context.Context, serverID uuid.UUID) error {
+	cfg, err := s.BuildServerConfig(ctx, serverID)
+	if err != nil {
+		return err
+	}
+
+	var nodeID uuid.UUID
+	var dataPath string
+	if err := s.db.QueryRow(ctx, `
+		SELECT node_id, data_path FROM servers WHERE id = $1
+	`, serverID).Scan(&nodeID, &dataPath); err != nil {
+		return fmt.Errorf("loading server node for distribution: %w", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{"data_path": dataPath, "config": cfg})
+	if err != nil {
+		return fmt.Errorf("marshalling mod config: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, 'write_mod_config', $3)
+	`, nodeID, serverID, payload); err != nil {
+		return fmt.Errorf("enqueuing mod config write: %w", err)
+	}
+	return nil
+}
+
+// DistributeAll re-writes the config to every networked server. Changing one
+// server's role changes the hub's gamemode list, so a role change fans out to
+// all of them, not just the one that changed.
+func (s *NetworkRoutingService) DistributeAll(ctx context.Context) error {
+	rows, err := s.db.Query(ctx, `SELECT id FROM servers WHERE network_role IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("listing networked servers: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scanning server id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		if err := s.DistributeConfig(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
