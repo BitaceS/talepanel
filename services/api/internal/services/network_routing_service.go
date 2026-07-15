@@ -93,3 +93,91 @@ func (s *NetworkRoutingService) SetServerRole(ctx context.Context, serverID uuid
 	}
 	return nil
 }
+
+// ModNetworkConfig is the contract with the Hytale-side mod. It is written to
+// {data_path}/mods/talepanel-network/config.json on every networked server.
+type ModNetworkConfig struct {
+	Version         int           `json:"version"`
+	Role            string        `json:"role"`
+	ServerID        uuid.UUID     `json:"server_id"`
+	RequireReferral bool          `json:"require_referral"`
+	Secrets         []string      `json:"secrets"`
+	Gamemodes       []ModGamemode `json:"gamemodes,omitempty"`
+}
+
+// ModGamemode is one routable gamemode target the hub can send a player to.
+type ModGamemode struct {
+	ServerID uuid.UUID `json:"server_id"`
+	Name     string    `json:"name"`
+	Address  string    `json:"address"`
+}
+
+// BuildServerConfig assembles the mod config for one networked server. A hub
+// gets the full gamemode address table (so it can send ClientReferral); a
+// gamemode gets none. Both carry the shared secret(s) and this server's own id
+// (a gamemode checks a ticket's target against it).
+func (s *NetworkRoutingService) BuildServerConfig(ctx context.Context, serverID uuid.UUID) (*ModNetworkConfig, error) {
+	var role *string
+	var requireReferral bool
+	err := s.db.QueryRow(ctx, `
+		SELECT network_role, require_referral FROM servers WHERE id = $1
+	`, serverID).Scan(&role, &requireReferral)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPlayerNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("loading server for config: %w", err)
+	}
+	if role == nil {
+		return nil, ErrPlayerNotFound // not part of the network → nothing to configure
+	}
+
+	secrets, err := s.GetOrCreateSecrets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &ModNetworkConfig{
+		Version:         1,
+		Role:            *role,
+		ServerID:        serverID,
+		RequireReferral: requireReferral,
+		Secrets:         secrets,
+	}
+
+	if *role == "hub" {
+		gamemodes, err := s.listGamemodes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Gamemodes = gamemodes
+	}
+	return cfg, nil
+}
+
+// listGamemodes returns every gamemode server with a reachable address. Address
+// is the node's public address if set, else its fqdn, joined with the server
+// port — the same address a player would connect to directly.
+func (s *NetworkRoutingService) listGamemodes(ctx context.Context) ([]ModGamemode, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT sv.id, sv.name, COALESCE(n.public_address, n.fqdn) || ':' || sv.port
+		FROM servers sv
+		JOIN nodes n ON n.id = sv.node_id
+		WHERE sv.network_role = 'gamemode'
+		ORDER BY sv.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing gamemodes: %w", err)
+	}
+	defer rows.Close()
+
+	out := []ModGamemode{}
+	for rows.Next() {
+		var gm ModGamemode
+		if err := rows.Scan(&gm.ServerID, &gm.Name, &gm.Address); err != nil {
+			return nil, fmt.Errorf("scanning gamemode: %w", err)
+		}
+		out = append(out, gm)
+	}
+	return out, rows.Err()
+}
