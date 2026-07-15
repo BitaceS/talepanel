@@ -201,6 +201,13 @@ func (s *NetworkRoutingService) DistributeConfig(ctx context.Context, serverID u
 		return fmt.Errorf("loading server node for distribution: %w", err)
 	}
 
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM node_commands
+		WHERE server_id = $1 AND command_type = 'write_mod_config' AND status IN ('acked','failed')
+	`, serverID); err != nil {
+		return fmt.Errorf("pruning delivered mod config commands: %w", err)
+	}
+
 	payload, err := json.Marshal(map[string]any{"data_path": dataPath, "config": cfg})
 	if err != nil {
 		return fmt.Errorf("marshalling mod config: %w", err)
@@ -238,7 +245,9 @@ func (s *NetworkRoutingService) DistributeAll(ctx context.Context) error {
 
 	for _, id := range ids {
 		if err := s.DistributeConfig(ctx, id); err != nil {
-			return err
+			s.log.Warn("distributing mod config to one server failed; continuing",
+				zap.String("server_id", id.String()), zap.Error(err))
+			continue
 		}
 	}
 	return nil

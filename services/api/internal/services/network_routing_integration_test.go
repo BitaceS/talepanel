@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestGetOrCreateSecrets_GeneratesStable64HexSecret(t *testing.T) {
@@ -162,6 +164,78 @@ func TestDistributeConfig_EnqueuesWriteModConfig(t *testing.T) {
 	}
 	if role != "hub" {
 		t.Fatalf("expected config.role=hub in payload, got %q", role)
+	}
+}
+
+func TestDistributeConfig_PrunesDeliveredCommandsButKeepsPending(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewNetworkRoutingService(pool)
+	owner := seedTestUser(t, pool, "user")
+	hub := seedTestServer(t, pool, owner)
+	if err := svc.SetServerRole(ctx, hub, "hub"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DistributeConfig(ctx, hub); err != nil {
+		t.Fatalf("first DistributeConfig: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE node_commands SET status = 'acked'
+		WHERE server_id = $1 AND command_type = 'write_mod_config'
+	`, hub); err != nil {
+		t.Fatalf("marking acked: %v", err)
+	}
+
+	if err := svc.DistributeConfig(ctx, hub); err != nil {
+		t.Fatalf("second DistributeConfig: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM node_commands
+		WHERE server_id = $1 AND command_type = 'write_mod_config'
+	`, hub).Scan(&count); err != nil {
+		t.Fatalf("query node_commands: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one write_mod_config row after pruning acked, got %d", count)
+	}
+}
+
+func TestDistributeAll_EnqueuesForEveryNetworkedServer(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewNetworkRoutingService(pool)
+	owner := seedTestUser(t, pool, "user")
+	hub := seedTestServer(t, pool, owner)
+	gm1 := seedTestServer(t, pool, owner)
+	gm2 := seedTestServer(t, pool, owner)
+
+	if err := svc.SetServerRole(ctx, hub, "hub"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetServerRole(ctx, gm1, "gamemode"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetServerRole(ctx, gm2, "gamemode"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DistributeAll(ctx); err != nil {
+		t.Fatalf("DistributeAll: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM node_commands
+		WHERE server_id = ANY($1) AND command_type = 'write_mod_config'
+	`, []uuid.UUID{hub, gm1, gm2}).Scan(&count); err != nil {
+		t.Fatalf("query node_commands: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected write_mod_config enqueued for all 3 networked servers, got %d", count)
 	}
 }
 
