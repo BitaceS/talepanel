@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Package, Trash2, Download, ExternalLink } from 'lucide-vue-next'
+import { Search, Package, Trash2, Download, ExternalLink } from '@lucide/vue'
 import { useModsStore } from '~/stores/mods'
 import { useServersStore } from '~/stores/servers'
 import type { CFMod, CFModFile } from '~/types'

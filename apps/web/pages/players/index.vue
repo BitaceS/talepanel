@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, Search, Ban, Shield, ShieldCheck, ShieldOff, RefreshCw } from 'lucide-vue-next'
+import { Users, Search, Ban, Shield, ShieldCheck, ShieldOff, RefreshCw } from '@lucide/vue'
 import { usePlayersStore } from '~/stores/players'
 import { useServersStore } from '~/stores/servers'
 

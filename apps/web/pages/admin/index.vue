@@ -3,7 +3,7 @@ import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
   Plug, Save, ExternalLink,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
 

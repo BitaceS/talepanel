@@ -2,6 +2,11 @@
 export default defineNuxtConfig({
   ssr: false,
 
+  // Nuxt 4 defaults srcDir to `app/`. Keep the existing flat layout
+  // (pages/, components/, stores/, ... at the project root) so `~/` imports,
+  // the tailwind content globs and the docker-compose bind-mount stay valid.
+  srcDir: '.',
+
   modules: [
     '@pinia/nuxt',
     '@nuxtjs/tailwindcss',

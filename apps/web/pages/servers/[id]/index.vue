@@ -8,7 +8,7 @@ import {
   Gamepad2, Loader2, Plus, Database,
   File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X, Pencil,
   Upload, PackageOpen, Copy, Info,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
 import { useModsStore } from '~/stores/mods'
 import { useGameCommandsStore } from '~/stores/gameCommands'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle, Info } from 'lucide-vue-next'
+import { CheckCircle, Info } from '@lucide/vue'
 import { useAlertsStore } from '~/stores/alerts'
 import { useServersStore } from '~/stores/servers'
 
