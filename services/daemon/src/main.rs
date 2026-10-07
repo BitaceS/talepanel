@@ -4,6 +4,7 @@ mod config;
 mod downloader;
 mod heartbeat;
 mod http_server;
+mod machine_id;
 mod net_monitor;
 mod plugin_scanner;
 mod process;
@@ -39,6 +40,16 @@ async fn main() -> Result<()> {
 
     // ── 2. Reinitialise tracing with the configured log level & format ──────
     init_tracing(&config);
+
+    // Hytale derives the key for its encrypted auth store (auth.enc) from the
+    // machine-id; container images have none, so persisted logins fail.
+    #[cfg(target_os = "linux")]
+    if let Err(e) = machine_id::ensure_machine_id(
+        std::path::Path::new("/etc/machine-id"),
+        &std::path::Path::new(&config.daemon.data_root).join("machine-id"),
+    ) {
+        warn!(error = %e, "Could not provide a machine-id; Hytale /auth logins will not persist");
+    }
 
     info!(
         node_id = %config.daemon.node_id,
