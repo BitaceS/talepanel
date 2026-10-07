@@ -180,6 +180,11 @@ func SetupRouter(
 	rsp := func(perm string) gin.HandlerFunc {
 		return middleware.RequireServerPermission(permSvc, perm)
 	}
+	hytaleH := handlers.NewHytaleHandler(services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log))
+	hytaleGroup := v1.Group("/hytale")
+	hytaleGroup.Use(authRequired, generalLimiter)
+	hytaleGroup.GET("/versions", hytaleH.Versions)
+
 	serverGroup := v1.Group("/servers")
 	serverGroup.Use(authRequired, generalLimiter)
 	{

@@ -154,9 +154,11 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 	if req.Name == "" {
 		return nil, fmt.Errorf("server name cannot be empty")
 	}
-	if req.HytaleVersion == "" {
-		req.HytaleVersion = "latest"
+	version, err := NormalizeHytaleVersion(req.HytaleVersion)
+	if err != nil {
+		return nil, err
 	}
+	req.HytaleVersion = version
 	if req.RAMLimitMB <= 0 {
 		req.RAMLimitMB = 2048
 	}
@@ -170,7 +172,7 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 	// Find best available node — prefer lowest recent CPU load; fall back to
 	// server count for nodes that have not yet reported metrics.
 	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `
+	err = s.db.QueryRow(ctx, `
 		SELECT n.id
 		FROM nodes n
 		WHERE n.status = 'online'
