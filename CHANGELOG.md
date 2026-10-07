@@ -4,7 +4,29 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-Nothing yet.
+Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
+
+### Added
+- Per-server launch flags in the panel (Settings → Launch Settings): `--accept-early-plugins`, `--allow-op`, `--disable-sentry`. Allowlisted in the API and again in the daemon. Migration 033.
+- RAM limit editable in the panel (admins only, 512 MB up to the node's total).
+- `GET /api/v1/hytale/versions`: newest server build per patchline, read from maven.hytale.com. The create-server form now offers Release / Pre-release instead of a free-text version.
+- Network mod (`mods/talepanel-network`): Hytale plugin with `/play <gamemode>` on hubs (signed `referToServer` handoff) and a referral gate on `require_referral` gamemodes. Builds against `com.hypixel.hytale:Server:0.6.8`.
+
+### Changed
+- Daemon sets `HYTALE_DISABLE_UPDATES` and explains exit codes 8 (self-update staged) and 11 (data inside the launcher install folder).
+- Daemon provides a persistent machine-id so Hytale's encrypted auth store (`auth.enc`) works in containers.
+- Dependencies: Go 1.26, gin 1.12, pgx 5.11; Rust 1.98 builder; Nuxt 3.21.
+
+### Fixed
+- Whitelist toggle now sends `whitelist add/remove` (Hytale 0.6 moved the whitelist to the `hytale.server.join` permission).
+- Kick no longer appends a reason, which Hytale rejects; the reason stays in the audit log.
+- Default commands: `give` uses `--quantity`, weather uses `Zone1_Sunny --world {world}` (there is no `clear` weather). Migration 032.
+- Default game commands were listed twice, and the global copy failed with "command not found".
+- Invalid server settings return 400 instead of 500.
+
+### Security
+- Game-command parameters containing control characters are rejected; a newline smuggled a second console command past `min_role`.
+- `DELETE /servers/:id/game-commands/:cmdId` only deletes that server's own commands. Before, it could delete any server's commands and the global defaults.
 
 ## [0.9.0-beta] — 2026-04-17
 
