@@ -4,7 +4,7 @@ import {
   RefreshCw, Shield, AlertTriangle, Clock,
   Zap, Eye, Ban, Globe, TrendingUp, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Timer,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 import { useServersStore } from '~/stores/servers'
 

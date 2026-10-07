@@ -8,7 +8,7 @@ import {
   Gamepad2, Loader2, Plus, Database,
   File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X, Pencil,
   Upload, PackageOpen, Copy, Info,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
 import { useModsStore } from '~/stores/mods'
 import { useGameCommandsStore } from '~/stores/gameCommands'
@@ -1958,7 +1958,7 @@ const sidebarMods = computed(() => {
               </div>
             </div>
             <div class="flex items-center gap-1">
-              <button v-if="b.status === 'complete'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
+              <button v-if="b.status === 'completed'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
               <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirm('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
