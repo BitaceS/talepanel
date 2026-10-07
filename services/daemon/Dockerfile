@@ -5,7 +5,7 @@
 # async-trait can be compiled as dylibs.  musl/Alpine images do not support
 # proc-macro dylibs.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.98-slim-bookworm AS builder
 
 # Install build tools and OpenSSL headers (reqwest rustls-tls still pulls in
 # openssl-sys on some platforms).
