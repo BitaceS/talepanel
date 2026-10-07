@@ -241,3 +241,47 @@ func TestBanPlayer_SendsBanToTheGameServer(t *testing.T) {
 		t.Fatalf("enqueued command = %q, want %q", cmd, "unban Eve")
 	}
 }
+
+// The whitelist toggle used to be a DB flag only. Since Hytale 0.6 the whitelist
+// is the hytale.server.join permission, granted and revoked by the whitelist
+// console commands, so the toggle must send them.
+func TestSetWhitelist_SendsWhitelistCommandToTheGameServer(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewPlayerService(pool)
+
+	ownerID := seedTestUser(t, pool, "user")
+	serverID := seedTestServer(t, pool, ownerID)
+	hytaleUUID := uuid.New()
+
+	if err := svc.RecordPlayerEvent(ctx, serverID, "join", "Wren", hytaleUUID); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	playerID, _ := playerRow(t, pool, serverID, hytaleUUID)
+
+	lastCmd := func() string {
+		t.Helper()
+		var cmd string
+		if err := pool.QueryRow(ctx, `
+			SELECT payload->>'cmd' FROM node_commands
+			WHERE server_id = $1 AND command_type = 'send_command'
+			ORDER BY created_at DESC LIMIT 1`, serverID).Scan(&cmd); err != nil {
+			t.Fatalf("no console command was enqueued: %v", err)
+		}
+		return cmd
+	}
+
+	if err := svc.SetWhitelist(ctx, serverID, playerID, true); err != nil {
+		t.Fatalf("whitelist add: %v", err)
+	}
+	if got := lastCmd(); got != "whitelist add Wren" {
+		t.Fatalf("enqueued command = %q, want %q", got, "whitelist add Wren")
+	}
+
+	if err := svc.SetWhitelist(ctx, serverID, playerID, false); err != nil {
+		t.Fatalf("whitelist remove: %v", err)
+	}
+	if got := lastCmd(); got != "whitelist remove Wren" {
+		t.Fatalf("enqueued command = %q, want %q", got, "whitelist remove Wren")
+	}
+}
