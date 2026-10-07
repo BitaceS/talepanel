@@ -21,8 +21,9 @@ public class TalePanelNetworkPlugin extends JavaPlugin {
     /**
      * Where the TalePanel daemon writes this server's network config, relative
      * to the server's working directory (see the daemon's write_mod_config).
+     * Outside mods/, where Hytale would mistake the folder for an asset pack.
      */
-    static final Path CONFIG_PATH = Path.of("mods", "talepanel-network", "config.json");
+    static final Path CONFIG_PATH = Path.of("talepanel", "network.json");
 
     private ConfigSource config;
 

@@ -96,7 +96,7 @@ func (s *NetworkRoutingService) SetServerRole(ctx context.Context, serverID uuid
 }
 
 // ModNetworkConfig is the contract with the Hytale-side mod. It is written to
-// {data_path}/mods/talepanel-network/config.json on every networked server.
+// {data_path}/talepanel/network.json on every networked server.
 type ModNetworkConfig struct {
 	Version         int           `json:"version"`
 	Role            string        `json:"role"`

@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The parsed mods/talepanel-network/config.json written by the panel (Slice 1a).
+ * The parsed talepanel/network.json written by the panel (Slice 1a).
  * Secrets arrive hex-encoded and are decoded to raw bytes; ids arrive as UUID
  * strings. A missing "gamemodes" key (a gamemode server) yields an empty list.
  */
