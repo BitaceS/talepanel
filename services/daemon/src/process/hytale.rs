@@ -234,6 +234,12 @@ impl HytaleServerProcess {
             c
         };
 
+        // Hytale's built-in updater (0.6+) stages an update and exits with code
+        // 8, expecting the official start.sh wrapper to swap files and restart.
+        // We launch the JAR directly and own updates via the downloader, so
+        // turn it off rather than have servers drop into Crashed.
+        cmd.env("HYTALE_DISABLE_UPDATES", "1");
+
         cmd.current_dir(&self.config.data_path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -387,12 +393,18 @@ impl HytaleServerProcess {
                 } else {
                     let code = exit_status.code().unwrap_or(-1);
                     error!(server_id = %server_id, exit_code = code, "Server exited unexpectedly");
+                    let message = match explain_exit_code(code) {
+                        Some(why) => format!(
+                            "Server process exited with code {code} — {why} Marking as crashed."
+                        ),
+                        None => format!(
+                            "Server process exited with code {code} — marking as crashed"
+                        ),
+                    };
                     let _ = log_tx.send(LogLine {
                         timestamp: chrono::Utc::now(),
                         level: "ERROR".to_string(),
-                        message: format!(
-                            "Server process exited with code {code} — marking as crashed"
-                        ),
+                        message,
                     });
                     status_tx.send_replace(ServerStatus::Crashed);
                 }
@@ -599,6 +611,23 @@ fn classify_level(line: &str) -> String {
     }
 }
 
+/// Explains the Hytale server's documented non-crash exit codes so the operator
+/// sees the cause in the console instead of a bare number.
+fn explain_exit_code(code: i32) -> Option<&'static str> {
+    match code {
+        8 => Some(
+            "Hytale staged a self-update and expected its start script to apply it. \
+             TalePanel manages updates itself; reinstall/update the server from the panel.",
+        ),
+        11 => Some(
+            "Hytale refused to boot because its working, universe, prefab-cache or backup \
+             directory is inside the Hytale launcher's install folder. Move the server data \
+             elsewhere, or add --allow-install-dir to the extra server args.",
+        ),
+        _ => None,
+    }
+}
+
 /// Returns `true` if the log line signals that the server is fully started
 /// and accepting player connections.
 ///
@@ -638,5 +667,23 @@ fn kill_pid(pid: u32) {
             .args(["/F", "/PID", &pid.to_string()])
             .output();
         info!(pid, "Sent TerminateProcess (taskkill /F) to Hytale server process");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explains_hytale_updater_and_install_dir_exit_codes() {
+        assert!(explain_exit_code(8).unwrap().contains("self-update"));
+        assert!(explain_exit_code(11).unwrap().contains("--allow-install-dir"));
+    }
+
+    #[test]
+    fn ordinary_exit_codes_get_no_explanation() {
+        assert_eq!(explain_exit_code(1), None);
+        assert_eq!(explain_exit_code(-1), None);
+        assert_eq!(explain_exit_code(137), None);
     }
 }
