@@ -11,16 +11,16 @@
   },
   "dependencies": {
     "@lucide/vue": "^1.52.0",
-    "@pinia/nuxt": "^0.11.3",
     "@vueuse/core": "^14.4.0",
-    "@vueuse/nuxt": "^14.4.0",
-    "nuxt": "4.5.2",
     "pinia": "^3.0.4"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.14.0",
+    "@pinia/nuxt": "^0.11.3",
     "@types/node": "^22.20.5",
+    "@vueuse/nuxt": "^14.4.0",
     "eslint": "^9.39.5",
+    "nuxt": "4.5.2",
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.12"
   }
