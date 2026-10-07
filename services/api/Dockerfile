@@ -1,5 +1,5 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install CA certificates and git (some modules need git at build time).
 RUN apk add --no-cache ca-certificates git
@@ -33,7 +33,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
       ./cmd/talecli
 
 # ── Stage 2: Runtime (production) ─────────────────────────────────────────────
-FROM alpine:3.19 AS production
+FROM alpine:3.22 AS production
 
 RUN apk add --no-cache ca-certificates wget
 
@@ -47,7 +47,7 @@ ENTRYPOINT ["/usr/local/bin/talepanel-api"]
 
 # ── Stage 3: Development ──────────────────────────────────────────────────────
 # Used by docker-compose for local development (go run, live code via volume).
-FROM golang:1.25-alpine AS development
+FROM golang:1.26-alpine AS development
 
 RUN apk add --no-cache ca-certificates git
 
