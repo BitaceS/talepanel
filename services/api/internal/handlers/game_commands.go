@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -80,8 +81,10 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
 		return
 	}
-	// Command must belong to the server named in the path.
-	if cmd.ServerID == nil || *cmd.ServerID != serverID {
+	// Command must belong to the server named in the path, or be a global
+	// built-in default (server_id NULL, seeded by migrations) — those are
+	// listed for every server, so they must be executable too.
+	if cmd.ServerID != nil && *cmd.ServerID != serverID {
 		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
 		return
 	}
@@ -160,12 +163,20 @@ func (h *GameCommandHandler) CreateGameCommand(c *gin.Context) {
 // DeleteGameCommand removes a custom command template.
 // DELETE /servers/:id/game-commands/:cmdId
 func (h *GameCommandHandler) DeleteGameCommand(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
 	cmdID, ok := parseUUID(c, "cmdId")
 	if !ok {
 		return
 	}
 
-	if err := h.svc.DeleteCommand(c.Request.Context(), cmdID); err != nil {
+	if err := h.svc.DeleteCommand(c.Request.Context(), serverID, cmdID); err != nil {
+		if errors.Is(err, services.ErrGameCommandNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
+			return
+		}
 		h.log.Error("delete game command failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete command"})
 		return

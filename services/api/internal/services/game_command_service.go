@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 
 	"github.com/google/uuid"
@@ -24,7 +25,11 @@ func (s *GameCommandService) ListForServer(ctx context.Context, serverID uuid.UU
 		SELECT id, server_id, category, name, description, command_template, icon, params, sort_order, is_default, min_role, created_at,
 		       COALESCE(source, 'built-in') AS source, source_plugin
 		FROM game_commands
-		WHERE server_id = $1 OR server_id IS NULL
+		WHERE server_id = $1
+		   -- A global default is hidden when the server has its own copy of
+		   -- the same command (SeedDefaults), or it would be listed twice.
+		   OR (server_id IS NULL AND command_template NOT IN (
+		         SELECT command_template FROM game_commands WHERE server_id = $1))
 		ORDER BY category, sort_order, name
 	`, serverID)
 	if err != nil {
@@ -76,9 +81,20 @@ func (s *GameCommandService) CreateCommand(ctx context.Context, cmd *models.Game
 }
 
 // DeleteCommand removes a command template by ID.
-func (s *GameCommandService) DeleteCommand(ctx context.Context, id uuid.UUID) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM game_commands WHERE id = $1`, id)
-	return err
+// ErrGameCommandNotFound means no command with that id belongs to the server.
+var ErrGameCommandNotFound = errors.New("game command not found")
+
+// DeleteCommand deletes one of the server's own commands. Global defaults
+// (server_id NULL) and other servers' commands are never matched.
+func (s *GameCommandService) DeleteCommand(ctx context.Context, serverID, id uuid.UUID) error {
+	ct, err := s.db.Exec(ctx, `DELETE FROM game_commands WHERE id = $1 AND server_id = $2`, id, serverID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrGameCommandNotFound
+	}
+	return nil
 }
 
 // SeedDefaults inserts built-in Hytale commands for a server if none exist.

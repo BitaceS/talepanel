@@ -67,8 +67,8 @@ func TestUpdateServer_LaunchFlagsAreAllowlisted(t *testing.T) {
 
 	for _, bad := range []string{"--universe=/etc", "--auth-mode", "-Xmx64G"} {
 		if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
-			UpdateServerRequest{LaunchFlags: ptr([]string{bad})}); err == nil {
-			t.Errorf("launch flag %q accepted", bad)
+			UpdateServerRequest{LaunchFlags: ptr([]string{bad})}); !errors.Is(err, ErrInvalidServerSettings) {
+			t.Errorf("launch flag %q: err = %v, want ErrInvalidServerSettings", bad, err)
 		}
 	}
 

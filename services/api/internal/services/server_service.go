@@ -19,6 +19,10 @@ var (
 	ErrServerNotFound   = errors.New("server not found")
 	ErrServerForbidden  = errors.New("access denied")
 	ErrNoAvailableNode  = errors.New("no available node to host the server")
+
+	// ErrInvalidServerSettings wraps a rejected field value in UpdateServer;
+	// handlers report its message as a 400.
+	ErrInvalidServerSettings = errors.New("invalid server settings")
 )
 
 // CreateServerRequest carries the user-supplied fields for a new server.
@@ -59,7 +63,7 @@ func normalizeLaunchFlags(flags []string) ([]string, error) {
 	for _, f := range flags {
 		f = strings.TrimSpace(f)
 		if !slices.Contains(AllowedLaunchFlags, f) {
-			return nil, fmt.Errorf("launch flag %q is not allowed (allowed: %s)", f, strings.Join(AllowedLaunchFlags, ", "))
+			return nil, fmt.Errorf("%w: launch flag %q is not allowed (allowed: %s)", ErrInvalidServerSettings, f, strings.Join(AllowedLaunchFlags, ", "))
 		}
 		if !slices.Contains(out, f) {
 			out = append(out, f)
@@ -296,7 +300,7 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			return nil, fmt.Errorf("server name cannot be empty")
+			return nil, fmt.Errorf("%w: server name cannot be empty", ErrInvalidServerSettings)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
 		args = append(args, name)
@@ -309,7 +313,7 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	}
 	if req.CrashLimit != nil {
 		if *req.CrashLimit < 0 {
-			return nil, fmt.Errorf("crash_limit cannot be negative")
+			return nil, fmt.Errorf("%w: crash_limit cannot be negative", ErrInvalidServerSettings)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("crash_limit = $%d", argIdx))
 		args = append(args, *req.CrashLimit)
@@ -325,7 +329,7 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 			return nil, fmt.Errorf("loading node capacity: %w", err)
 		}
 		if *req.RAMLimitMB < MinServerRAMMB || *req.RAMLimitMB > nodeRAM {
-			return nil, fmt.Errorf("ram_limit_mb must be between %d and the node's %d MB", MinServerRAMMB, nodeRAM)
+			return nil, fmt.Errorf("%w: ram_limit_mb must be between %d and the node's %d MB", ErrInvalidServerSettings, MinServerRAMMB, nodeRAM)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("ram_limit_mb = $%d", argIdx))
 		args = append(args, *req.RAMLimitMB)
