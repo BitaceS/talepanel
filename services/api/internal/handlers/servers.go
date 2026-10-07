@@ -389,7 +389,8 @@ provisioned:
 		Port:       uint16(server.Port),
 		RAMLimitMB: ramLimit,
 		CPULimit:   0,
-		CrashLimit: uint32(server.CrashLimit),
+		CrashLimit:  uint32(server.CrashLimit),
+		LaunchFlags: server.LaunchFlags,
 	}
 
 	if err := client.StartServer(startCtx, cfg); err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,9 +38,34 @@ type CreateServerRequest struct {
 
 // UpdateServerRequest carries the fields that may be patched by a user.
 type UpdateServerRequest struct {
-	Name        *string `json:"name"`
-	AutoRestart *bool   `json:"auto_restart"`
-	CrashLimit  *int    `json:"crash_limit"`
+	Name        *string   `json:"name"`
+	AutoRestart *bool     `json:"auto_restart"`
+	CrashLimit  *int      `json:"crash_limit"`
+	RAMLimitMB  *int      `json:"ram_limit_mb"` // admin+ only; applies on next start
+	LaunchFlags *[]string `json:"launch_flags"` // applies on next start
+}
+
+// MinServerRAMMB is the smallest heap the panel lets a server run with.
+const MinServerRAMMB = 512
+
+// AllowedLaunchFlags are the Hytale launch switches a panel user may enable
+// per server. Value-less only: flags taking a path (--universe, --backup-dir)
+// could point outside the server's data dir. Mirrors the daemon's allowlist.
+var AllowedLaunchFlags = []string{"--accept-early-plugins", "--allow-op", "--disable-sentry"}
+
+// normalizeLaunchFlags validates and de-duplicates requested launch flags.
+func normalizeLaunchFlags(flags []string) ([]string, error) {
+	out := []string{}
+	for _, f := range flags {
+		f = strings.TrimSpace(f)
+		if !slices.Contains(AllowedLaunchFlags, f) {
+			return nil, fmt.Errorf("launch flag %q is not allowed (allowed: %s)", f, strings.Join(AllowedLaunchFlags, ", "))
+		}
+		if !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 // ServerService handles all business logic related to game server lifecycle.
@@ -104,7 +130,8 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.cpu_limit, s.ram_limit_mb, s.disk_limit_mb, s.port, s.data_path,
 		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
 		       s.created_at, s.updated_at, s.metadata,
-		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, '')
+		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, ''),
+		       s.launch_flags
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1
@@ -117,6 +144,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.CrashWindowS, &server.ActiveWorld, &server.CreatedAt, &server.UpdatedAt,
 		&server.Metadata,
 		&server.NodeFQDN,
+		&server.LaunchFlags,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -285,6 +313,31 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 		}
 		setClauses = append(setClauses, fmt.Sprintf("crash_limit = $%d", argIdx))
 		args = append(args, *req.CrashLimit)
+		argIdx++
+	}
+	if req.RAMLimitMB != nil {
+		// Resource allocation is the operator's call, not the server owner's.
+		if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			return nil, ErrServerForbidden
+		}
+		var nodeRAM int
+		if err := s.db.QueryRow(ctx, `SELECT total_ram_mb FROM nodes WHERE id = $1`, server.NodeID).Scan(&nodeRAM); err != nil {
+			return nil, fmt.Errorf("loading node capacity: %w", err)
+		}
+		if *req.RAMLimitMB < MinServerRAMMB || *req.RAMLimitMB > nodeRAM {
+			return nil, fmt.Errorf("ram_limit_mb must be between %d and the node's %d MB", MinServerRAMMB, nodeRAM)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("ram_limit_mb = $%d", argIdx))
+		args = append(args, *req.RAMLimitMB)
+		argIdx++
+	}
+	if req.LaunchFlags != nil {
+		flags, err := normalizeLaunchFlags(*req.LaunchFlags)
+		if err != nil {
+			return nil, err
+		}
+		setClauses = append(setClauses, fmt.Sprintf("launch_flags = $%d", argIdx))
+		args = append(args, flags)
 		argIdx++
 	}
 

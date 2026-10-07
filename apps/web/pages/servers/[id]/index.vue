@@ -114,6 +114,40 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 3000)
 }
 
+// ── Launch settings (RAM + allowlisted Hytale flags; apply on next start) ──
+const LAUNCH_FLAG_OPTIONS = [
+  { flag: '--accept-early-plugins', label: 'Accept early plugins', hint: 'Required by mods that load before the server boots.' },
+  { flag: '--allow-op', label: 'Allow /op', hint: 'Lets operators grant themselves op in game.' },
+  { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'Do not send crash reports to Hypixel (Sentry).' },
+]
+const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[] })
+const launchSaving = ref(false)
+
+watch(server, (s) => {
+  if (!s) return
+  launchForm.ram_limit_mb = s.ram_limit_mb ?? 0
+  launchForm.launch_flags = [...(s.launch_flags ?? [])]
+}, { immediate: true })
+
+async function saveLaunchSettings() {
+  if (!server.value) return
+  launchSaving.value = true
+  try {
+    const body: Record<string, unknown> = { launch_flags: launchForm.launch_flags }
+    if (authStore.isAdmin && launchForm.ram_limit_mb !== server.value.ram_limit_mb) {
+      body.ram_limit_mb = Number(launchForm.ram_limit_mb)
+    }
+    await api.patch(`/servers/${serverId.value}`, body)
+    await serversStore.fetchServer(serverId.value)
+    showToast(server.value?.status === 'running' ? 'Saved. Restart the server to apply.' : 'Saved.')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save launch settings', 'error')
+  } finally {
+    launchSaving.value = false
+  }
+}
+
 async function runAction(action: 'start' | 'stop' | 'restart' | 'kill') {
   if (!server.value) return
   actionLoading[action] = true
@@ -2068,6 +2102,32 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </div>
+        <!-- Launch settings -->
+        <form class="bg-tp-surface rounded-xl overflow-hidden" @submit.prevent="saveLaunchSettings">
+          <div class="px-5 py-3 border-b border-tp-border">
+            <h3 class="text-tp-text font-display font-semibold text-sm">Launch Settings</h3>
+            <p class="text-tp-muted text-xs mt-0.5">Applied the next time the server starts.</p>
+          </div>
+          <div class="px-5 py-4 space-y-4">
+            <div v-if="authStore.isAdmin" class="max-w-xs">
+              <UiInput v-model="launchForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="4096" />
+              <p class="text-tp-muted text-xs mt-1">Hytale recommends at least 4096 MB.</p>
+            </div>
+            <div class="space-y-2">
+              <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3 cursor-pointer">
+                <input v-model="launchForm.launch_flags" type="checkbox" :value="opt.flag" class="mt-1 accent-tp-primary">
+                <span>
+                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
+                  <span class="text-tp-muted text-xs font-mono ml-2">{{ opt.flag }}</span>
+                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                </span>
+              </label>
+            </div>
+            <div class="flex justify-end">
+              <UiButton type="submit" :loading="launchSaving">Save</UiButton>
+            </div>
+          </div>
+        </form>
         <!-- Shared access / invitations -->
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">

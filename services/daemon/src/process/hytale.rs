@@ -47,6 +47,28 @@ pub struct ServerConfig {
     pub cpu_limit: f32,
     /// Maximum number of automatic crash-restarts before giving up.
     pub crash_limit: u32,
+    /// Per-server Hytale launch flags chosen in the panel. Only flags in
+    /// `ALLOWED_LAUNCH_FLAGS` are passed through; older APIs omit the field.
+    #[serde(default)]
+    pub launch_flags: Vec<String>,
+}
+
+/// Launch flags a panel user may enable per server. Value-less switches only:
+/// flags that take a path (e.g. --universe, --backup-dir) could point the
+/// server outside its data directory, so they stay node-config only.
+pub const ALLOWED_LAUNCH_FLAGS: &[&str] = &["--accept-early-plugins", "--allow-op", "--disable-sentry"];
+
+/// Returns the requested flags that are allowlisted, de-duplicated, in order.
+fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for flag in requested {
+        if let Some(ok) = ALLOWED_LAUNCH_FLAGS.iter().find(|f| **f == flag.as_str()) {
+            if !out.contains(ok) {
+                out.push(ok);
+            }
+        }
+    }
+    out
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +252,13 @@ impl HytaleServerProcess {
             // Extra server args from config
             for arg in &self.hytale_cfg.extra_server_args {
                 c.arg(arg);
+            }
+
+            // Per-server flags from the panel (allowlisted, never free-form).
+            for flag in allowed_launch_flags(&self.config.launch_flags) {
+                if !self.hytale_cfg.extra_server_args.iter().any(|a| a == flag) {
+                    c.arg(flag);
+                }
             }
             c
         };
@@ -678,6 +707,35 @@ mod tests {
     fn explains_hytale_updater_and_install_dir_exit_codes() {
         assert!(explain_exit_code(8).unwrap().contains("self-update"));
         assert!(explain_exit_code(11).unwrap().contains("--allow-install-dir"));
+    }
+
+    #[test]
+    fn launch_flags_pass_only_allowlisted_switches_once() {
+        let requested: Vec<String> = [
+            "--accept-early-plugins",
+            "--universe=/etc",
+            "--allow-op",
+            "--accept-early-plugins",
+            "--auth-mode",
+            "offline",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            allowed_launch_flags(&requested),
+            vec!["--accept-early-plugins", "--allow-op"]
+        );
+    }
+
+    #[test]
+    fn server_config_without_launch_flags_still_parses() {
+        let cfg: ServerConfig = serde_json::from_str(
+            r#"{"server_id":"s","name":"n","data_path":"/d","port":5520,
+                "ram_limit_mb":4096,"cpu_limit":0,"crash_limit":3}"#,
+        )
+        .unwrap();
+        assert!(cfg.launch_flags.is_empty());
     }
 
     #[test]

@@ -116,6 +116,10 @@ type Server struct {
 	// can render the public connect address (<node_fqdn>:<port>) without
 	// a second round trip.  Empty when the server has no node assigned.
 	NodeFQDN string `json:"node_fqdn,omitempty"`
+
+	// Allowlisted Hytale launch flags for this server. Populated by GetServer
+	// (the detail view and the start path); nil in list responses.
+	LaunchFlags []string `json:"launch_flags,omitempty"`
 }
 
 // ServerLog is a single log line pushed by a TaleDaemon node.

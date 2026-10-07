@@ -29,6 +29,7 @@ export interface Server {
   created_at: string
   updated_at: string
   node_fqdn?: string
+  launch_flags?: string[]
 }
 
 export interface Node {
