@@ -10,12 +10,14 @@ Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
 - Per-server launch flags in the panel (Settings → Launch Settings): `--accept-early-plugins`, `--allow-op`, `--disable-sentry`. Allowlisted in the API and again in the daemon. Migration 033.
 - RAM limit editable in the panel (admins only, 512 MB up to the node's total).
 - `GET /api/v1/hytale/versions`: newest server build per patchline, read from maven.hytale.com. The create-server form now offers Release / Pre-release instead of a free-text version.
-- Network mod (`mods/talepanel-network`): Hytale plugin with `/play <gamemode>` on hubs (signed `referToServer` handoff) and a referral gate on `require_referral` gamemodes. Builds against `com.hypixel.hytale:Server:0.6.8`.
+- Network mod (`mods/talepanel-network`): Hytale plugin with `/play <gamemode>` on hubs (signed `referToServer` handoff) and a referral gate on `require_referral` gamemodes. Builds against `com.hypixel.hytale:Server:0.6.8`. The config now lives at `{server}/talepanel/network.json` instead of inside `mods/`, which Hytale mistook for an asset pack.
+- Hytale account link (Admin → Integrations → Hytale Account): sign in once with the OAuth device flow and every server start gets its own game session, so servers boot authenticated without `/auth login`. The refresh token is stored encrypted and rotated safely; tokens reach the server via environment variables.
 
 ### Changed
 - Daemon sets `HYTALE_DISABLE_UPDATES` and explains exit codes 8 (self-update staged) and 11 (data inside the launcher install folder).
 - Daemon provides a persistent machine-id so Hytale's encrypted auth store (`auth.enc`) works in containers.
-- Dependencies: Go 1.26, gin 1.12, pgx 5.11; Rust 1.98 builder; Nuxt 3.21.
+- Dependencies: Go 1.26, gin 1.12, pgx 5.11; Rust 1.98 builder; Nuxt 4.5 (Pinia 3, VueUse 14, `@lucide/vue`), Node 22.
+- CI: daemon passes `cargo clippy -D warnings` again (dead code removed); web runs `nuxt typecheck` (0 errors).
 
 ### Fixed
 - Whitelist toggle now sends `whitelist add/remove` (Hytale 0.6 moved the whitelist to the `hytale.server.join` permission).
