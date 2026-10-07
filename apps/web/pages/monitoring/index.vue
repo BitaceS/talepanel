@@ -44,6 +44,10 @@ interface ServerMetrics {
 }
 
 const metricsMap = ref<Record<string, ServerMetrics>>({})
+
+// One row per server with its metrics (undefined until fetched), so the
+// template can narrow `m` instead of re-indexing the map.
+const serverRows = computed(() => servers.value.map(server => ({ server, m: metricsMap.value[server.id] })))
 const metricsLoading = ref(false)
 
 async function fetchAllMetrics() {
@@ -234,7 +238,7 @@ const expandedTalker = ref<string | null>(null)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="server in servers" :key="server.id" class="border-b border-tp-border/50 hover:bg-tp-surface2/50">
+          <tr v-for="{ server, m } in serverRows" :key="server.id" class="border-b border-tp-border/50 hover:bg-tp-surface2/50">
             <td class="px-4 py-3">
               <NuxtLink :to="`/servers/${server.id}`" class="text-tp-text font-medium hover:text-tp-accent transition-colors">{{ server.name }}</NuxtLink>
             </td>
@@ -245,27 +249,27 @@ const expandedTalker = ref<string | null>(null)
               </div>
             </td>
             <td class="px-4 py-3">
-              <template v-if="metricsMap[server.id]">
+              <template v-if="m">
                 <div class="flex items-center gap-2">
                   <div class="w-16 h-1.5 bg-tp-surface2 rounded-full overflow-hidden">
                     <div class="h-full rounded-full transition-all"
-                      :class="metricsMap[server.id].cpu.usage_percent > 80 ? 'bg-tp-danger' : metricsMap[server.id].cpu.usage_percent > 50 ? 'bg-tp-warning' : 'bg-tp-success'"
-                      :style="{ width: `${Math.min(100, metricsMap[server.id].cpu.usage_percent)}%` }" />
+                      :class="m.cpu.usage_percent > 80 ? 'bg-tp-danger' : m.cpu.usage_percent > 50 ? 'bg-tp-warning' : 'bg-tp-success'"
+                      :style="{ width: `${Math.min(100, m.cpu.usage_percent)}%` }" />
                   </div>
-                  <span class="text-tp-text text-xs font-mono">{{ Math.round(metricsMap[server.id].cpu.usage_percent) }}%</span>
+                  <span class="text-tp-text text-xs font-mono">{{ Math.round(m.cpu.usage_percent) }}%</span>
                 </div>
               </template>
               <span v-else class="text-tp-muted text-xs">-</span>
             </td>
             <td class="px-4 py-3">
-              <template v-if="metricsMap[server.id]">
-                <span class="text-tp-text text-xs font-mono">{{ metricsMap[server.id].memory.used_mb }}/{{ metricsMap[server.id].memory.limit_mb }} MB</span>
+              <template v-if="m">
+                <span class="text-tp-text text-xs font-mono">{{ m.memory.used_mb }}/{{ m.memory.limit_mb }} MB</span>
               </template>
               <span v-else class="text-tp-muted text-xs">-</span>
             </td>
             <td class="px-4 py-3">
-              <span v-if="metricsMap[server.id]" class="text-tp-text text-xs flex items-center gap-1">
-                <Clock class="w-3 h-3 text-tp-muted" />{{ formatUptime(metricsMap[server.id].uptime_s) }}
+              <span v-if="m" class="text-tp-text text-xs flex items-center gap-1">
+                <Clock class="w-3 h-3 text-tp-muted" />{{ formatUptime(m.uptime_s) }}
               </span>
               <span v-else class="text-tp-muted text-xs">-</span>
             </td>

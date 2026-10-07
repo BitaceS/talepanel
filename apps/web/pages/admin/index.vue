@@ -337,8 +337,8 @@ async function savePermissions() {
 const permGroups = computed(() => {
   const byGroup: Record<string, typeof ALL_PERMISSIONS> = {}
   for (const p of ALL_PERMISSIONS) {
-    byGroup[p.group] = byGroup[p.group] ?? []
-    byGroup[p.group].push(p)
+    const group = (byGroup[p.group] ??= [])
+    group.push(p)
   }
   return byGroup
 })

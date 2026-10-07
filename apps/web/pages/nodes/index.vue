@@ -68,10 +68,11 @@ async function fetchNodes() {
     )
     const metricsMap: Record<string, NodeMetricPoint | null> = {}
     results.forEach((result, idx) => {
-      const nodeId = onlineNodes[idx].id
+      const nodeId = onlineNodes[idx]?.id
+      if (!nodeId) return
       if (result.status === 'fulfilled') {
         const pts = result.value.metrics ?? []
-        metricsMap[nodeId] = pts.length > 0 ? pts[pts.length - 1] : null
+        metricsMap[nodeId] = pts.at(-1) ?? null
       } else {
         metricsMap[nodeId] = null
       }

@@ -41,8 +41,8 @@ const createError = ref('')
 const createForm = reactive({
   name: '',
   hytale_version: 'latest',
-  ram_limit_mb: null as number | null,
-  cpu_limit: null as number | null,
+  ram_limit_mb: undefined as string | number | undefined, // UiInput emits strings
+  cpu_limit: undefined as string | number | undefined,
   auto_restart: false,
 })
 
@@ -71,8 +71,8 @@ async function submitCreate() {
 function resetForm() {
   createForm.name = ''
   createForm.hytale_version = 'latest'
-  createForm.ram_limit_mb = null
-  createForm.cpu_limit = null
+  createForm.ram_limit_mb = undefined
+  createForm.cpu_limit = undefined
   createForm.auto_restart = false
   createError.value = ''
 }

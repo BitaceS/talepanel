@@ -23,7 +23,7 @@ export const useAlertsStore = defineStore('alerts', () => {
     }
   }
 
-  async function createRule(payload: { server_id?: string; type: string; threshold?: number; channels?: string[] }) {
+  async function createRule(payload: { server_id?: string; type: string; threshold?: number; channels?: string[]; webhook_url?: string }) {
     const data = await api.post<{ rule: AlertRule }>('/alerts/rules', payload)
     rules.value.unshift(data.rule)
     return data.rule

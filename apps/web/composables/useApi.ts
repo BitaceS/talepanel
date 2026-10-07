@@ -1,5 +1,9 @@
 import { useAuthStore } from '~/stores/auth'
 
+// What $fetch accepts as a request body: JSON-serialisable objects or raw
+// BodyInit (FormData, Blob, streams).
+type ApiBody = BodyInit | Record<string, any> | null
+
 export const useApi = () => {
   const config = useRuntimeConfig()
   const authStore = useAuthStore()
@@ -53,11 +57,11 @@ export const useApi = () => {
   return {
     get: <T>(path: string, query?: Record<string, unknown>) =>
       request<T>(path, { method: 'GET', query }),
-    post: <T>(path: string, body?: unknown) =>
+    post: <T>(path: string, body?: ApiBody) =>
       request<T>(path, { method: 'POST', body }),
-    put: <T>(path: string, body?: unknown) =>
+    put: <T>(path: string, body?: ApiBody) =>
       request<T>(path, { method: 'PUT', body }),
-    patch: <T>(path: string, body?: unknown) =>
+    patch: <T>(path: string, body?: ApiBody) =>
       request<T>(path, { method: 'PATCH', body }),
     delete: <T>(path: string, query?: Record<string, unknown>) =>
       request<T>(path, { method: 'DELETE', query }),

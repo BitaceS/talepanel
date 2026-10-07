@@ -107,6 +107,21 @@ const toastMessage = ref('')
 const toastType = ref<'success' | 'error'>('success')
 let toastTimer: ReturnType<typeof setTimeout>
 
+// Templates can't reach window globals; destructive buttons confirm through this.
+function confirmAction(message: string): boolean {
+  return window.confirm(message)
+}
+
+async function deleteServerAndLeave() {
+  if (!confirmAction('Delete this server? This cannot be undone.')) return
+  try {
+    await serversStore.deleteServer(serverId.value)
+    await navigateTo('/servers')
+  } catch {
+    showToast('Failed to delete server', 'error')
+  }
+}
+
 function showToast(message: string, type: 'success' | 'error' = 'success') {
   toastMessage.value = message
   toastType.value = type
@@ -303,7 +318,7 @@ watch(logs, (lines) => {
     const dm = hytaleDeviceRegex.exec(line.message)
     if (dm) {
       hytaleAuthUrl.value = dm[0]
-      hytaleAuthCode.value = dm[1]
+      hytaleAuthCode.value = dm[1] ?? ''
       break
     }
     const am = hytaleAuthCodeRegex.exec(line.message)
@@ -333,8 +348,9 @@ async function fetchLogs() {
   try {
     const data = await api.get<{ logs: LogLine[] }>(`/servers/${serverId.value}/logs`)
     logs.value = data.logs ?? []
-    if (logs.value.length > 0) {
-      lastLogId = logs.value[logs.value.length - 1].id
+    const lastLog = logs.value.at(-1)
+    if (lastLog) {
+      lastLogId = lastLog.id
     }
     await nextTick()
     if (!userScrolledUp.value) {
@@ -535,7 +551,7 @@ watch(activeTab, async (tab) => {
     await gameCmdStore.fetchCommands(serverId.value)
     // Auto-select first category
     if (!activeCmdCategory.value && gameCmdStore.categories.length > 0) {
-      activeCmdCategory.value = gameCmdStore.categories[0]
+      activeCmdCategory.value = gameCmdStore.categories[0] ?? null
     }
   }
 })
@@ -572,7 +588,7 @@ function hasRequiredParams(cmd: GameCommand): boolean {
   const params = Array.isArray(cmd.params) ? cmd.params : []
   if (params.length === 0) return true
   const values = getParamValues(cmd.id)
-  return params.every(p => !p.required || (values[p.name] && values[p.name].trim() !== ''))
+  return params.every(p => !p.required || (values[p.name]?.trim() ?? '') !== '')
 }
 
 async function executeCmd(cmd: GameCommand) {
@@ -955,6 +971,7 @@ async function runUpload(files: File[]) {
     while (idx < files.length) {
       const i = idx++
       const file = files[i]
+      if (!file) continue
       const relName = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath || file.name
       recompute(relName)
       try {
@@ -973,15 +990,16 @@ async function runUpload(files: File[]) {
     const CONCURRENCY = 3
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker))
 
+    const single = files.length === 1 ? files[0] : undefined
     if (failed > 0) {
       showToast(`${failed} of ${files.length} file(s) failed to upload`, 'error')
     } else {
-      showToast(files.length === 1 ? `${files[0].name} uploaded` : `${files.length} files uploaded`)
+      showToast(single ? `${single.name} uploaded` : `${files.length} files uploaded`)
     }
 
     // Auto-extract when a single .zip was uploaded and the option is enabled.
-    if (failed === 0 && autoExtractZip.value && files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
-      const name = files[0].name
+    if (failed === 0 && autoExtractZip.value && single && single.name.toLowerCase().endsWith('.zip')) {
+      const name = single.name
       const fpath = filePath.value === '/' ? '/' + name : filePath.value + '/' + name
       try {
         await api.post(`/servers/${serverId.value}/files/extract`, { path: fpath })
@@ -1254,12 +1272,12 @@ const sidebarMods = computed(() => {
             <div v-for="row in [
               { label: 'Node ID', value: server.node_id, mono: true },
               { label: 'Port', value: server.port, mono: true },
-              { label: 'Version', value: server.hytale_version },
-              { label: 'Auto Restart', value: server.auto_restart ? 'Enabled' : 'Disabled' },
-              { label: 'Active World', value: server.active_world || '\u2014' },
-              { label: 'CPU Limit', value: server.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited' },
-              { label: 'RAM Limit', value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : 'Unlimited' },
-              { label: 'Created', value: new Date(server.created_at).toLocaleString() },
+              { label: 'Version', value: server.hytale_version, mono: false },
+              { label: 'Auto Restart', value: server.auto_restart ? 'Enabled' : 'Disabled', mono: false },
+              { label: 'Active World', value: server.active_world || '\u2014', mono: false },
+              { label: 'CPU Limit', value: server.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited', mono: false },
+              { label: 'RAM Limit', value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : 'Unlimited', mono: false },
+              { label: 'Created', value: new Date(server.created_at).toLocaleString(), mono: false },
             ]" :key="row.label" class="flex items-center px-5 py-3">
               <span class="text-tp-outline text-sm w-40 shrink-0">{{ row.label }}</span>
               <span :class="['text-tp-text text-sm truncate', row.mono ? 'font-mono text-xs' : '']">{{ row.value }}</span>
@@ -1882,7 +1900,7 @@ const sidebarMods = computed(() => {
                 <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                   :disabled="w.is_active"
                   :title="w.is_active ? 'Activate another world first' : 'Delete this world from disk'"
-                  @click="confirm(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
+                  @click="confirmAction(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1959,7 +1977,7 @@ const sidebarMods = computed(() => {
             </div>
             <div class="flex items-center gap-1">
               <button v-if="b.status === 'completed'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
-              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirm('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
+              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirmAction('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -2203,7 +2221,7 @@ const sidebarMods = computed(() => {
           <h3 class="text-tp-danger font-display font-semibold text-sm mb-2">Danger Zone</h3>
           <p class="text-tp-muted text-xs mb-3">Permanently delete this server and all associated data.</p>
           <button class="px-4 py-2 rounded-xl bg-tp-danger text-white text-xs font-medium hover:bg-tp-danger/90 transition-colors"
-            @click="confirm('Delete this server? This cannot be undone.') && serversStore.deleteServer(serverId).then(() => navigateTo('/servers'))">
+            @click="deleteServerAndLeave">
             Delete Server
           </button>
         </div>
