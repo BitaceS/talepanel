@@ -285,3 +285,35 @@ func TestSetWhitelist_SendsWhitelistCommandToTheGameServer(t *testing.T) {
 		t.Fatalf("enqueued command = %q, want %q", got, "whitelist remove Wren")
 	}
 }
+
+// Hytale's kick takes exactly one argument (the player); appending a reason
+// made every kick-with-reason fail as "too many arguments". The reason belongs
+// in the audit log, not on the console line.
+func TestKickPlayer_SendsKickWithoutReason(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewPlayerService(pool)
+
+	ownerID := seedTestUser(t, pool, "user")
+	serverID := seedTestServer(t, pool, ownerID)
+	hytaleUUID := uuid.New()
+
+	if err := svc.RecordPlayerEvent(ctx, serverID, "join", "Kit", hytaleUUID); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	playerID, _ := playerRow(t, pool, serverID, hytaleUUID)
+
+	if err := svc.KickPlayer(ctx, serverID, playerID, "spam\rstop", "admin"); err != nil {
+		t.Fatalf("kick: %v", err)
+	}
+	var cmd string
+	if err := pool.QueryRow(ctx, `
+		SELECT payload->>'cmd' FROM node_commands
+		WHERE server_id = $1 AND command_type = 'send_command'
+		ORDER BY created_at DESC LIMIT 1`, serverID).Scan(&cmd); err != nil {
+		t.Fatalf("no console command was enqueued: %v", err)
+	}
+	if cmd != "kick Kit" {
+		t.Fatalf("enqueued command = %q, want %q", cmd, "kick Kit")
+	}
+}

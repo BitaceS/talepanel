@@ -336,10 +336,9 @@ func (s *PlayerService) KickPlayer(ctx context.Context, serverID, playerID uuid.
 	if strings.ContainsAny(username, "\n\r;|&`") {
 		return fmt.Errorf("player username contains unsafe characters")
 	}
+	// Hytale's kick takes only the player; an extra reason argument makes the
+	// command fail. The reason is kept in the audit log below.
 	cmd := fmt.Sprintf("kick %s", username)
-	if reason != "" {
-		cmd = fmt.Sprintf("kick %s %s", username, strings.ReplaceAll(reason, "\n", " "))
-	}
 
 	// 3. Enqueue daemon send_command.
 	payload, _ := json.Marshal(map[string]any{"cmd": cmd})

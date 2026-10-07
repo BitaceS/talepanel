@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -94,35 +96,21 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 		return
 	}
 
-	// Resolve placeholders on the STORED template: replace {param} with values.
-	resolved := cmd.CommandTemplate
-	for key, val := range req.Params {
-		resolved = strings.ReplaceAll(resolved, "{"+key+"}", val)
-	}
-
-	// Inject the server's active world for {world}. Console-run world commands
-	// (e.g. `time set day --world {world}`) need an explicit world because the
-	// console is not a player.
-	if strings.Contains(resolved, "{world}") {
-		if aw, awErr := h.serverSvc.ActiveWorld(c.Request.Context(), serverID); awErr == nil && aw != "" {
-			resolved = strings.ReplaceAll(resolved, "{world}", aw)
+	// Console-run world commands (e.g. `time set day --world {world}`) need an
+	// explicit world because the console is not a player.
+	world := ""
+	if strings.Contains(cmd.CommandTemplate, "{world}") {
+		if aw, awErr := h.serverSvc.ActiveWorld(c.Request.Context(), serverID); awErr == nil {
+			world = aw
 		}
 	}
 
-	// Strip any unreplaced optional placeholders
-	// (optional params that weren't provided)
-	for {
-		start := strings.Index(resolved, "{")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(resolved[start:], "}")
-		if end == -1 {
-			break
-		}
-		resolved = resolved[:start] + resolved[start+end+1:]
+	// Resolve placeholders on the STORED template, never a client one.
+	resolved, err := resolveCommandTemplate(cmd.CommandTemplate, req.Params, world)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-	resolved = strings.TrimSpace(resolved)
 
 	if resolved == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "resolved command is empty"})
@@ -184,4 +172,60 @@ func (h *GameCommandHandler) DeleteGameCommand(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "command deleted"})
+}
+
+// resolveCommandTemplate fills a stored command template.  A `--flag {param}`
+// pair whose value is missing or empty is dropped as a whole, because Hytale
+// passes optional arguments as flags and rejects a flag without its value.
+// Other unfilled placeholders are dropped.  Values containing control
+// characters are rejected: the daemon writes the command as one console line,
+// so a newline would smuggle in a second, unchecked command.
+func resolveCommandTemplate(template string, params map[string]string, world string) (string, error) {
+	values := make(map[string]string, len(params)+1)
+	for k, v := range params {
+		if strings.IndexFunc(v, unicode.IsControl) >= 0 {
+			return "", fmt.Errorf("parameter %q contains control characters", k)
+		}
+		values[k] = strings.TrimSpace(v)
+	}
+	values["world"] = world
+
+	fill := func(tok string) string {
+		for k, v := range values {
+			tok = strings.ReplaceAll(tok, "{"+k+"}", v)
+		}
+		return stripPlaceholders(tok)
+	}
+
+	tokens := strings.Fields(template)
+	out := make([]string, 0, len(tokens))
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
+		if strings.HasPrefix(tok, "--") && i+1 < len(tokens) && strings.Contains(tokens[i+1], "{") {
+			i++
+			if v := fill(tokens[i]); v != "" {
+				out = append(out, tok, v)
+			}
+			continue
+		}
+		if v := fill(tok); v != "" {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, " "), nil
+}
+
+// stripPlaceholders removes any `{name}` left after substitution.
+func stripPlaceholders(s string) string {
+	for {
+		start := strings.Index(s, "{")
+		if start == -1 {
+			return s
+		}
+		end := strings.Index(s[start:], "}")
+		if end == -1 {
+			return s
+		}
+		s = s[:start] + s[start+end+1:]
+	}
 }
