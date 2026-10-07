@@ -7,7 +7,6 @@ pub mod manager;
 // compile, which is why this daemon had no runnable tests. `hytale.rs` is the
 // real process implementation the mock was a placeholder for.
 
-pub use hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
 pub use manager::ProcessManager;
 
 use chrono::{DateTime, Utc};
@@ -56,30 +55,4 @@ pub struct LogLine {
     /// Severity: "INFO" | "WARN" | "ERROR".
     pub level: String,
     pub message: String,
-}
-
-impl LogLine {
-    pub fn info(message: impl Into<String>) -> Self {
-        Self {
-            timestamp: Utc::now(),
-            level: "INFO".to_string(),
-            message: message.into(),
-        }
-    }
-
-    pub fn warn(message: impl Into<String>) -> Self {
-        Self {
-            timestamp: Utc::now(),
-            level: "WARN".to_string(),
-            message: message.into(),
-        }
-    }
-
-    pub fn error(message: impl Into<String>) -> Self {
-        Self {
-            timestamp: Utc::now(),
-            level: "ERROR".to_string(),
-            message: message.into(),
-        }
-    }
 }

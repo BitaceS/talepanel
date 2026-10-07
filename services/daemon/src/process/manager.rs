@@ -746,7 +746,7 @@ fn strip_ansi(s: &str) -> String {
         if c == '\u{1b}' {
             if chars.peek() == Some(&'[') {
                 chars.next();
-                while let Some(nc) = chars.next() {
+                for nc in chars.by_ref() {
                     if nc.is_ascii_alphabetic() {
                         break;
                     }

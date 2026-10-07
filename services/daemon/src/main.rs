@@ -15,7 +15,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 use api_client::{ApiClient, HeartbeatMetrics, NodeRegistration};
 use config::Config;

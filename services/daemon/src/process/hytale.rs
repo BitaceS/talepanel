@@ -115,9 +115,6 @@ pub struct HytaleServerProcess {
     /// and replace it; `None` when the server is not running.
     stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
 
-    /// Crash counter — reset by the ProcessManager when a restart succeeds
-    /// within the cooldown window.
-    pub crash_count: Arc<AtomicU32>,
 
     /// Daemon-level Hytale configuration (jar path, java binary, timeouts).
     hytale_cfg: Arc<HytaleConfig>,
@@ -138,7 +135,6 @@ impl HytaleServerProcess {
             pid: Arc::new(AtomicU32::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             stdin: Arc::new(Mutex::new(None)),
-            crash_count: Arc::new(AtomicU32::new(0)),
             hytale_cfg,
         }
     }
@@ -335,12 +331,11 @@ impl HytaleServerProcess {
                 debug!(server_id = %server_id_out, %line, "stdout");
 
                 // Detect server-ready signals in stdout
-                if *status_tx_out.borrow() == ServerStatus::Starting {
-                    if is_ready_signal(&line) {
+                if *status_tx_out.borrow() == ServerStatus::Starting
+                    && is_ready_signal(&line) {
                         info!(server_id = %server_id_out, "Server ready signal detected");
                         status_tx_out.send_replace(ServerStatus::Running);
                     }
-                }
 
                 let _ = log_tx_out.send(LogLine {
                     timestamp: chrono::Utc::now(),

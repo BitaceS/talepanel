@@ -10,7 +10,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::api_client::ApiClient;
 
@@ -22,8 +22,6 @@ use crate::api_client::ApiClient;
 const MAX_SAMPLES: usize = 60;
 /// How many threat events to retain.
 const MAX_EVENTS: usize = 200;
-/// How many per-IP entries to track.
-const MAX_IP_ENTRIES: usize = 10_000;
 
 // ── Threat thresholds ──────────────────────────────────────────────────────
 
@@ -39,12 +37,6 @@ const THRESH_SPIKE_RATIO: f64 = 5.0;
 const THRESH_NOPORTS_PPS: f64 = 100.0;
 /// SYN_RECV count indicating a SYN flood.
 const THRESH_SYN_RECV: usize = 20;
-/// Per-IP PPS that triggers a single-source alert (nftables per-IP counter).
-const THRESH_IP_PPS: f64 = 5_000.0;
-/// Per-IP PPS for auto-blacklist.
-const THRESH_IP_BLACKLIST: f64 = 10_000.0;
-/// Blacklist duration in seconds.
-const BLACKLIST_DURATION_SECS: i64 = 300; // 5 minutes
 /// Minimum seconds between DDoS reports pushed to the panel (dedup at source).
 const DDOS_REPORT_COOLDOWN_SECS: i64 = 60;
 
@@ -178,7 +170,6 @@ struct RawCounters {
     interfaces: Vec<IfaceCounters>,
     udp_in_datagrams: u64,
     udp_no_ports: u64,
-    udp_in_errors: u64,
 }
 
 impl Default for RawCounters {
@@ -188,7 +179,6 @@ impl Default for RawCounters {
             interfaces: Vec::new(),
             udp_in_datagrams: 0,
             udp_no_ports: 0,
-            udp_in_errors: 0,
         }
     }
 }
@@ -591,14 +581,13 @@ impl NetMonitor {
 async fn read_raw_counters() -> RawCounters {
     let now = std::time::Instant::now();
     let interfaces = read_proc_net_dev().await;
-    let (udp_in, udp_noports, udp_errors) = read_proc_net_snmp_udp().await;
+    let (udp_in, udp_noports, _udp_errors) = read_proc_net_snmp_udp().await;
 
     RawCounters {
         timestamp: now,
         interfaces,
         udp_in_datagrams: udp_in,
         udp_no_ports: udp_noports,
-        udp_in_errors: udp_errors,
     }
 }
 
@@ -666,7 +655,7 @@ async fn read_game_port_info() -> Vec<GamePortInfo> {
         // Parse local_address (hex IP:port)
         if let Some(port_hex) = fields[1].split(':').nth(1) {
             if let Ok(port) = u16::from_str_radix(port_hex, 16) {
-                if port >= 5520 && port <= 5600 {
+                if (5520..=5600).contains(&port) {
                     // rx_queue:tx_queue at field[4]
                     let queues: Vec<&str> = fields[4].split(':').collect();
                     let rx_q = queues.first()
@@ -697,7 +686,7 @@ async fn read_game_port_info() -> Vec<GamePortInfo> {
             if fields.len() < 4 { continue; }
             if let Some(port_hex) = fields[1].split(':').nth(1) {
                 if let Ok(port) = u16::from_str_radix(port_hex, 16) {
-                    if port >= 5520 && port <= 5600 {
+                    if (5520..=5600).contains(&port) {
                         let entry = ports.entry(port).or_insert(GamePortInfo {
                             port, rx_queue: 0, drops: 0, active_connections: 0,
                         });
@@ -728,7 +717,7 @@ async fn read_connection_summary() -> (usize, usize) {
         if fields.len() < 4 { continue; }
         if let Some(port_hex) = fields[1].split(':').nth(1) {
             if let Ok(port) = u16::from_str_radix(port_hex, 16) {
-                if port >= 5520 && port <= 5600 {
+                if (5520..=5600).contains(&port) {
                     total += 1;
                     if fields[3] == "03" { // SYN_RECV
                         syn_recv += 1;
@@ -809,7 +798,7 @@ async fn read_top_talkers(blacklist: &HashMap<String, BlacklistEntry>) -> Vec<To
         })
         .collect();
 
-    talkers.sort_by(|a, b| b.connections.cmp(&a.connections));
+    talkers.sort_by_key(|t| std::cmp::Reverse(t.connections));
     talkers.truncate(50);
     talkers
 }
