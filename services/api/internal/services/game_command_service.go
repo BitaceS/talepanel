@@ -142,7 +142,7 @@ func defaultHytaleCommands(serverID uuid.UUID) []models.GameCommand {
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 			)},
-		{ServerID: sid, Category: "Player Management", Name: "Give Item", Description: "Give an item to a player", CommandTemplate: "give {player} {item} {count}", Icon: "package", SortOrder: 8, IsDefault: true, MinRole: models.RoleAdmin,
+		{ServerID: sid, Category: "Player Management", Name: "Give Item", Description: "Give an item to a player", CommandTemplate: "give {player} {item} --quantity {count}", Icon: "package", SortOrder: 8, IsDefault: true, MinRole: models.RoleAdmin,
 			Params: paramJSON(
 				models.CommandParam{Name: "player", Type: "string", Required: true, Placeholder: "Player name"},
 				models.CommandParam{Name: "item", Type: "string", Required: true, Placeholder: "item id"},
