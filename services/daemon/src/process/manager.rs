@@ -68,7 +68,16 @@ impl ProcessManager {
             config,
             Arc::new(self.config.hytale.clone()),
         ));
-        process.start().await?;
+        // A fresh Hytale game session per start: sessions last an hour, so one
+        // fetched for an earlier start would be stale on a later restart.
+        let session = match self.api_client.fetch_game_session(&server_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(%server_id, error = %e, "No Hytale game session; starting unauthenticated");
+                None
+            }
+        };
+        process.start(session.as_ref()).await?;
 
         // Spawn the log relay task.
         let relay_handle = self.spawn_log_relay(&server_id, Arc::clone(&process));

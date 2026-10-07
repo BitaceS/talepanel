@@ -180,7 +180,9 @@ func SetupRouter(
 	rsp := func(perm string) gin.HandlerFunc {
 		return middleware.RequireServerPermission(permSvc, perm)
 	}
-	hytaleH := handlers.NewHytaleHandler(services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log))
+	hytaleAuthSvc := services.NewHytaleAuthService(appSettingsSvc, services.DefaultHytaleAuthEndpoints, log)
+	serverH.SetHytaleAuth(hytaleAuthSvc)
+	hytaleH := handlers.NewHytaleHandler(services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log), hytaleAuthSvc, log)
 	hytaleGroup := v1.Group("/hytale")
 	hytaleGroup.Use(authRequired, generalLimiter)
 	hytaleGroup.GET("/versions", hytaleH.Versions)
@@ -344,6 +346,13 @@ func SetupRouter(
 		integrationsH := handlers.NewIntegrationsHandler(appSettingsSvc, cfSvc)
 		adminGroup.GET("/integrations/curseforge", integrationsH.GetCurseForge)
 		adminGroup.PUT("/integrations/curseforge", integrationsH.UpdateCurseForge)
+
+		// Hytale account link: servers start authenticated with a minted game session.
+		adminGroup.GET("/hytale-auth", hytaleH.AuthStatus)
+		adminGroup.POST("/hytale-auth/device", hytaleH.StartDeviceLogin)
+		adminGroup.POST("/hytale-auth/device/poll", hytaleH.PollDeviceLogin)
+		adminGroup.PUT("/hytale-auth/profile", hytaleH.SelectProfile)
+		adminGroup.DELETE("/hytale-auth", hytaleH.Unlink)
 	}
 
 	// Public enrollment redemption — the token itself is the authentication.
@@ -365,6 +374,7 @@ func SetupRouter(
 		daemonGroup.POST("/:id/daemon/plugins", pluginH.DaemonPluginReport)
 		daemonGroup.POST("/:id/daemon/players", playerH.DaemonPlayerReport)
 		daemonGroup.POST("/:id/daemon/worlds", worldH.DaemonWorldReport)
+		daemonGroup.POST("/:id/daemon/game-session", serverH.DaemonGameSession)
 	}
 
 	// Network — the installation seen as one network rather than a list of

@@ -25,6 +25,44 @@ type ServerHandler struct {
 	serversBaseDir string // base dir on daemon nodes, e.g. /srv/taledaemon/servers
 	log            *zap.Logger
 	alertSvc       *services.AlertService
+	hytaleAuth     *services.HytaleAuthService // optional; nil = servers start unauthenticated
+}
+
+// SetHytaleAuth enables minting Hytale game sessions for daemon server starts.
+func (h *ServerHandler) SetHytaleAuth(auth *services.HytaleAuthService) {
+	h.hytaleAuth = auth
+}
+
+// DaemonGameSession hands a daemon a fresh Hytale game session for a server
+// it is about to start, so the server boots authenticated. 204 when no Hytale
+// account is linked (the server then starts unauthenticated, as before).
+// POST /api/v1/servers/:id/daemon/game-session
+func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	if !h.daemonOwnsServer(c, serverID) {
+		return
+	}
+	if h.hytaleAuth == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
+	session, err := h.hytaleAuth.NewGameSession(c.Request.Context())
+	if errors.Is(err, services.ErrHytaleNotLinked) {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		h.log.Warn("could not mint Hytale game session; server will start unauthenticated",
+			zap.String("server_id", serverID.String()), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, session)
 }
 
 // NewServerHandler constructs a ServerHandler.

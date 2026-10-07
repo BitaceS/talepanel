@@ -51,8 +51,98 @@ async function saveCurseForgeKey() {
 
 function onTabChange(key: 'users' | 'nodes' | 'logs' | 'integrations') {
   activeTab.value = key
-  if (key === 'integrations') fetchCurseForgeStatus()
+  if (key === 'integrations') {
+    fetchCurseForgeStatus()
+    fetchHytaleAuth()
+  }
 }
+
+// ── Hytale account (servers start authenticated) ─────────────────────────────
+interface HytaleProfile { uuid: string; username: string }
+interface HytaleAuthStatus {
+  linked: boolean
+  profile_uuid?: string
+  profile_name?: string
+  profiles?: HytaleProfile[]
+  linked_at?: string
+  login_pending: boolean
+}
+interface HytaleDeviceLogin { user_code: string; verification_uri: string; verification_uri_complete: string; expires_in: number; interval: number }
+
+const hyAuth = ref<HytaleAuthStatus>({ linked: false, login_pending: false })
+const hyLogin = ref<HytaleDeviceLogin | null>(null)
+const hyBusy = ref(false)
+let hyPollTimer: ReturnType<typeof setTimeout> | undefined
+
+async function fetchHytaleAuth() {
+  try {
+    hyAuth.value = await api.get<HytaleAuthStatus>('/admin/hytale-auth')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to load Hytale account status', 'error')
+  }
+}
+
+async function startHytaleLogin() {
+  hyBusy.value = true
+  try {
+    hyLogin.value = await api.post<HytaleDeviceLogin>('/admin/hytale-auth/device')
+    scheduleHytalePoll()
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Could not start the Hytale login', 'error')
+  } finally {
+    hyBusy.value = false
+  }
+}
+
+function scheduleHytalePoll() {
+  clearTimeout(hyPollTimer)
+  if (!hyLogin.value) return
+  hyPollTimer = setTimeout(pollHytaleLogin, Math.max(hyLogin.value.interval, 5) * 1000)
+}
+
+async function pollHytaleLogin() {
+  try {
+    const { state } = await api.post<{ state: string }>('/admin/hytale-auth/device/poll')
+    if (state === 'pending') return scheduleHytalePoll()
+    hyLogin.value = null
+    if (state === 'linked') showToast('Hytale account linked')
+    else showToast(state === 'denied' ? 'Hytale login was denied' : 'Hytale login expired, start again', 'error')
+    await fetchHytaleAuth()
+  } catch (err: unknown) {
+    hyLogin.value = null
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Hytale login failed', 'error')
+  }
+}
+
+async function selectHytaleProfile(uuid: string) {
+  try {
+    hyAuth.value = await api.put<HytaleAuthStatus>('/admin/hytale-auth/profile', { profile_uuid: uuid })
+    showToast('Profile saved. Applies to the next server start.')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Could not select profile', 'error')
+  }
+}
+
+async function unlinkHytale() {
+  if (!confirm('Unlink the Hytale account? Servers will start unauthenticated from their next start on.')) return
+  hyBusy.value = true
+  try {
+    await api.delete('/admin/hytale-auth')
+    await fetchHytaleAuth()
+    showToast('Hytale account unlinked')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Could not unlink', 'error')
+  } finally {
+    hyBusy.value = false
+  }
+}
+
+onBeforeUnmount(() => clearTimeout(hyPollTimer))
 
 async function clearCurseForgeKey() {
   if (!confirm('Clear the stored CurseForge API key? Mod browsing will stop working until a new key is provided.')) return
@@ -711,6 +801,68 @@ async function submitCreateUser() {
          INTEGRATIONS TAB
          ═══════════════════════════════════════════════════════════════════════ -->
     <div v-else-if="activeTab === 'integrations'" class="space-y-4">
+      <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
+              <Plug class="w-4 h-4 text-tp-primary" />
+              Hytale Account
+            </h3>
+            <p class="text-tp-muted text-sm mt-1">
+              Link a Hytale account once and every server starts authenticated, with no
+              <code class="font-mono">/auth login</code> in the console. Players can only join authenticated servers.
+            </p>
+          </div>
+          <span
+            :class="[
+              'text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap',
+              hyAuth.linked ? 'bg-tp-success/15 text-tp-success' : 'bg-tp-warning/15 text-tp-warning',
+            ]">
+            {{ hyAuth.linked ? 'Linked' : 'Not linked' }}
+          </span>
+        </div>
+
+        <div v-if="hyLogin" class="bg-tp-surface2 rounded-xl p-4 space-y-2">
+          <p class="text-tp-text text-sm">
+            Open
+            <a :href="hyLogin.verification_uri_complete" target="_blank" rel="noopener"
+              class="text-tp-primary hover:underline inline-flex items-center gap-1">
+              {{ hyLogin.verification_uri }} <ExternalLink class="w-3 h-3" />
+            </a>
+            and sign in with the Hytale account the servers should run as.
+          </p>
+          <p class="text-tp-muted text-sm">Code: <code class="font-mono text-tp-text text-base">{{ hyLogin.user_code }}</code></p>
+          <p class="text-tp-outline text-xs">Waiting for approval…</p>
+        </div>
+
+        <div v-else-if="hyAuth.linked" class="space-y-3">
+          <div class="flex flex-col gap-2 max-w-sm">
+            <label for="hytale-profile" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Servers run as</label>
+            <select id="hytale-profile" :value="hyAuth.profile_uuid"
+              class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
+              @change="selectHytaleProfile(($event.target as HTMLSelectElement).value)">
+              <option v-for="p in hyAuth.profiles ?? []" :key="p.uuid" :value="p.uuid">{{ p.username }}</option>
+            </select>
+          </div>
+          <p v-if="hyAuth.linked_at" class="text-tp-outline text-xs">Linked {{ new Date(hyAuth.linked_at).toLocaleString() }}</p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <UiButton v-if="!hyLogin" variant="primary" size="sm" :loading="hyBusy" @click="startHytaleLogin">
+            {{ hyAuth.linked ? 'Link a different account' : 'Link Hytale account' }}
+          </UiButton>
+          <UiButton v-if="hyAuth.linked && !hyLogin" variant="danger" size="sm" :loading="hyBusy" @click="unlinkHytale">
+            <Trash2 class="w-3.5 h-3.5" /> Unlink
+          </UiButton>
+        </div>
+
+        <p class="text-tp-outline text-xs">
+          The refresh token is stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code>; each server
+          start gets its own one-hour game session, which the server renews while running. Up to 500 servers per account.
+          If the panel is offline for more than 30 days, link the account again.
+        </p>
+      </div>
+
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
         <div class="flex items-start justify-between gap-4">
           <div>

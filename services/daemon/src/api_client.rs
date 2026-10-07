@@ -375,6 +375,29 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Fetch a fresh Hytale game session for a server about to start. Returns
+    /// `None` when the panel has no Hytale account linked (204); the server
+    /// then starts unauthenticated, as before.
+    pub async fn fetch_game_session(&self, server_id: &str) -> Result<Option<GameSession>> {
+        let url = format!("{}/api/v1/servers/{}/daemon/game-session", self.base_url, server_id);
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("HTTP request failed for fetch_game_session")?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            bail!("game session request failed: {status}: {text}");
+        }
+        Ok(Some(resp.json().await.context("decoding game session")?))
+    }
+
     /// Report the worlds discovered on disk plus the active world (config.json).
     pub async fn report_worlds(&self, server_id: &str, worlds: &[ScannedWorld], active_world: &str) -> Result<()> {
         let url = format!("{}/api/v1/servers/{}/daemon/worlds", self.base_url, server_id);
@@ -454,5 +477,24 @@ impl ApiClient {
         }
 
         Ok(())
+    }
+}
+
+/// Tokens that let a Hytale server start authenticated (Hytale "token
+/// passthrough"). Debug output is redacted so tokens never reach the logs.
+#[derive(Clone, Deserialize)]
+pub struct GameSession {
+    pub session_token: String,
+    pub identity_token: String,
+    pub owner_uuid: String,
+}
+
+impl std::fmt::Debug for GameSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GameSession")
+            .field("session_token", &"<redacted>")
+            .field("identity_token", &"<redacted>")
+            .field("owner_uuid", &self.owner_uuid)
+            .finish()
     }
 }

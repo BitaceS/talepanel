@@ -21,6 +21,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{watch, Mutex, RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
+use crate::api_client::GameSession;
 use crate::config::HytaleConfig;
 use super::{LogLine, ServerStatus};
 
@@ -187,8 +188,11 @@ impl HytaleServerProcess {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Spawn the Hytale server JAR and begin streaming its output.
-    #[instrument(skip(self), fields(server_id = %self.server_id))]
-    pub async fn start(&self) -> Result<()> {
+    ///
+    /// `session` (from the panel's linked Hytale account) makes the server
+    /// boot authenticated; without it the server starts unauthenticated.
+    #[instrument(skip(self, session), fields(server_id = %self.server_id))]
+    pub async fn start(&self, session: Option<&GameSession>) -> Result<()> {
         let current = self.get_status();
         if current != ServerStatus::Stopped && current != ServerStatus::Crashed {
             bail!(
@@ -259,6 +263,14 @@ impl HytaleServerProcess {
                 if !self.hytale_cfg.extra_server_args.iter().any(|a| a == flag) {
                     c.arg(flag);
                 }
+            }
+
+            // Tokens go in the environment, not argv, so they don't show up
+            // in process listings.
+            if let Some(gs) = session {
+                let (args, envs) = game_session_launch(gs);
+                c.args(args);
+                c.envs(envs);
             }
             c
         };
@@ -640,6 +652,21 @@ fn classify_level(line: &str) -> String {
     }
 }
 
+/// Launch args and environment for Hytale's token passthrough. The owner UUID
+/// is only passed if it parses, so a malformed value can't become a flag.
+fn game_session_launch(gs: &GameSession) -> (Vec<String>, Vec<(&'static str, String)>) {
+    let mut args = Vec::new();
+    if let Ok(owner) = uuid::Uuid::parse_str(&gs.owner_uuid) {
+        args.push("--owner-uuid".to_string());
+        args.push(owner.to_string());
+    }
+    let envs = vec![
+        ("HYTALE_SERVER_SESSION_TOKEN", gs.session_token.clone()),
+        ("HYTALE_SERVER_IDENTITY_TOKEN", gs.identity_token.clone()),
+    ];
+    (args, envs)
+}
+
 /// Explains the Hytale server's documented non-crash exit codes so the operator
 /// sees the cause in the console instead of a bare number.
 fn explain_exit_code(code: i32) -> Option<&'static str> {
@@ -726,6 +753,41 @@ mod tests {
             allowed_launch_flags(&requested),
             vec!["--accept-early-plugins", "--allow-op"]
         );
+    }
+
+    #[test]
+    fn game_session_goes_into_env_and_owner_uuid_into_args() {
+        let gs = GameSession {
+            session_token: "sess".into(),
+            identity_token: "ident".into(),
+            owner_uuid: "123e4567-e89b-12d3-a456-426614174000".into(),
+        };
+        let (args, envs) = game_session_launch(&gs);
+        assert_eq!(args, vec!["--owner-uuid", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert!(envs.contains(&("HYTALE_SERVER_SESSION_TOKEN", "sess".to_string())));
+        assert!(envs.contains(&("HYTALE_SERVER_IDENTITY_TOKEN", "ident".to_string())));
+        assert!(!args.iter().any(|a| a.contains("sess") || a.contains("ident")), "tokens must not be in argv");
+    }
+
+    #[test]
+    fn malformed_owner_uuid_is_not_passed() {
+        let gs = GameSession {
+            session_token: "s".into(),
+            identity_token: "i".into(),
+            owner_uuid: "--universe=/etc".into(),
+        };
+        assert!(game_session_launch(&gs).0.is_empty());
+    }
+
+    #[test]
+    fn game_session_debug_output_hides_tokens() {
+        let gs = GameSession {
+            session_token: "secret-session".into(),
+            identity_token: "secret-identity".into(),
+            owner_uuid: "u".into(),
+        };
+        let dbg = format!("{gs:?}");
+        assert!(!dbg.contains("secret"), "{dbg}");
     }
 
     #[test]
