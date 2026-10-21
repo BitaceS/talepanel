@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -48,10 +49,17 @@ func (h *AlertHandler) CreateRule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rule, err := h.alertSvc.CreateRule(c.Request.Context(), caller.ID, req)
-	if err != nil {
-		h.log.Error("failed to create alert rule", zap.Error(err))
+	rule, err := h.alertSvc.CreateRule(c.Request.Context(), caller, req)
+	switch {
+	case errors.Is(err, services.ErrAlertRuleForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	case errors.Is(err, services.ErrAlertRuleInvalid):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	case err != nil:
+		h.log.Error("failed to create alert rule", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create alert rule"})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"rule": rule})
@@ -104,7 +112,7 @@ func (h *AlertHandler) ListEvents(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	events, err := h.alertSvc.ListEvents(c.Request.Context(), caller.ID, 50)
+	events, err := h.alertSvc.ListEvents(c.Request.Context(), caller, 50)
 	if err != nil {
 		h.log.Error("failed to list alert events", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not list alert events"})
@@ -117,12 +125,22 @@ func (h *AlertHandler) ListEvents(c *gin.Context) {
 }
 
 func (h *AlertHandler) ResolveEvent(c *gin.Context) {
+	caller, _ := middleware.GetUserFromCtx(c)
+	if caller == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 	eventID, ok := parseUUID(c, "eventId")
 	if !ok {
 		return
 	}
-	if err := h.alertSvc.ResolveEvent(c.Request.Context(), eventID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.alertSvc.ResolveEvent(c.Request.Context(), caller, eventID); err != nil {
+		if errors.Is(err, services.ErrAlertEventNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		h.log.Error("failed to resolve alert event", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not resolve alert event"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "event resolved"})

@@ -7,16 +7,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/alerting"
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
-	"github.com/BitaceS/talepanel/api/internal/alerting"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 var (
 	ErrAlertRuleNotFound  = errors.New("alert rule not found")
 	ErrAlertEventNotFound = errors.New("alert event not found")
+	ErrAlertRuleInvalid   = errors.New("invalid alert rule")
+	ErrAlertRuleForbidden = errors.New("only admins can create global or node alert rules; server rules require access to the server")
 )
 
 type CreateAlertRuleRequest struct {
@@ -59,7 +61,49 @@ func (s *AlertService) ListRules(ctx context.Context, userID uuid.UUID) ([]*mode
 	return rules, rows.Err()
 }
 
-func (s *AlertService) CreateRule(ctx context.Context, userID uuid.UUID, req CreateAlertRuleRequest) (*models.AlertRule, error) {
+// alertRuleTypes are the rule types the evaluator fires. Node-scoped types
+// (fired with a node as subject) are cluster-wide by nature.
+var alertRuleTypes = map[string]bool{
+	"cpu_high": true, "ram_high": true, "disk_high": true,
+	"server_crashed": true, "node_offline": true, "ddos": true,
+}
+
+var alertNodeRuleTypes = map[string]bool{
+	"cpu_high": true, "ram_high": true, "disk_high": true,
+	"node_offline": true, "ddos": true,
+}
+
+var alertChannels = map[string]bool{"email": true, "webhook": true, "discord": true}
+
+// CreateRule stores a rule for caller. Rules without a server, and node-level
+// rule types, see events of every tenant and are therefore staff-only; a
+// regular user's rule must name a server they can view.
+func (s *AlertService) CreateRule(ctx context.Context, caller *models.User, req CreateAlertRuleRequest) (*models.AlertRule, error) {
+	if !alertRuleTypes[req.Type] {
+		return nil, fmt.Errorf("%w: unknown alert type", ErrAlertRuleInvalid)
+	}
+	for _, ch := range req.Channels {
+		if !alertChannels[ch] {
+			return nil, fmt.Errorf("%w: unknown channel %q", ErrAlertRuleInvalid, ch)
+		}
+	}
+	if err := alerting.ValidateWebhookURL(req.WebhookURL, req.Channels); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAlertRuleInvalid, err)
+	}
+	isStaff := models.RoleWeight(caller.Role) >= models.RoleWeight(models.RoleAdmin)
+	if !isStaff {
+		if req.ServerID == nil || alertNodeRuleTypes[req.Type] {
+			return nil, ErrAlertRuleForbidden
+		}
+		ok, err := NewPermissionService(s.db).HasServerPermission(ctx, caller, *req.ServerID, "server.view")
+		if err != nil {
+			return nil, fmt.Errorf("checking server permission: %w", err)
+		}
+		if !ok {
+			return nil, ErrAlertRuleForbidden
+		}
+	}
+
 	channels, _ := json.Marshal(req.Channels)
 	if req.Channels == nil {
 		channels = []byte("[]")
@@ -70,7 +114,7 @@ func (s *AlertService) CreateRule(ctx context.Context, userID uuid.UUID, req Cre
 		INSERT INTO alert_rules (server_id, user_id, type, threshold, channels, webhook_url)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, server_id, user_id, type, threshold, channels, enabled, created_at
-	`, req.ServerID, userID, req.Type, req.Threshold, channels, req.WebhookURL).Scan(
+	`, req.ServerID, caller.ID, req.Type, req.Threshold, channels, req.WebhookURL).Scan(
 		&r.ID, &r.ServerID, &r.UserID, &r.Type, &r.Threshold,
 		&r.Channels, &r.Enabled, &r.CreatedAt,
 	)
@@ -102,18 +146,21 @@ func (s *AlertService) DeleteRule(ctx context.Context, ruleID, userID uuid.UUID)
 	return nil
 }
 
-func (s *AlertService) ListEvents(ctx context.Context, userID uuid.UUID, limit int) ([]*models.AlertEvent, error) {
+// ListEvents returns events of the caller's own rules. Events whose rule was
+// deleted (rule_id NULL) can belong to anyone and are shown to staff only.
+func (s *AlertService) ListEvents(ctx context.Context, caller *models.User, limit int) ([]*models.AlertEvent, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	isStaff := models.RoleWeight(caller.Role) >= models.RoleWeight(models.RoleAdmin)
 	rows, err := s.db.Query(ctx, `
 		SELECT ae.id, ae.rule_id, ae.server_id, ae.node_id, ae.type, ae.severity,
 		       ae.title, ae.body, ae.metadata, ae.resolved, ae.resolved_at, ae.created_at
 		FROM alert_events ae
 		LEFT JOIN alert_rules ar ON ar.id = ae.rule_id
-		WHERE ar.user_id = $1 OR ae.rule_id IS NULL
+		WHERE ar.user_id = $1 OR (ae.rule_id IS NULL AND $3)
 		ORDER BY ae.created_at DESC LIMIT $2
-	`, userID, limit)
+	`, caller.ID, limit, isStaff)
 	if err != nil {
 		return nil, fmt.Errorf("querying alert events: %w", err)
 	}
@@ -132,8 +179,16 @@ func (s *AlertService) ListEvents(ctx context.Context, userID uuid.UUID, limit i
 	return events, rows.Err()
 }
 
-func (s *AlertService) ResolveEvent(ctx context.Context, eventID uuid.UUID) error {
-	ct, err := s.db.Exec(ctx, `UPDATE alert_events SET resolved = true, resolved_at = NOW() WHERE id = $1`, eventID)
+// ResolveEvent marks an event resolved. Regular users may only resolve events
+// of their own rules; staff may resolve any event. A foreign event reports
+// ErrAlertEventNotFound so event IDs cannot be probed.
+func (s *AlertService) ResolveEvent(ctx context.Context, caller *models.User, eventID uuid.UUID) error {
+	isStaff := models.RoleWeight(caller.Role) >= models.RoleWeight(models.RoleAdmin)
+	ct, err := s.db.Exec(ctx, `
+		UPDATE alert_events ae SET resolved = true, resolved_at = NOW()
+		WHERE ae.id = $1
+		  AND ($3 OR EXISTS (SELECT 1 FROM alert_rules ar WHERE ar.id = ae.rule_id AND ar.user_id = $2))
+	`, eventID, caller.ID, isStaff)
 	if err != nil {
 		return fmt.Errorf("resolving event: %w", err)
 	}
@@ -149,11 +204,22 @@ func (s *AlertService) ResolveEvent(ctx context.Context, eventID uuid.UUID) erro
 func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, subjectID uuid.UUID, value float64) error {
 	// 1. Query active rules for this rule_type.
 	// alert_rules uses "type" (not rule_type) and "enabled" (not is_active).
+	//
+	// Defence in depth for rules created before CreateRule enforced scoping:
+	// a global rule (server_id NULL) only fires for staff, and a server rule
+	// only while its owner still owns or is a member of that server.
 	rows, err := s.db.Query(ctx, `
-		SELECT id, user_id, server_id, threshold, channels, webhook_url
-		FROM alert_rules
-		WHERE type = $1 AND enabled = true
-		  AND (server_id IS NULL OR server_id = $2)
+		SELECT ar.id, ar.user_id, ar.server_id, ar.threshold, ar.channels, ar.webhook_url
+		FROM alert_rules ar
+		JOIN users u ON u.id = ar.user_id
+		WHERE ar.type = $1 AND ar.enabled = true
+		  AND (
+		        (ar.server_id IS NULL AND u.role IN ('admin', 'owner'))
+		     OR (ar.server_id = $2 AND (
+		            u.role IN ('admin', 'owner')
+		         OR EXISTS (SELECT 1 FROM servers s WHERE s.id = $2 AND s.owner_id = u.id)
+		         OR EXISTS (SELECT 1 FROM server_members m WHERE m.server_id = $2 AND m.user_id = u.id)))
+		  )
 	`, ruleType, subjectID)
 	if err != nil {
 		return fmt.Errorf("querying alert rules for type %s: %w", ruleType, err)

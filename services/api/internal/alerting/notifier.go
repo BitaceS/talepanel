@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"time"
 
 	mail "github.com/wneessen/go-mail"
@@ -117,7 +119,7 @@ type DiscordNotifier struct {
 
 func NewDiscordNotifier(log *zap.Logger) *DiscordNotifier {
 	return &DiscordNotifier{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: NewSafeHTTPClient(10 * time.Second),
 		log:    log,
 	}
 }
@@ -151,7 +153,7 @@ func (d *DiscordNotifier) Post(ctx context.Context, payload NotificationPayload,
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := d.client.Do(req)
 	if err != nil {
-		d.log.Warn("alert discord: post failed", zap.Error(err))
+		d.log.Warn("alert discord: post failed", zap.Error(redactURLError(err)))
 		return
 	}
 	defer resp.Body.Close()
@@ -168,7 +170,7 @@ type WebhookNotifier struct {
 
 func NewWebhookNotifier(log *zap.Logger) *WebhookNotifier {
 	return &WebhookNotifier{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: NewSafeHTTPClient(10 * time.Second),
 		log:    log,
 	}
 }
@@ -188,11 +190,23 @@ func (w *WebhookNotifier) Post(ctx context.Context, payload NotificationPayload,
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := w.client.Do(req)
 	if err != nil {
-		w.log.Warn("alert webhook: post failed", zap.String("url", url), zap.Error(err))
+		// The URL is deliberately not logged: webhook URLs embed secrets
+		// (Discord's token lives in the path), so the error is stripped of it too.
+		w.log.Warn("alert webhook: post failed", zap.Error(redactURLError(err)))
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		w.log.Warn("alert webhook: non-2xx response", zap.Int("status", resp.StatusCode))
 	}
+}
+
+// redactURLError unwraps the *url.Error the http client returns so the
+// request URL (and the secret in it) does not end up in the logs.
+func redactURLError(err error) error {
+	var uerr *neturl.Error
+	if errors.As(err, &uerr) {
+		return fmt.Errorf("%s: %w", uerr.Op, uerr.Err)
+	}
+	return err
 }
