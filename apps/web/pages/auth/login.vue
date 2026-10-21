@@ -6,6 +6,20 @@ definePageMeta({
 })
 
 const authStore = useAuthStore()
+const api = useApi()
+
+// A fresh install has no account to sign in with yet; send the visitor to the
+// setup wizard instead.
+onMounted(async () => {
+  try {
+    const data = await api.get<{ needs_setup: boolean }>('/health/setup')
+    if (data.needs_setup) {
+      await navigateTo('/setup')
+    }
+  } catch {
+    // Setup status is best-effort; the sign-in form still works.
+  }
+})
 
 const form = reactive({
   email: '',

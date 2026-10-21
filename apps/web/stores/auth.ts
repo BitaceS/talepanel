@@ -52,6 +52,34 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    // completeSetup creates the first owner with the installer's one-time code
+    // and keeps the session it returns, like login() does. No navigation: the
+    // setup wizard continues with its next step.
+    async completeSetup(payload: {
+      setup_code: string
+      email: string
+      username: string
+      password: string
+    }): Promise<void> {
+      this.loading = true
+      try {
+        const config = useRuntimeConfig()
+        const response = await $fetch<LoginResponse>(
+          `${config.public.apiBase}/setup/complete`,
+          {
+            method: 'POST',
+            body: payload,
+            credentials: 'include',
+          }
+        )
+        this.accessToken = response.access_token ?? null
+        this.user = response.user ?? null
+        this.partialToken = null
+      } finally {
+        this.loading = false
+      }
+    },
+
     // verifyTotp completes a 2FA-gated login using the partial token from login().
     async verifyTotp(code: string): Promise<void> {
       if (!this.partialToken) {
