@@ -1,4 +1,4 @@
-# TalePanel
+# TalePanel — open-source Hytale server panel
 
 **The control panel that actually understands Hytale.**
 Built by [BitaceS](https://talepanel.com) · AGPL-3.0 · free, forever
@@ -7,7 +7,9 @@ Built by [BitaceS](https://talepanel.com) · AGPL-3.0 · free, forever
 
 ## What is TalePanel?
 
-TalePanel is a full-stack server management platform built exclusively for Hytale. Worlds, mods and players are first-class objects, not files in a generic file manager — and it scales from one box to a multi-node cluster.
+TalePanel is a free, open-source, self-hosted **Hytale server panel**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
+
+Think of it as a Pterodactyl alternative built only for Hytale. Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
 It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
@@ -108,6 +110,31 @@ as `online` within ~30 seconds.
 > into `/srv/taledaemon/hytale-bin/` on the daemon host. New servers
 > copy them locally instead of pulling from the Hytale CDN, which is
 > IPv4-only.
+
+---
+
+## FAQ
+
+**What is the best free Hytale server panel?**
+TalePanel is a free and open-source (AGPL-3.0) panel made only for Hytale. You host it yourself. It covers multi-node setups, roles per server, 2FA, an audit log and automatic HTTPS. Most alternatives are either generic game panels with a Hytale add-on (Pterodactyl/Pelican eggs, AMP) or single-host Docker panels.
+
+**How do I host a Hytale server on my own VPS?**
+Run the one-line installer above on a Linux VPS (Ubuntu 22.04+, Debian 12+, Rocky/RHEL 9+) and choose **Both**. It installs Docker, sets up HTTPS, starts the panel, and you create your first server in the browser. Hytale needs Java 25, and the default game port is UDP 5520.
+
+**Do I need a domain?**
+No. Without a domain, the installer uses an `sslip.io` hostname based on your server's IP and still gets a valid Let's Encrypt certificate.
+
+**Is TalePanel a Pterodactyl alternative for Hytale?**
+Yes. Pterodactyl and Pelican run Hytale through a generic "egg". TalePanel instead knows Hytale's launch flags, auth modes, exit codes, worlds and mods, and it links a Hytale account so servers start authenticated.
+
+**Can I run several Hytale servers or a whole network?**
+Yes. You can enroll any number of daemon nodes. Each node runs many servers on ports from 5520 upward. The bundled network mod adds a hub with `/play <gamemode>` handoff between servers.
+
+**Is it secure?**
+Security is the main design goal. See [Why TalePanel](#why-talepanel) and [`SECURITY.md`](SECURITY.md) for what is covered and which gaps are still open.
+
+**What does it cost?**
+Nothing. TalePanel is AGPL-3.0 and stays free for everyone. There is no paid edition.
 
 ---
 
