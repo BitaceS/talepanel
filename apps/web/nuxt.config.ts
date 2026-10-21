@@ -54,10 +54,33 @@ export default defineNuxtConfig({
     },
   },
 
-  // Apply auth middleware globally
+  // Security headers on every page, whatever proxy sits in front (Caddy,
+  // Coolify, ...). frame-ancestors stops clickjacking of destructive buttons.
+  // script-src needs 'unsafe-inline': Nuxt injects the runtime config (whose
+  // apiBase differs per deployment) and an importmap as inline scripts, so
+  // they cannot be hashed at build time. The API may live on another origin,
+  // hence https:/wss: in connect-src; dev adds plain http/ws for localhost.
   routeRules: {
-    '/auth/**': {},   // public - auth middleware handles redirect if already logged in
-    '/**': {},        // auth middleware guards these
+    '/**': {
+      headers: {
+        'Content-Security-Policy': [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline'",
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' data: https://fonts.gstatic.com",
+          "img-src 'self' data: blob: https:",
+          `connect-src 'self' https: wss:${process.env.NODE_ENV === 'production' ? '' : ' http: ws:'}`,
+          "frame-ancestors 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "object-src 'none'",
+        ].join('; '),
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      },
+    },
   },
 
   typescript: {
