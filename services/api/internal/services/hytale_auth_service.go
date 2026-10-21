@@ -195,14 +195,19 @@ func (s *HytaleAuthService) PollDeviceLogin(ctx context.Context, updatedBy *uuid
 		return "", fmt.Errorf("the Hytale account has no game profile")
 	}
 	profilesJSON, _ := json.Marshal(profiles)
+	if tok.RefreshToken == "" {
+		return "", fmt.Errorf("the Hytale login returned no refresh token")
+	}
 
-	for k, v := range map[string]string{
-		hytaleRefreshTokenKey: tok.RefreshToken,
-		hytaleProfileKey:      profiles[0].UUID,
-		hytaleProfilesKey:     string(profilesJSON),
-		hytaleLinkedAtKey:     time.Now().UTC().Format(time.RFC3339),
+	// The refresh token marks the account as linked, so it is written last:
+	// a failure part-way leaves the account unlinked rather than half-linked.
+	for _, kv := range [][2]string{
+		{hytaleProfileKey, profiles[0].UUID},
+		{hytaleProfilesKey, string(profilesJSON)},
+		{hytaleLinkedAtKey, time.Now().UTC().Format(time.RFC3339)},
+		{hytaleRefreshTokenKey, tok.RefreshToken},
 	} {
-		if err := s.settings.Set(ctx, k, v, updatedBy); err != nil {
+		if err := s.settings.Set(ctx, kv[0], kv[1], updatedBy); err != nil {
 			return "", fmt.Errorf("storing Hytale login: %w", err)
 		}
 	}
