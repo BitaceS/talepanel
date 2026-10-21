@@ -4,6 +4,12 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- Quick setup for beginners: `install.sh --quick` (also the first menu entry, and the default when the script runs without a terminal) installs panel and game server on one machine with an `sslip.io` hostname and asks no questions. It prints a `https://<host>/setup` link and a one-time setup code; the first admin account is created in the browser. Only the code's SHA-256 is stored (`SETUP_CODE_HASH` in the panel `.env`).
+- `POST /api/v1/setup/complete`: creates the first owner with the setup code and signs it in. Works only while no account exists; concurrent attempts create exactly one owner. `GET /health/setup` reports `setup_code_required`.
+- Setup wizard at `/setup`: setup code, admin account, first Hytale server (optional). The login page sends visitors of a fresh install there.
+- `tale-cli node enroll`: mints a node enrollment token without a user account. Migration 036 makes `node_enrollments.created_by` optional.
+
 ## [0.10.1-beta] — 2026-10-22
 
 Installer hotfix.

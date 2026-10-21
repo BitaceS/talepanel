@@ -74,6 +74,23 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 
 ## Install (self-hosted)
 
+### Quick setup (beginners)
+
+One Linux server (Ubuntu 22.04+, Debian 12 or Rocky/Alma 9, at least 2 CPU
+cores and 6 GB RAM, ports 80, 443 and 5520 open). Run:
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --quick
+```
+
+It asks no questions and takes a few minutes. At the end it prints a link
+like `https://203-0-113-7.sslip.io/setup` and a one-time setup code like
+`ABCD-EFGH-JKLM`. Open the link, enter the code, create your account and
+your first Hytale server. Without `--quick` the same script shows a menu;
+pick **Quick setup**.
+
+### Separate panel and game servers
+
 TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RAM is fine) and one or more servers for the daemon (the hosts that actually run Hytale).
 
 ### One script, any role
@@ -82,8 +99,8 @@ TalePanel is AGPL-3.0 self-hosted. Pick one server for the panel (1 CPU, 2 GB RA
 sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
 ```
 
-A menu lets you pick: **Panel**, **Daemon**, **Both** (same host, dev/home),
-**Upgrade**, or **Uninstall**. For unattended installs pass `--mode panel`
+A menu lets you pick: **Quick setup**, **Panel**, **Daemon**, **Both** (same
+host, dev/home), **Upgrade**, or **Uninstall**. For unattended installs pass `--mode panel`
 or `--mode daemon` plus the relevant flags — see `bash install.sh --help`.
 
 **No domain?** Leave the domain prompt blank (or pass `--ip-only`) and the

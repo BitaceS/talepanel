@@ -2,6 +2,36 @@
 
 This is the reference for self-hosted installs. For a quick start, see the install section of `README.md`.
 
+## Quick setup (beginners)
+
+For one server that runs both the panel and your Hytale servers. You need a fresh Linux server (see the operating systems below) with at least 2 vCPU, 6 GB RAM and 50 GB disk, and these ports open in your provider's firewall: TCP 80 and 443 (panel and certificate), UDP and TCP 5520 and up (players).
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --quick
+```
+
+What it does, without asking anything:
+
+- installs Docker if needed and sets up the panel and the game server agent on this machine,
+- builds an `sslip.io` hostname from the server's public IP (for example `203-0-113-7.sslip.io`) and gets a real Let's Encrypt certificate for it,
+- prints a link and a one-time setup code at the end:
+
+```
+    1. Open this address:
+         https://203-0-113-7.sslip.io/setup
+    2. Enter this one-time setup code:
+         ABCD-EFGH-JKLM
+```
+
+Open the link, type the code, create your admin account and, if you like, your first Hytale server. The code works only until the first account exists. If you lose it before that, run the installer again; it prints a new one.
+
+Notes:
+
+- Have a domain? Point it at the server and add `--domain panel.example.com`.
+- If the public IP cannot be detected, the installer stops and asks you to rerun with `--domain`.
+- If the page does not load right away, the certificate is still being issued; wait a minute and reload.
+- Running the script without `--quick` shows a menu; **Quick setup** is the first entry. Piped into bash without a terminal (`curl ... | sudo bash`), it runs the quick setup automatically.
+
 ## Hardware
 
 | Role | CPU | RAM | Disk | Network |
@@ -16,7 +46,7 @@ The panel and daemon **should** run on separate hosts — the panel is the contr
 If you don't have separate machines for the panel and daemon yet, you can run them side-by-side on a single host. Use enough hardware to cover both roles — at least **2 vCPU / 6 GB RAM / 50 GB disk**, plus the gameserver port range open. The interactive installer offers a "both" option, or run it non-interactively:
 
 ```bash
-sudo bash <(curl -fsSL h    ttps: //raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode both \
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode both \
   --domain panel.example.com \
   --admin-email you@example.com \
   --admin-username your-handle \
