@@ -23,6 +23,7 @@ It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale se
 - **Worlds** — list, create, switch, delete worlds as real objects.
 - **Files** — browse, edit, upload, download inside the server directory.
 - **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
+- **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
 - **Backups** — create/restore/download a Zip snapshot of a server. **The archive is stored on the same node as the server.** No off-site copy yet.
 - **Players** — list, kick, ban, whitelist.
 - **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest), RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password.
@@ -32,8 +33,7 @@ It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale se
 
 - **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
 - **Off-site backups (S3 / object storage)** — MinIO is in the compose file, but no backup is uploaded to it today. Backups live on the node.
-- **CurseForge mod browser** — the code exists but is **experimental and off by default**: it needs `CURSEFORGE_API_KEY` and `CURSEFORGE_GAME_ID`, and Hytale has no CurseForge game ID yet. Until it does, use the upload-based mod installer, which is fully supported.
-- **Test coverage** — thin (a handful of Go tests, no Rust tests). Beta means beta.
+- **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
 - **mTLS between panel and daemon, process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
 ---

@@ -1082,6 +1082,7 @@ mod tests {
 
         let mut f = create_fresh_temp(&tmp).await.expect("temp must be created");
         tokio::io::AsyncWriteExt::write_all(&mut f, b"new").await.unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
         drop(f);
 
         assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
