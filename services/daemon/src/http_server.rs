@@ -244,6 +244,11 @@ async fn delete_server_data(
     State(state): State<AppState>,
     Path(server_id): Path<String>,
 ) -> impl IntoResponse {
+    // The id becomes a path component handed to remove_dir_all.
+    if !valid_server_id(&server_id) {
+        return ActionResponse::err("invalid server id").into_response();
+    }
+
     // Best-effort kill — ignore "not running" errors.
     let _ = state.process_manager.kill_server(&server_id).await;
 
@@ -411,8 +416,397 @@ struct ArchiveRequest {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Filesystem safety primitives
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Filesystem primitives for writing into tenant-controlled directories.
+///
+/// Tenants can run code in, and create symlinks or hardlinks inside, their own
+/// server directory. Every daemon write below such a directory therefore
+/// (a) never follows a symlink, and (b) never writes through an existing inode
+/// in place: data goes to a fresh temp file created with `create_new` in the
+/// same directory, which is then renamed over the target. A rename replaces the
+/// directory entry, so a planted symlink, or a hardlink to a file shared with
+/// another server, is swapped out instead of being written through.
+pub(crate) mod safe_fs {
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{self, Read, Seek, Write};
+    use std::path::{Component, Path, PathBuf};
+
+    /// Upper bound on the bytes one archive extraction may write (20 GiB).
+    pub const MAX_EXTRACT_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+    /// Upper bound on the number of entries in one extracted archive.
+    pub const MAX_EXTRACT_ENTRIES: usize = 200_000;
+
+    const TEMP_PREFIX: &str = ".tp-";
+    const TEMP_SUFFIX: &str = ".tmp";
+
+    /// Decompression-bomb limits for [`extract_zip`].
+    #[derive(Clone, Copy, Debug)]
+    pub struct ExtractLimits {
+        pub max_total_bytes: u64,
+        pub max_entries: usize,
+    }
+
+    impl Default for ExtractLimits {
+        fn default() -> Self {
+            Self { max_total_bytes: MAX_EXTRACT_BYTES, max_entries: MAX_EXTRACT_ENTRIES }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    pub struct ExtractStats {
+        /// Files written.
+        pub written: usize,
+        /// Entries skipped: unsafe names, symlinks, or paths crossing a symlink.
+        pub skipped: usize,
+    }
+
+    /// True for the daemon's own in-flight temp files; archivers skip them.
+    pub fn is_temp_name(name: &str) -> bool {
+        name.starts_with(TEMP_PREFIX) && name.ends_with(TEMP_SUFFIX)
+    }
+
+    fn temp_path_in(dir: &Path) -> PathBuf {
+        dir.join(format!("{TEMP_PREFIX}{}{TEMP_SUFFIX}", uuid::Uuid::new_v4().simple()))
+    }
+
+    /// True if `path` itself is a symlink (the link is not followed).
+    pub fn is_symlink(path: &Path) -> bool {
+        fs::symlink_metadata(path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+    }
+
+    /// Open a file for reading, failing if the final component is a symlink.
+    pub fn open_nofollow(path: &Path) -> io::Result<File> {
+        let mut opts = OpenOptions::new();
+        opts.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        opts.open(path)
+    }
+
+    /// Create a new, empty temp file next to `target`. `create_new` means
+    /// O_CREAT|O_EXCL, which never follows or reuses an existing entry.
+    fn create_temp(target: &Path) -> io::Result<(PathBuf, File)> {
+        let dir = target.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "target has no parent directory")
+        })?;
+        for _ in 0..8 {
+            let tmp = temp_path_in(dir);
+            match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+                Ok(f) => return Ok((tmp, f)),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a temp file"))
+    }
+
+    /// Rename `tmp` over `target`, removing `tmp` on failure. A symlink at
+    /// `target` is replaced, not followed; a directory is refused.
+    fn commit(tmp: &Path, target: &Path) -> io::Result<()> {
+        let result = match fs::symlink_metadata(target) {
+            Ok(md) if md.is_dir() => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target is a directory",
+            )),
+            Ok(md) => {
+                // Keep the plain rwx bits of a regular file being replaced (an
+                // executable script stays executable); never setuid/setgid.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if md.is_file() {
+                        let mode = md.permissions().mode() & 0o777;
+                        let _ = fs::set_permissions(tmp, fs::Permissions::from_mode(mode));
+                    }
+                }
+                #[cfg(not(unix))]
+                let _ = md;
+                fs::rename(tmp, target)
+            }
+            Err(_) => fs::rename(tmp, target),
+        };
+        if result.is_err() {
+            let _ = fs::remove_file(tmp);
+        }
+        result
+    }
+
+    /// Write `target` by filling a fresh temp file and renaming it into place.
+    pub fn write_atomic<T>(
+        target: &Path,
+        fill: impl FnOnce(&mut File) -> io::Result<T>,
+    ) -> io::Result<T> {
+        if fs::symlink_metadata(target).map(|m| m.is_dir()).unwrap_or(false) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "target is a directory"));
+        }
+        let (tmp, mut file) = create_temp(target)?;
+        let value = match fill(&mut file).and_then(|v| file.flush().map(|_| v)) {
+            Ok(v) => v,
+            Err(e) => {
+                drop(file);
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
+        };
+        drop(file);
+        commit(&tmp, target)?;
+        Ok(value)
+    }
+
+    /// Async counterpart of the temp-file half of [`write_atomic`], for
+    /// streaming writers. Finish with [`commit_async`].
+    pub async fn create_temp_async(target: &Path) -> io::Result<(PathBuf, tokio::fs::File)> {
+        let target = target.to_path_buf();
+        let (tmp, file) = tokio::task::spawn_blocking(move || create_temp(&target))
+            .await
+            .map_err(io::Error::other)??;
+        Ok((tmp, tokio::fs::File::from_std(file)))
+    }
+
+    /// Rename a temp file from [`create_temp_async`] over `target`.
+    pub async fn commit_async(tmp: PathBuf, target: PathBuf) -> io::Result<()> {
+        tokio::task::spawn_blocking(move || commit(&tmp, &target))
+            .await
+            .map_err(io::Error::other)?
+    }
+
+    /// Walk `rel` below `base` one component at a time, creating missing
+    /// directories (recorded in `created`). Returns `Ok(None)` if a component
+    /// is a symlink or not a directory: the chain is never followed through a
+    /// link, so a planted symlink cannot redirect a write outside `base`.
+    pub fn ensure_dir_chain(
+        base: &Path,
+        rel: &Path,
+        created: &mut Vec<PathBuf>,
+    ) -> io::Result<Option<PathBuf>> {
+        let mut cur = base.to_path_buf();
+        for comp in rel.components() {
+            match comp {
+                Component::Normal(name) => cur.push(name),
+                Component::CurDir => continue,
+                _ => return Ok(None),
+            }
+            match fs::symlink_metadata(&cur) {
+                Ok(md) if md.is_dir() => {}
+                Ok(_) => return Ok(None),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => match fs::create_dir(&cur) {
+                    Ok(()) => created.push(cur.clone()),
+                    // Lost a race with a concurrent creator: accept only a real directory.
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                        if !fs::symlink_metadata(&cur).map(|m| m.is_dir()).unwrap_or(false) {
+                            return Ok(None);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                },
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Some(cur))
+    }
+
+    /// True if a zip entry's unix mode marks it as a symlink (S_IFLNK).
+    fn is_link_mode(mode: Option<u32>) -> bool {
+        mode.is_some_and(|m| (m & 0o170000) == 0o120000)
+    }
+
+    /// Extract `archive` below `base` without ever following a symlink.
+    ///
+    /// Unsafe names (absolute, `..`), symlink entries and entries whose path
+    /// crosses an existing symlink are skipped. Files are written via temp +
+    /// rename. The entry count and the total bytes written (counted on the
+    /// actual decompressed stream, not just the declared sizes) are capped by
+    /// `limits`; exceeding a cap aborts and removes what this call created.
+    pub fn extract_zip<R: Read + Seek>(
+        archive: &mut zip::ZipArchive<R>,
+        base: &Path,
+        limits: ExtractLimits,
+    ) -> Result<ExtractStats, String> {
+        if archive.len() > limits.max_entries {
+            return Err(format!(
+                "archive has {} entries; the limit is {}",
+                archive.len(),
+                limits.max_entries
+            ));
+        }
+        let base = base.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
+        let mut created_files = Vec::new();
+        let mut created_dirs = Vec::new();
+        let result = extract_entries(archive, &base, limits, &mut created_files, &mut created_dirs);
+        if result.is_err() {
+            for f in created_files.iter().rev() {
+                let _ = fs::remove_file(f);
+            }
+            for d in created_dirs.iter().rev() {
+                let _ = fs::remove_dir(d);
+            }
+        }
+        result
+    }
+
+    fn extract_entries<R: Read + Seek>(
+        archive: &mut zip::ZipArchive<R>,
+        base: &Path,
+        limits: ExtractLimits,
+        created_files: &mut Vec<PathBuf>,
+        created_dirs: &mut Vec<PathBuf>,
+    ) -> Result<ExtractStats, String> {
+        let mut stats = ExtractStats::default();
+        let mut remaining = limits.max_total_bytes;
+        let too_big = || "archive exceeds the extraction size limit".to_string();
+
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
+
+            // enclosed_name drops absolute prefixes and refuses `..` traversal.
+            let rel = match entry.enclosed_name() {
+                Some(p) => p,
+                None => {
+                    stats.skipped += 1;
+                    continue;
+                }
+            };
+            if is_link_mode(entry.unix_mode()) {
+                stats.skipped += 1;
+                continue;
+            }
+
+            if entry.is_dir() {
+                match ensure_dir_chain(base, &rel, created_dirs).map_err(|e| format!("mkdir: {e}"))? {
+                    Some(_) => {}
+                    None => stats.skipped += 1,
+                }
+                continue;
+            }
+
+            let name = match rel.file_name() {
+                Some(n) => n.to_os_string(),
+                None => {
+                    stats.skipped += 1;
+                    continue;
+                }
+            };
+            if entry.size() > remaining {
+                return Err(too_big());
+            }
+
+            // Containment is decided before anything is created: the parent
+            // chain is built component by component and refuses symlinks.
+            let parent_rel = rel.parent().unwrap_or(Path::new(""));
+            let parent = match ensure_dir_chain(base, parent_rel, created_dirs)
+                .map_err(|e| format!("mkdir: {e}"))?
+            {
+                Some(p) => p,
+                None => {
+                    stats.skipped += 1;
+                    continue;
+                }
+            };
+            let out_path = parent.join(name);
+            let existed = match fs::symlink_metadata(&out_path) {
+                Ok(md) if md.is_dir() => {
+                    stats.skipped += 1;
+                    continue;
+                }
+                Ok(_) => true,
+                Err(_) => false,
+            };
+
+            let budget = remaining;
+            let written = write_atomic(&out_path, |out| {
+                let n = io::copy(&mut (&mut entry).take(budget + 1), out)?;
+                if n > budget {
+                    return Err(io::Error::other("size limit"));
+                }
+                Ok(n)
+            });
+            let written = match written {
+                Ok(n) => n,
+                Err(e) if e.to_string() == "size limit" => return Err(too_big()),
+                Err(e) => return Err(format!("write {}: {e}", out_path.display())),
+            };
+            remaining -= written;
+            if !existed {
+                created_files.push(out_path);
+            }
+            stats.written += 1;
+        }
+        Ok(stats)
+    }
+
+    /// Add the contents of `current` (below `base`) to `writer`.
+    ///
+    /// Symlinks are skipped, never followed, as are non-regular files (a FIFO
+    /// would block the read forever), the daemon's own temp files and any path
+    /// in `exclude`. Files are streamed and opened with O_NOFOLLOW.
+    pub fn zip_tree<W: Write + Seek>(
+        writer: &mut zip::ZipWriter<W>,
+        base: &Path,
+        current: &Path,
+        options: zip::write::SimpleFileOptions,
+        exclude: &[PathBuf],
+    ) -> Result<(), String> {
+        for entry in fs::read_dir(current).map_err(|e| format!("read dir: {e}"))? {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            // DirEntry::file_type does not follow symlinks.
+            let ft = entry.file_type().map_err(|e| format!("file type: {e}"))?;
+            let path = entry.path();
+            if ft.is_symlink() || exclude.contains(&path) {
+                continue;
+            }
+            if entry.file_name().to_str().is_some_and(is_temp_name) {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| format!("strip prefix: {e}"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if ft.is_dir() {
+                writer
+                    .add_directory(format!("{rel}/"), options)
+                    .map_err(|e| format!("add dir: {e}"))?;
+                zip_tree(writer, base, &path, options, exclude)?;
+            } else if ft.is_file() {
+                let mut file = match open_nofollow(&path) {
+                    Ok(f) => f,
+                    // Swapped for a symlink since the listing: skip it.
+                    Err(_) if is_symlink(&path) => continue,
+                    Err(e) => return Err(format!("open {rel}: {e}")),
+                };
+                let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+                let opts = options.large_file(len >= u32::MAX as u64);
+                writer.start_file(&rel, opts).map_err(|e| format!("start file: {e}"))?;
+                io::copy(&mut file, writer).map_err(|e| format!("write {rel}: {e}"))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // File browser path security
 // ─────────────────────────────────────────────────────────────────────────────
+
+type PathError = (StatusCode, Json<serde_json::Value>);
+
+fn path_error(status: StatusCode, msg: &str) -> PathError {
+    (status, Json(serde_json::json!({"error": msg})))
+}
+
+/// Server ids are panel UUIDs. Requiring the canonical hyphenated form keeps
+/// them usable as a single, inert path component.
+pub(crate) fn valid_server_id(id: &str) -> bool {
+    id.len() == 36 && uuid::Uuid::try_parse(id).is_ok()
+}
 
 /// Resolve a relative `user_path` within the server's base directory, ensuring
 /// the result does not escape the base via `..` or symlinks.
@@ -422,7 +816,42 @@ async fn resolve_safe_path(
     servers_base_dir: &str,
     server_id: &str,
     user_path: &str,
-) -> Result<PathBuf, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<PathBuf, PathError> {
+    resolve_in_server(servers_base_dir, server_id, user_path)
+        .await
+        .map(|(_, p)| p)
+}
+
+/// Like [`resolve_safe_path`], but rejects the server root itself, for
+/// operations that need a child path (write, delete, rename, mkdir).
+async fn resolve_safe_child(
+    servers_base_dir: &str,
+    server_id: &str,
+    user_path: &str,
+) -> Result<PathBuf, PathError> {
+    let (root, p) = resolve_in_server(servers_base_dir, server_id, user_path).await?;
+    if p == root {
+        return Err(path_error(
+            StatusCode::BAD_REQUEST,
+            "this operation needs a path below the server root",
+        ));
+    }
+    Ok(p)
+}
+
+/// Returns `(canonical server root, resolved path)`.
+///
+/// The final component is never a symlink: an existing link is refused (even
+/// one pointing inside the root), and for a new path the parent is
+/// canonicalized and must lie within the root.
+async fn resolve_in_server(
+    servers_base_dir: &str,
+    server_id: &str,
+    user_path: &str,
+) -> Result<(PathBuf, PathBuf), PathError> {
+    if !valid_server_id(server_id) {
+        return Err(path_error(StatusCode::BAD_REQUEST, "invalid server id"));
+    }
     let base = PathBuf::from(servers_base_dir).join(server_id);
 
     // Ensure the base directory exists — create it automatically so the file
@@ -461,63 +890,63 @@ async fn resolve_safe_path(
     }
 
     let target = canonical_base.join(relative);
+    if target == canonical_base {
+        return Ok((canonical_base.clone(), canonical_base));
+    }
 
-    // If the target already exists we can canonicalize it for a definitive check.
-    // If it doesn't exist (e.g. we're about to create it) we canonicalize the
-    // parent and verify that it is still inside the base.
-    let resolved = if target.exists() {
-        target.canonicalize().map_err(|e| {
+    let symlink_refused = || path_error(StatusCode::FORBIDDEN, "symbolic links are not allowed");
+
+    // symlink_metadata, not exists(): exists() follows links, which would let
+    // a dangling link stand in for a "new" path and redirect the write.
+    let resolved = match std::fs::symlink_metadata(&target) {
+        Ok(md) if md.file_type().is_symlink() => return Err(symlink_refused()),
+        // Exists: canonicalize for a definitive check (resolves any symlinked
+        // directory in the middle of the path).
+        Ok(_) => target.canonicalize().map_err(|e| {
             warn!(%e, "failed to canonicalize target path");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid path"})),
-            )
-        })?
-    } else {
-        // The target doesn't exist yet; canonicalize its parent directory.
-        let parent = target.parent().ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid path"})),
-            )
-        })?;
-        if !parent.exists() {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "parent directory does not exist"})),
-            ));
+            path_error(StatusCode::BAD_REQUEST, "invalid path")
+        })?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // The target doesn't exist yet; canonicalize its parent directory.
+            let parent = target
+                .parent()
+                .ok_or_else(|| path_error(StatusCode::BAD_REQUEST, "invalid path"))?;
+            let canonical_parent = match parent.canonicalize() {
+                Ok(p) => p,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(path_error(StatusCode::NOT_FOUND, "parent directory does not exist"));
+                }
+                Err(e) => {
+                    warn!(%e, "failed to canonicalize parent path");
+                    return Err(path_error(StatusCode::BAD_REQUEST, "invalid path"));
+                }
+            };
+            if !canonical_parent.starts_with(&canonical_base) {
+                return Err(path_error(StatusCode::FORBIDDEN, "path traversal is not allowed"));
+            }
+            // Reconstruct the full path using the canonical parent + file name.
+            let file_name = target
+                .file_name()
+                .ok_or_else(|| path_error(StatusCode::BAD_REQUEST, "invalid path"))?;
+            let joined = canonical_parent.join(file_name);
+            // Under the canonical parent the final component must still be
+            // absent or a non-link (a dangling symlink is refused here).
+            if safe_fs::is_symlink(&joined) {
+                return Err(symlink_refused());
+            }
+            joined
         }
-        let canonical_parent = parent.canonicalize().map_err(|e| {
-            warn!(%e, "failed to canonicalize parent path");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid path"})),
-            )
-        })?;
-        if !canonical_parent.starts_with(&canonical_base) {
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"error": "path traversal is not allowed"})),
-            ));
+        Err(e) => {
+            warn!(%e, "failed to stat target path");
+            return Err(path_error(StatusCode::BAD_REQUEST, "invalid path"));
         }
-        // Reconstruct the full path using the canonical parent + file name.
-        let file_name = target.file_name().ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid path"})),
-            )
-        })?;
-        canonical_parent.join(file_name)
     };
 
     if !resolved.starts_with(&canonical_base) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "path traversal is not allowed"})),
-        ));
+        return Err(path_error(StatusCode::FORBIDDEN, "path traversal is not allowed"));
     }
 
-    Ok(resolved)
+    Ok((canonical_base, resolved))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -673,7 +1102,7 @@ async fn write_file(
             .into_response();
     }
 
-    let target = match resolve_safe_path(&state.servers_base_dir, &server_id, &req.path).await {
+    let target = match resolve_safe_child(&state.servers_base_dir, &server_id, &req.path).await {
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
@@ -687,11 +1116,24 @@ async fn write_file(
             .into_response();
     }
 
-    match tokio::fs::write(&target, &req.content).await {
-        Ok(_) => ActionResponse::ok("file written successfully").into_response(),
-        Err(e) => (
+    // Temp + rename, never a truncating write: the target may be a hardlink
+    // to a file outside this server's directory.
+    let content = req.content;
+    let result = tokio::task::spawn_blocking(move || {
+        safe_fs::write_atomic(&target, |f| std::io::Write::write_all(f, content.as_bytes()))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => ActionResponse::ok("file written successfully").into_response(),
+        Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("failed to write file: {e}")})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("write task failed: {e}")})),
         )
             .into_response(),
     }
@@ -726,7 +1168,7 @@ async fn delete_file(
             .into_response();
     }
 
-    let target = match resolve_safe_path(&state.servers_base_dir, &server_id, rel_path).await {
+    let target = match resolve_safe_child(&state.servers_base_dir, &server_id, rel_path).await {
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
@@ -770,7 +1212,7 @@ async fn create_directory(
     Path(server_id): Path<String>,
     Json(req): Json<CreateDirRequest>,
 ) -> impl IntoResponse {
-    let target = match resolve_safe_path(&state.servers_base_dir, &server_id, &req.path).await {
+    let target = match resolve_safe_child(&state.servers_base_dir, &server_id, &req.path).await {
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
@@ -816,7 +1258,7 @@ async fn rename_file(
             .into_response();
     }
 
-    let source = match resolve_safe_path(&state.servers_base_dir, &server_id, &req.path).await {
+    let source = match resolve_safe_child(&state.servers_base_dir, &server_id, &req.path).await {
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
@@ -840,7 +1282,8 @@ async fn rename_file(
         }
     };
 
-    if dest.exists() {
+    // symlink_metadata so a dangling symlink also counts as "exists".
+    if std::fs::symlink_metadata(&dest).is_ok() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "a file or directory with that name already exists"})),
@@ -909,21 +1352,75 @@ async fn upload_file(
             }
         };
 
-        // Create parent directories for nested uploads.
-        if let Some(parent) = dest.parent() {
-            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+        // Create parent directories for nested uploads one component at a
+        // time, refusing symlinks: create_dir_all would follow a planted link
+        // (e.g. `mods -> /etc`) and the file would land outside the server.
+        let rel = dest.strip_prefix(&target_dir).unwrap_or(&dest).to_path_buf();
+        let file_name = match rel.file_name() {
+            Some(n) => n.to_os_string(),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": format!("invalid filename: {raw_name}")})),
+                )
+                    .into_response();
+            }
+        };
+        let parent_rel = rel.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let chain_base = target_dir.clone();
+        let parent = match tokio::task::spawn_blocking(move || {
+            safe_fs::ensure_dir_chain(&chain_base, &parent_rel, &mut Vec::new())
+        })
+        .await
+        {
+            Ok(Ok(Some(p))) => p,
+            Ok(Ok(None)) => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"error": "upload path crosses a symbolic link or a file"})),
+                )
+                    .into_response();
+            }
+            Ok(Err(e)) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"error": format!("failed to create directory: {e}")})),
                 )
                     .into_response();
             }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("directory task failed: {e}")})),
+                )
+                    .into_response();
+            }
+        };
+        let dest = parent.join(file_name);
+        match std::fs::symlink_metadata(&dest) {
+            Ok(md) if md.file_type().is_symlink() => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"error": "symbolic links are not allowed"})),
+                )
+                    .into_response();
+            }
+            Ok(md) if md.is_dir() => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "upload target is a directory"})),
+                )
+                    .into_response();
+            }
+            _ => {}
         }
 
         // Stream the field's chunks straight to disk so uploads are bounded by
-        // free disk space, not memory. No in-memory size cap.
-        let mut file = match tokio::fs::File::create(&dest).await {
-            Ok(f) => f,
+        // free disk space, not memory. No in-memory size cap. The data goes to
+        // a fresh temp file that is renamed over the target at the end, so an
+        // existing file (possibly a hardlink) is replaced, never written through.
+        let (tmp, mut file) = match safe_fs::create_temp_async(&dest).await {
+            Ok(v) => v,
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -933,32 +1430,33 @@ async fn upload_file(
             }
         };
 
-        loop {
-            match field.chunk().await {
-                Ok(Some(chunk)) => {
-                    if let Err(e) = file.write_all(&chunk).await {
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({"error": format!("failed to write file: {e}")})),
-                        )
-                            .into_response();
+        let streamed: Result<(), (StatusCode, String)> = async {
+            loop {
+                match field.chunk().await {
+                    Ok(Some(chunk)) => file.write_all(&chunk).await.map_err(|e| {
+                        (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to write file: {e}"))
+                    })?,
+                    Ok(None) => break,
+                    Err(e) => {
+                        return Err((StatusCode::BAD_REQUEST, format!("failed to read upload: {e}")));
                     }
                 }
-                Ok(None) => break,
-                Err(e) => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({"error": format!("failed to read upload: {e}")})),
-                    )
-                        .into_response();
-                }
             }
+            file.flush().await.map_err(|e| {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to flush file: {e}"))
+            })
         }
+        .await;
+        drop(file);
 
-        if let Err(e) = file.flush().await {
+        if let Err((status, msg)) = streamed {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return (status, Json(serde_json::json!({"error": msg}))).into_response();
+        }
+        if let Err(e) = safe_fs::commit_async(tmp, dest).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("failed to flush file: {e}")})),
+                Json(serde_json::json!({"error": format!("failed to store file: {e}")})),
             )
                 .into_response();
         }
@@ -1096,55 +1594,13 @@ async fn extract_archive(
     let extract_dir = target.parent().unwrap().to_path_buf();
     let archive_path = target.clone();
 
-    // Run extraction in a blocking task
+    // Run extraction in a blocking task. safe_fs::extract_zip guards against
+    // zip-slip, symlink entries, planted symlinks and decompression bombs.
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
+        let file = safe_fs::open_nofollow(&archive_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
-        let count = archive.len();
-
-        // Canonical base every extracted path must stay within. Guards against
-        // zip-slip: an entry name that is absolute (e.g. "/etc/cron.d/x") or
-        // uses ".." would otherwise escape the server directory and let a
-        // crafted archive write arbitrary files as the daemon user.
-        let base = extract_dir
-            .canonicalize()
-            .map_err(|e| format!("canonicalize base: {e}"))?;
-
-        for i in 0..count {
-            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
-
-            // Use the zip crate's own sanitized name, which strips absolute
-            // prefixes and drops any component that would traverse upward.
-            let sanitized = match entry.enclosed_name() {
-                Some(p) => p.to_path_buf(),
-                None => continue, // unsafe/absolute/traversing entry — skip
-            };
-
-            let out_path = base.join(&sanitized);
-
-            // Defense in depth: confirm the resolved parent is inside base.
-            let check_dir = if entry.is_dir() {
-                out_path.clone()
-            } else {
-                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
-            };
-            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
-            let real_dir = check_dir
-                .canonicalize()
-                .map_err(|e| format!("canonicalize entry: {e}"))?;
-            if !real_dir.starts_with(&base) {
-                continue; // escapes the sandbox — skip
-            }
-
-            if entry.is_dir() {
-                std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
-            } else {
-                let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
-                std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
-            }
-        }
-
-        Ok(count)
+        let stats = safe_fs::extract_zip(&mut archive, &extract_dir, safe_fs::ExtractLimits::default())?;
+        Ok(stats.written)
     })
     .await;
 
@@ -1173,12 +1629,12 @@ async fn create_archive(
     Path(server_id): Path<String>,
     Json(req): Json<ArchiveRequest>,
 ) -> impl IntoResponse {
-    let target = match resolve_safe_path(&state.servers_base_dir, &server_id, &req.path).await {
+    let (root, target) = match resolve_in_server(&state.servers_base_dir, &server_id, &req.path).await {
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
 
-    if !target.exists() {
+    if std::fs::symlink_metadata(&target).is_err() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "path not found"})),
@@ -1190,49 +1646,49 @@ async fn create_archive(
         "{}.zip",
         target.file_name().unwrap_or_default().to_string_lossy()
     );
-    let archive_path = target.parent().unwrap().join(&archive_name);
+    // Next to the source, except for the server root itself: its parent is
+    // outside the sandbox, so that archive goes inside the root.
+    let archive_dir = if target == root {
+        root.clone()
+    } else {
+        match target.parent() {
+            Some(p) => p.to_path_buf(),
+            None => return ActionResponse::err("invalid path").into_response(),
+        }
+    };
+    let archive_path = archive_dir.join(&archive_name);
     let source = target.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
-        let file = std::fs::File::create(&archive_path).map_err(|e| format!("create archive: {e}"))?;
-        let mut zip_writer = zip::ZipWriter::new(file);
+        if safe_fs::is_symlink(&archive_path) {
+            return Err("archive target is a symbolic link".to_string());
+        }
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
+        // Never archive the archive being written.
+        let exclude = vec![archive_path.clone()];
 
-        if source.is_file() {
-            let name = source.file_name().unwrap().to_string_lossy().to_string();
-            zip_writer.start_file(&name, options).map_err(|e| format!("start file: {e}"))?;
-            let data = std::fs::read(&source).map_err(|e| format!("read file: {e}"))?;
-            std::io::Write::write_all(&mut zip_writer, &data).map_err(|e| format!("write: {e}"))?;
-        } else {
-            // Recursively add directory contents
-            fn add_dir(
-                writer: &mut zip::ZipWriter<std::fs::File>,
-                base: &std::path::Path,
-                current: &std::path::Path,
-                options: zip::write::SimpleFileOptions,
-            ) -> Result<(), String> {
-                for entry in std::fs::read_dir(current).map_err(|e| format!("read dir: {e}"))? {
-                    let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
-                    let path = entry.path();
-                    let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
-
-                    if path.is_dir() {
-                        writer.add_directory(format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
-                        add_dir(writer, base, &path, options)?;
-                    } else {
-                        writer.start_file(&rel, options).map_err(|e| format!("start file: {e}"))?;
-                        let data = std::fs::read(&path).map_err(|e| format!("read: {e}"))?;
-                        std::io::Write::write_all(writer, &data).map_err(|e| format!("write: {e}"))?;
-                    }
-                }
-                Ok(())
-            }
-
-            add_dir(&mut zip_writer, &source, &source, options)?;
-        }
-
-        zip_writer.finish().map_err(|e| format!("finish archive: {e}"))?;
+        let written = safe_fs::write_atomic(&archive_path, |file| {
+            let mut zip_writer = zip::ZipWriter::new(&mut *file);
+            let zipped = if source.is_file() {
+                let name = source.file_name().unwrap_or_default().to_string_lossy().to_string();
+                safe_fs::open_nofollow(&source)
+                    .map_err(|e| format!("read file: {e}"))
+                    .and_then(|mut f| {
+                        zip_writer
+                            .start_file(&name, options.large_file(true))
+                            .map_err(|e| format!("start file: {e}"))?;
+                        std::io::copy(&mut f, &mut zip_writer).map_err(|e| format!("write: {e}"))?;
+                        Ok(())
+                    })
+            } else {
+                safe_fs::zip_tree(&mut zip_writer, &source, &source, options, &exclude)
+            };
+            zipped
+                .and_then(|_| zip_writer.finish().map(|_| ()).map_err(|e| format!("finish archive: {e}")))
+                .map_err(std::io::Error::other)
+        });
+        written.map_err(|e| format!("create archive: {e}"))?;
         Ok(archive_name)
     })
     .await;
@@ -1289,39 +1745,22 @@ fn backup_archive_path(backups_base_dir: &str, server_id: &str, backup_id: &str)
 }
 
 /// Recursively zip a directory into `archive_path`. Blocking; call under spawn_blocking.
+/// Symlinks inside `source` are skipped, never followed: a tenant link to
+/// `/etc` or another server's directory must not end up in the backup.
 fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Result<u64, String> {
     if let Some(parent) = archive_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create backup dir: {e}"))?;
     }
-    let file = std::fs::File::create(archive_path).map_err(|e| format!("create archive: {e}"))?;
-    let mut zip_writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    fn add_dir(
-        writer: &mut zip::ZipWriter<std::fs::File>,
-        base: &std::path::Path,
-        current: &std::path::Path,
-        options: zip::write::SimpleFileOptions,
-    ) -> Result<(), String> {
-        for entry in std::fs::read_dir(current).map_err(|e| format!("read dir: {e}"))? {
-            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
-            let path = entry.path();
-            let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
-            if path.is_dir() {
-                writer.add_directory(format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
-                add_dir(writer, base, &path, options)?;
-            } else {
-                writer.start_file(&rel, options).map_err(|e| format!("start file: {e}"))?;
-                let data = std::fs::read(&path).map_err(|e| format!("read: {e}"))?;
-                std::io::Write::write_all(writer, &data).map_err(|e| format!("write: {e}"))?;
-            }
-        }
-        Ok(())
-    }
-
-    add_dir(&mut zip_writer, source, source, options)?;
-    zip_writer.finish().map_err(|e| format!("finish archive: {e}"))?;
+    safe_fs::write_atomic(archive_path, |file| {
+        let mut zip_writer = zip::ZipWriter::new(&mut *file);
+        safe_fs::zip_tree(&mut zip_writer, source, source, options, &[])
+            .and_then(|_| zip_writer.finish().map(|_| ()).map_err(|e| format!("finish archive: {e}")))
+            .map_err(std::io::Error::other)
+    })
+    .map_err(|e| format!("create archive: {e}"))?;
 
     let size = std::fs::metadata(archive_path).map(|m| m.len()).unwrap_or(0);
     Ok(size)
@@ -1386,35 +1825,8 @@ async fn restore_backup(
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
-        let count = archive.len();
-        let base = dest.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
-
-        for i in 0..count {
-            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
-            // zip-slip guard: skip absolute/traversing entries.
-            let sanitized = match entry.enclosed_name() {
-                Some(p) => p.to_path_buf(),
-                None => continue,
-            };
-            let out_path = base.join(&sanitized);
-            let check_dir = if entry.is_dir() {
-                out_path.clone()
-            } else {
-                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
-            };
-            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
-            let real_dir = check_dir.canonicalize().map_err(|e| format!("canonicalize entry: {e}"))?;
-            if !real_dir.starts_with(&base) {
-                continue;
-            }
-            if entry.is_dir() {
-                std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
-            } else {
-                let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
-                std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
-            }
-        }
-        Ok(count)
+        let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
+        Ok(stats.written)
     })
     .await;
 
@@ -1432,8 +1844,8 @@ async fn download_backup(
     Query(query): Query<BackupQuery>,
 ) -> impl IntoResponse {
     let backup_id = match query.backup_id {
-        Some(id) if valid_backup_id(&id) => id,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid or missing backup_id"}))).into_response(),
+        Some(id) if valid_backup_id(&id) && valid_server_id(&server_id) => id,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"}))).into_response(),
     };
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
@@ -1461,8 +1873,8 @@ async fn delete_backup(
     Query(query): Query<BackupQuery>,
 ) -> impl IntoResponse {
     let backup_id = match query.backup_id {
-        Some(id) if valid_backup_id(&id) => id,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid or missing backup_id"}))).into_response(),
+        Some(id) if valid_backup_id(&id) && valid_server_id(&server_id) => id,
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"}))).into_response(),
     };
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
@@ -1486,7 +1898,7 @@ async fn import_server(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     // The server id comes from the panel; guard against traversal regardless.
-    if server_id.contains('/') || server_id.contains('\\') || server_id.contains("..") {
+    if !valid_server_id(&server_id) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id"}))).into_response();
     }
 
@@ -1521,34 +1933,8 @@ async fn import_server(
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         let reader = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("read archive: {e}"))?;
-        let count = archive.len();
-        let base = dest.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
-
-        for i in 0..count {
-            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
-            let sanitized = match entry.enclosed_name() {
-                Some(p) => p.to_path_buf(),
-                None => continue,
-            };
-            let out_path = base.join(&sanitized);
-            let check_dir = if entry.is_dir() {
-                out_path.clone()
-            } else {
-                out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| base.clone())
-            };
-            std::fs::create_dir_all(&check_dir).map_err(|e| format!("mkdir: {e}"))?;
-            let real_dir = check_dir.canonicalize().map_err(|e| format!("canonicalize entry: {e}"))?;
-            if !real_dir.starts_with(&base) {
-                continue;
-            }
-            if entry.is_dir() {
-                std::fs::create_dir_all(&out_path).map_err(|e| format!("mkdir: {e}"))?;
-            } else {
-                let mut out_file = std::fs::File::create(&out_path).map_err(|e| format!("create file: {e}"))?;
-                std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("write file: {e}"))?;
-            }
-        }
-        Ok(count)
+        let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
+        Ok(stats.written)
     })
     .await;
 
@@ -1674,4 +2060,211 @@ pub async fn run_http_server(
         .map_err(|e| anyhow::anyhow!("HTTP server error: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    const SID: &str = "123e4567-e89b-12d3-a456-426614174000";
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("tp-http-test-{tag}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir.canonicalize().unwrap()
+    }
+
+    fn zip_bytes(build: impl FnOnce(&mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>)) -> Vec<u8> {
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        build(&mut w);
+        w.finish().unwrap().into_inner()
+    }
+
+    fn opts() -> zip::write::SimpleFileOptions {
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)
+    }
+
+    fn extract(
+        bytes: Vec<u8>,
+        base: &std::path::Path,
+        limits: safe_fs::ExtractLimits,
+    ) -> Result<safe_fs::ExtractStats, String> {
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        safe_fs::extract_zip(&mut archive, base, limits)
+    }
+
+    #[test]
+    fn server_ids_must_be_canonical_uuids() {
+        assert!(valid_server_id(SID));
+        assert!(!valid_server_id(""));
+        assert!(!valid_server_id(".."));
+        assert!(!valid_server_id("../etc"));
+        assert!(!valid_server_id("123e4567e89b12d3a456426614174000"));
+        assert!(!valid_server_id("{123e4567-e89b-12d3-a456-426614174000}"));
+    }
+
+    #[test]
+    fn write_atomic_replaces_a_hardlink_instead_of_writing_through_it() {
+        let dir = scratch_dir("hardlink");
+        let shared = dir.join("shared.jar");
+        std::fs::write(&shared, b"original").unwrap();
+        std::fs::create_dir(dir.join("srv")).unwrap();
+        let linked = dir.join("srv").join("HytaleServer.jar");
+        std::fs::hard_link(&shared, &linked).unwrap();
+
+        safe_fs::write_atomic(&linked, |f| f.write_all(b"tenant data")).unwrap();
+
+        assert_eq!(std::fs::read(&shared).unwrap(), b"original");
+        assert_eq!(std::fs::read(&linked).unwrap(), b"tenant data");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_replaces_a_symlink_instead_of_following_it() {
+        let dir = scratch_dir("symlink-write");
+        let outside = dir.join("outside.txt");
+        std::fs::write(&outside, b"keep").unwrap();
+        let link = dir.join("link.txt");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        safe_fs::write_atomic(&link, |f| f.write_all(b"new")).unwrap();
+
+        assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
+        assert!(!safe_fs::is_symlink(&link));
+        assert_eq!(std::fs::read(&link).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resolve_refuses_symlinks_and_dangling_links() {
+        let base = scratch_dir("resolve");
+        let root = base.join(SID);
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let outside = scratch_dir("resolve-outside");
+        std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+        std::os::unix::fs::symlink(outside.join("nope"), root.join("dangling")).unwrap();
+        std::os::unix::fs::symlink(root.join("sub"), root.join("inner")).unwrap();
+        let b = base.to_str().unwrap();
+
+        assert!(resolve_safe_path(b, SID, "/sub").await.is_ok());
+        assert!(resolve_safe_path(b, SID, "/new.txt").await.is_ok());
+        assert_eq!(resolve_safe_path(b, SID, "/escape").await.unwrap_err().0, StatusCode::FORBIDDEN);
+        assert_eq!(resolve_safe_path(b, SID, "/escape/x").await.unwrap_err().0, StatusCode::FORBIDDEN);
+        assert_eq!(resolve_safe_path(b, SID, "/dangling").await.unwrap_err().0, StatusCode::FORBIDDEN);
+        // Even a link pointing inside the root is refused as a final component.
+        assert_eq!(resolve_safe_path(b, SID, "/inner").await.unwrap_err().0, StatusCode::FORBIDDEN);
+        assert_eq!(resolve_safe_path(b, "../x", "/").await.unwrap_err().0, StatusCode::BAD_REQUEST);
+        assert!(resolve_safe_child(b, SID, "/").await.is_err());
+        assert!(resolve_safe_child(b, SID, "/sub").await.is_ok());
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn extract_writes_regular_entries_and_skips_traversal() {
+        let base = scratch_dir("extract-ok");
+        let bytes = zip_bytes(|w| {
+            w.add_directory("dir/", opts()).unwrap();
+            w.start_file("dir/a.txt", opts()).unwrap();
+            w.write_all(b"hello").unwrap();
+            w.start_file("../evil.txt", opts()).unwrap();
+            w.write_all(b"x").unwrap();
+        });
+        let stats = extract(bytes, &base, safe_fs::ExtractLimits::default()).unwrap();
+        assert_eq!(stats.written, 1);
+        assert_eq!(std::fs::read(base.join("dir/a.txt")).unwrap(), b"hello");
+        assert!(!base.parent().unwrap().join("evil.txt").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_skips_symlink_entries_and_never_follows_planted_links() {
+        let base = scratch_dir("extract-links");
+        let outside = scratch_dir("extract-outside");
+        std::fs::write(outside.join("victim.txt"), b"keep").unwrap();
+        // Planted by the tenant before the extraction.
+        std::os::unix::fs::symlink(&outside, base.join("mods")).unwrap();
+        std::os::unix::fs::symlink(outside.join("victim.txt"), base.join("config.json")).unwrap();
+
+        let bytes = zip_bytes(|w| {
+            w.add_symlink("link", "/etc", opts()).unwrap();
+            w.start_file("mods/victim.txt", opts()).unwrap();
+            w.write_all(b"pwned").unwrap();
+            w.start_file("config.json", opts()).unwrap();
+            w.write_all(b"{}").unwrap();
+        });
+        let stats = extract(bytes, &base, safe_fs::ExtractLimits::default()).unwrap();
+
+        assert_eq!(stats.written, 1, "only config.json is written");
+        assert_eq!(stats.skipped, 2);
+        assert!(std::fs::symlink_metadata(base.join("link")).is_err(), "symlink entry must not be created");
+        assert_eq!(std::fs::read(outside.join("victim.txt")).unwrap(), b"keep");
+        // The planted link was replaced by a regular file, not written through.
+        assert!(!safe_fs::is_symlink(&base.join("config.json")));
+        assert_eq!(std::fs::read(base.join("config.json")).unwrap(), b"{}");
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn extract_aborts_on_size_limit_and_cleans_up() {
+        let base = scratch_dir("extract-bomb");
+        let bytes = zip_bytes(|w| {
+            w.start_file("first/a.bin", opts()).unwrap();
+            w.write_all(&[0u8; 600]).unwrap();
+            w.start_file("second/b.bin", opts()).unwrap();
+            w.write_all(&[0u8; 600]).unwrap();
+        });
+        let limits = safe_fs::ExtractLimits { max_total_bytes: 1000, max_entries: 10 };
+        let err = extract(bytes, &base, limits).unwrap_err();
+        assert!(err.contains("size limit"), "{err}");
+        assert!(!base.join("first").exists(), "partial output must be removed");
+        assert!(!base.join("second").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn extract_rejects_too_many_entries() {
+        let base = scratch_dir("extract-count");
+        let bytes = zip_bytes(|w| {
+            for i in 0..5 {
+                w.start_file(format!("f{i}"), opts()).unwrap();
+            }
+        });
+        let limits = safe_fs::ExtractLimits { max_total_bytes: 1 << 20, max_entries: 4 };
+        assert!(extract(bytes, &base, limits).unwrap_err().contains("entries"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zip_tree_skips_symlinks() {
+        let src = scratch_dir("zip-src");
+        let outside = scratch_dir("zip-outside");
+        std::fs::write(outside.join("secret"), b"s").unwrap();
+        std::fs::write(src.join("real.txt"), b"r").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret"), src.join("leak")).unwrap();
+        std::os::unix::fs::symlink(&outside, src.join("leakdir")).unwrap();
+
+        let out_dir = scratch_dir("zip-out");
+        let out = out_dir.join("b.zip");
+        zip_dir_to(&src, &out).unwrap();
+
+        let archive = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+        let names: Vec<&str> = archive.file_names().collect();
+        assert_eq!(names, vec!["real.txt"]);
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&outside);
+        let _ = std::fs::remove_dir_all(&out_dir);
+    }
 }
