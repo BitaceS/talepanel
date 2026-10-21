@@ -17,25 +17,6 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
-    _loadTokenFromStorage() {
-      if (import.meta.client) {
-        const stored = localStorage.getItem('tp_access_token')
-        if (stored) {
-          this.accessToken = stored
-        }
-      }
-    },
-
-    _saveTokenToStorage(token: string | null) {
-      if (import.meta.client) {
-        if (token) {
-          localStorage.setItem('tp_access_token', token)
-        } else {
-          localStorage.removeItem('tp_access_token')
-        }
-      }
-    },
-
     // login returns true when fully authenticated, or false when the account
     // has 2FA enabled and a TOTP code is still required (partialToken is set).
     async login(email: string, password: string): Promise<boolean> {
@@ -58,7 +39,6 @@ export const useAuthStore = defineStore('auth', {
 
         if (response.access_token) {
           this.accessToken = response.access_token
-          this._saveTokenToStorage(response.access_token)
         }
         if (response.user) {
           this.user = response.user
@@ -91,7 +71,6 @@ export const useAuthStore = defineStore('auth', {
 
         if (response.access_token) {
           this.accessToken = response.access_token
-          this._saveTokenToStorage(response.access_token)
         }
         if (response.user) {
           this.user = response.user
@@ -104,19 +83,23 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    // The access token lives in memory only; a reload re-derives it from the
+    // httpOnly refresh cookie. Refresh tokens rotate on use, so concurrent
+    // refreshes from several tabs are serialised with a Web Lock - otherwise
+    // the loser would present an already-revoked cookie and be logged out.
     async refresh(): Promise<void> {
       const config = useRuntimeConfig()
-      const response = await $fetch<LoginResponse>(
-        `${config.public.apiBase}/auth/refresh`,
-        {
+      const doRefresh = () =>
+        $fetch<LoginResponse>(`${config.public.apiBase}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-        }
-      )
+        })
+      const response = import.meta.client && navigator.locks
+        ? await navigator.locks.request('tp_auth_refresh', doRefresh)
+        : await doRefresh()
 
       if (response.access_token) {
         this.accessToken = response.access_token
-        this._saveTokenToStorage(response.access_token)
       }
     },
 
@@ -135,7 +118,6 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.accessToken = null
         this.user = null
-        this._saveTokenToStorage(null)
         await navigateTo('/auth/login')
       }
     },
@@ -152,38 +134,19 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async initialize(): Promise<void> {
-      this._loadTokenFromStorage()
+      // Older builds persisted the access token in localStorage, where any
+      // XSS could read it. Drop it; the refresh cookie restores the session.
+      if (import.meta.client) {
+        localStorage.removeItem('tp_access_token')
+      }
 
-      if (this.accessToken) {
-        try {
-          await this.fetchMe()
-        } catch (err: unknown) {
-          const fetchErr = err as { status?: number }
-          // Token expired - try refresh
-          if (fetchErr.status === 401) {
-            try {
-              await this.refresh()
-              await this.fetchMe()
-            } catch {
-              // Refresh failed - clear state
-              this.accessToken = null
-              this.user = null
-              this._saveTokenToStorage(null)
-            }
-          } else {
-            this.accessToken = null
-            this.user = null
-            this._saveTokenToStorage(null)
-          }
-        }
-      } else {
-        // No stored token - try refresh cookie
-        try {
-          await this.refresh()
-          await this.fetchMe()
-        } catch {
-          // No valid session
-        }
+      try {
+        await this.refresh()
+        await this.fetchMe()
+      } catch {
+        // No valid session
+        this.accessToken = null
+        this.user = null
       }
     },
   },
