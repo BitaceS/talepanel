@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,35 @@ type ServerHandler struct {
 	log            *zap.Logger
 	alertSvc       *services.AlertService
 	hytaleAuth     *services.HytaleAuthService // optional; nil = servers start unauthenticated
+
+	sessionMu    sync.Mutex
+	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
+}
+
+// gameSessionInterval is the minimum gap between game-session mints for one
+// server. A start needs one; a leaked node token must not be able to mint
+// sessions for the panel's Hytale account in a loop.
+const gameSessionInterval = 10 * time.Second
+
+// allowGameSession records a mint for serverID unless one happened within
+// gameSessionInterval.
+func (h *ServerHandler) allowGameSession(serverID uuid.UUID) bool {
+	h.sessionMu.Lock()
+	defer h.sessionMu.Unlock()
+	now := time.Now()
+	if h.lastSessions == nil {
+		h.lastSessions = make(map[uuid.UUID]time.Time)
+	}
+	if last, ok := h.lastSessions[serverID]; ok && now.Sub(last) < gameSessionInterval {
+		return false
+	}
+	for id, t := range h.lastSessions {
+		if now.Sub(t) >= gameSessionInterval {
+			delete(h.lastSessions, id)
+		}
+	}
+	h.lastSessions[serverID] = now
+	return true
 }
 
 // SetHytaleAuth enables minting Hytale game sessions for daemon server starts.
@@ -49,6 +79,13 @@ func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 		return
 	}
+	nodeID, _ := middleware.GetDaemonNodeID(c)
+	if !h.allowGameSession(serverID) {
+		h.log.Warn("game session request throttled",
+			zap.String("server_id", serverID.String()), zap.String("node_id", nodeID))
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "game session requested too often"})
+		return
+	}
 
 	session, err := h.hytaleAuth.NewGameSession(c.Request.Context())
 	if errors.Is(err, services.ErrHytaleNotLinked) {
@@ -61,6 +98,8 @@ func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
+	h.log.Info("minted Hytale game session for server start",
+		zap.String("server_id", serverID.String()), zap.String("node_id", nodeID))
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, session)
 }
