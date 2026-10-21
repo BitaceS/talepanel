@@ -25,10 +25,18 @@ Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
 - Default commands: `give` uses `--quantity`, weather uses `Zone1_Sunny --world {world}` (there is no `clear` weather). Migration 032.
 - Default game commands were listed twice, and the global copy failed with "command not found".
 - Invalid server settings return 400 instead of 500.
+- Daemon logs reach stdout again: the bootstrap log subscriber blocked the configured one, so only errors were printed.
+- `/play` reports a gamemode as unavailable instead of throwing on a bad address or empty secret.
 
 ### Security
 - Game-command parameters containing control characters are rejected; a newline smuggled a second console command past `min_role`.
 - `DELETE /servers/:id/game-commands/:cmdId` only deletes that server's own commands. Before, it could delete any server's commands and the global defaults.
+- Game-command parameters other than `message`/`reason` must be a single word without a leading `--`, so they cannot append arguments or flags.
+- Global built-in commands get the same `min_role` as the per-server defaults (they were `user`, so any console user could run `stop`/`op`/`give`). Migration 034.
+- Hytale game sessions are minted at most once per server every 10 s, and each mint is logged with the node.
+- Game server processes no longer inherit the daemon's environment secrets (`TALEDAEMON_NODE_TOKEN` etc.), which any plugin could read.
+- The web panel keeps the access token in memory only (it was in `localStorage`); a reload restores the session from the httpOnly refresh cookie.
+- The Hytale device-login link is only rendered if it is `https://`.
 
 ## [0.9.0-beta] — 2026-04-17
 
