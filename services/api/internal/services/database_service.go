@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,8 +50,8 @@ func (s *DatabaseService) CreateDatabase(ctx context.Context, serverID uuid.UUID
 	}
 
 	// Generate credentials.
-	dbName := "tp_" + shortUUID(serverID)
-	dbUser := "tp_" + shortUUID(serverID)
+	dbName := mysqlIdentForServer(serverID)
+	dbUser := dbName
 	dbPassword, err := generateDBPassword()
 	if err != nil {
 		return nil, fmt.Errorf("generating password: %w", err)
@@ -150,22 +152,32 @@ func (s *DatabaseService) provisionMySQL(dbName, dbUser, dbPassword string) erro
 		return fmt.Errorf("MariaDB not configured")
 	}
 
+	if err := checkMySQLIdents(dbName, dbUser); err != nil {
+		return err
+	}
+	if err := checkMySQLPassword(dbPassword); err != nil {
+		return err
+	}
+
 	conn, err := sql.Open("mysql", s.mysqlDSN)
 	if err != nil {
 		return fmt.Errorf("connecting to MariaDB: %w", err)
 	}
 	defer conn.Close()
 
-	statements := []string{
-		fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", dbName),
-		fmt.Sprintf("CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s'", dbUser, dbPassword),
-		fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%%'", dbName, dbUser),
-		"FLUSH PRIVILEGES",
+	// No IF NOT EXISTS: an existing database or user must fail loudly rather
+	// than be silently shared with another server.
+	statements := []struct{ desc, sql string }{
+		{"creating database", fmt.Sprintf("CREATE DATABASE `%s`", dbName)},
+		{"creating user", fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'", dbUser, dbPassword)},
+		{"granting privileges", fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%%'", dbName, dbUser)},
+		{"flushing privileges", "FLUSH PRIVILEGES"},
 	}
 
 	for _, stmt := range statements {
-		if _, err := conn.Exec(stmt); err != nil {
-			return fmt.Errorf("executing %q: %w", stmt, err)
+		// The statement text holds the password, so it never goes into the error.
+		if _, err := conn.Exec(stmt.sql); err != nil {
+			return fmt.Errorf("%s: %w", stmt.desc, err)
 		}
 	}
 	return nil
@@ -174,6 +186,13 @@ func (s *DatabaseService) provisionMySQL(dbName, dbUser, dbPassword string) erro
 func (s *DatabaseService) resetMySQLPassword(dbUser, newPassword string) error {
 	if s.mysqlDSN == "" {
 		return fmt.Errorf("MariaDB not configured")
+	}
+
+	if err := checkMySQLIdents(dbUser); err != nil {
+		return err
+	}
+	if err := checkMySQLPassword(newPassword); err != nil {
+		return err
 	}
 
 	conn, err := sql.Open("mysql", s.mysqlDSN)
@@ -195,6 +214,10 @@ func (s *DatabaseService) dropMySQL(dbName, dbUser string) error {
 		return nil
 	}
 
+	if err := checkMySQLIdents(dbName, dbUser); err != nil {
+		return err
+	}
+
 	conn, err := sql.Open("mysql", s.mysqlDSN)
 	if err != nil {
 		return err
@@ -206,10 +229,36 @@ func (s *DatabaseService) dropMySQL(dbName, dbUser string) error {
 	return nil
 }
 
-func shortUUID(id uuid.UUID) string {
-	s := id.String()
-	// Use last 8 chars of UUID for short identifier.
-	return s[len(s)-8:]
+// mysqlIdentForServer is the database and user name for serverID: "tp_" and
+// the first 29 hex digits of the UUID, which fills MariaDB's 32-character
+// user-name limit. The former 8-digit suffix collided at scale, and with
+// IF NOT EXISTS a collision silently shared one server's database with another.
+func mysqlIdentForServer(id uuid.UUID) string {
+	return "tp_" + strings.ReplaceAll(id.String(), "-", "")[:29]
+}
+
+// Identifiers and passwords are interpolated into DDL (MySQL cannot bind
+// them), so both are checked against a strict charset first. Older rows hold
+// 11-character names, which also pass.
+var (
+	mysqlIdentRe    = regexp.MustCompile(`^tp_[0-9a-f]{8,29}$`)
+	mysqlPasswordRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
+)
+
+func checkMySQLIdents(idents ...string) error {
+	for _, id := range idents {
+		if !mysqlIdentRe.MatchString(id) {
+			return fmt.Errorf("refusing unsafe MariaDB identifier %q", id)
+		}
+	}
+	return nil
+}
+
+func checkMySQLPassword(pw string) error {
+	if !mysqlPasswordRe.MatchString(pw) {
+		return errors.New("refusing MariaDB password outside the generated charset")
+	}
+	return nil
 }
 
 func generateDBPassword() (string, error) {
