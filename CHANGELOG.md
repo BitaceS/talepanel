@@ -41,6 +41,67 @@ Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
 - `--allow-op` can only be added or removed by admins.
 - Refresh tokens get a 30 s grace period after rotation, so parallel tabs or a reload during a refresh no longer log the user out.
 
+### Security — injection hardening
+
+API:
+- Alert webhooks:
+  - Must be https on port 443 and point to a public host.
+  - Calls go through a client that refuses private addresses after DNS (no rebinding), ignores proxies and never follows redirects.
+  - Webhook URLs are no longer logged.
+- Alert rules are scoped:
+  - Non-admins can only create rules for servers they can view.
+  - Global and node-level rules (CPU/RAM/disk, node offline, DDoS) are admin-only.
+  - Events can only be resolved by their owner.
+- Audit log:
+  - The client IP comes from the trusted proxy chain, not a raw header.
+  - NUL bytes and invalid UTF-8 are stripped, and secrets are redacted at any depth.
+  - A failed insert is retried instead of being dropped.
+- Server migration is admin-only and checks that the target node is online and has room.
+- Admins can no longer demote, disable or delete owners, and the last owner cannot be removed.
+- Request bodies are limited per route: 1 MiB by default, with larger limits for daemon callbacks, file edits and mod uploads.
+- Daemon client:
+  - URLs are built with proper escaping.
+  - Node addresses (fqdn, public address, port) are validated on register, enrollment and update.
+  - Download filenames are encoded safely.
+  - The client pool is now mutex-guarded (concurrent map access).
+- Console commands containing any control character, including line breaks, are rejected for every caller.
+- Game-command templates are substituted in a single pass. World names must match `[A-Za-z0-9_-]{1,64}`.
+- Player names must match `[A-Za-z0-9_]{1,32}` before they reach a console command (kick, ban, op, mute, network unban).
+- Mod install URLs must be https. Non-admins are limited to the CurseForge CDN.
+- MariaDB databases:
+  - Names are derived from the server id (`tp_<hex>`), so they cannot collide.
+  - DDL values are checked strictly, and SQL text no longer appears in error messages.
+- Log pushes are capped at 5000 lines and inserted in chunks.
+
+Daemon:
+- File operations:
+  - Every file operation stays inside the server directory and never follows a symlink planted by a tenant.
+  - Config writes are atomic.
+  - Commands are bound to `{servers_dir}/{server_id}`.
+- Mod downloads:
+  - Only public addresses on https/443.
+  - The address is pinned per hop, redirects are re-validated, and proxies are ignored.
+  - Downloads are capped at 512 MiB and streamed to a temp file.
+- Archive extraction:
+  - Limited to 200k entries / 20 GiB.
+  - Symlinks are skipped.
+  - The downloader only extracts its own archive.
+- Node token comparison is constant-time, and an empty token never matches.
+- Console input with control characters is rejected.
+- Offline Hytale binaries are copied per server instead of hardlinked, so one server cannot modify another server's jar.
+- Plugin metadata parsing reads at most 64 KiB.
+
+Web and installer:
+- The panel sends CSP, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy and Permissions-Policy on every page.
+- External links taken from CurseForge or GitHub data must be https.
+- The device-login prompt only reads log lines written by the server during installation, so a chat message cannot inject a phishing link.
+- The alerts page only offers rule types the user's role may create.
+- `install.sh` and `common.sh`:
+  - Domains, URLs, ports, UUIDs and tokens are validated.
+  - Env files are written without `sed`.
+  - JSON is built with `jq`.
+  - The login password goes over stdin instead of argv.
+
 ## [0.9.0-beta] — 2026-04-17
 
 Initial public beta. Self-hosted, Open Source under AGPL-3.0.
