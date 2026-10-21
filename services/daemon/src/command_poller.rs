@@ -167,8 +167,6 @@ async fn poll_and_dispatch(
                     CommandResult::err("install_mod payload missing required fields".to_string())
                 } else if !is_safe_mod_filename(&filename) {
                     CommandResult::err(format!("install_mod: unsafe filename {filename}"))
-                } else if let Err(e) = validate_download_url(&download_url).await {
-                    CommandResult::err(format!("install_mod: {e}"))
                 } else {
                     match download_and_install_mod(&download_url, &data_path, &filename).await {
                         Ok(()) => {
@@ -177,7 +175,7 @@ async fn poll_and_dispatch(
                         }
                         Err(err) => {
                             warn!(%err, %filename, "Failed to install mod");
-                            CommandResult::err(err.to_string())
+                            CommandResult::err(format!("install_mod: {err}"))
                         }
                     }
                 }
@@ -376,25 +374,219 @@ async fn poll_and_dispatch(
     }
 }
 
+/// Hard cap on a single mod download. The body is streamed to disk and the
+/// download aborted past this, so a hostile or broken URL cannot exhaust the
+/// memory or disk of a daemon shared by every server on the node.
+const MAX_MOD_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Redirects followed per download. Each hop is re-validated from scratch.
+const MAX_MOD_REDIRECTS: usize = 5;
+
+const MOD_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Wall-clock budget for the whole download, redirects included.
+const MOD_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Download a .jar file from `url` and save it to `{data_path}/mods/{filename}`.
+///
+/// The URL comes from any user holding mod.install, so the fetch is treated
+/// as hostile: every hop (the URL and each redirect) must be https on port
+/// 443 and resolve only to public addresses, and the connection is pinned to
+/// the address that was checked so DNS cannot rebind between check and use.
+/// The body is streamed into a temp file next to the target, capped at
+/// `MAX_MOD_DOWNLOAD_BYTES`, and renamed into place only on success.
 async fn download_and_install_mod(url: &str, data_path: &str, filename: &str) -> anyhow::Result<()> {
+    if !is_safe_mod_filename(filename) {
+        anyhow::bail!("unsafe filename {filename}");
+    }
+    tokio::fs::create_dir_all(data_path).await?;
+    let mods_dir = std::path::Path::new(data_path).join("mods");
+    ensure_real_dir(&mods_dir).await?;
+
+    let target = mods_dir.join(filename);
+    refuse_symlink(&target).await?;
+    let tmp = mods_dir.join(format!(".{filename}.part"));
+    let mut file = create_fresh_temp(&tmp).await?;
+
+    let result = match tokio::time::timeout(MOD_DOWNLOAD_TIMEOUT, fetch_mod_into(url, &mut file)).await {
+        Ok(r) => r,
+        Err(_) => Err(anyhow::anyhow!("download timed out after {}s", MOD_DOWNLOAD_TIMEOUT.as_secs())),
+    };
+    let result = match result {
+        Ok(()) => {
+            drop(file);
+            tokio::fs::rename(&tmp, &target).await.map_err(anyhow::Error::from)
+        }
+        Err(e) => {
+            drop(file);
+            Err(e)
+        }
+    };
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&tmp).await;
+    }
+    result
+}
+
+/// Fetch `raw_url`, following up to `MAX_MOD_REDIRECTS` redirects by hand so
+/// each hop goes through `resolve_download_target`, and stream the final body
+/// into `file`.
+async fn fetch_mod_into(raw_url: &str, file: &mut tokio::fs::File) -> anyhow::Result<()> {
     use tokio::io::AsyncWriteExt;
 
-    let mods_dir = format!("{data_path}/mods");
-    tokio::fs::create_dir_all(&mods_dir).await?;
+    let mut url = reqwest::Url::parse(raw_url).map_err(|e| anyhow::anyhow!("invalid url: {e}"))?;
+    let mut redirects = 0;
+    let mut resp = loop {
+        let target = resolve_download_target(&url).await.map_err(anyhow::Error::msg)?;
+        let resp = pinned_download_client(&target)?.get(url.clone()).send().await?;
+        if !resp.status().is_redirection() {
+            break resp;
+        }
+        redirects += 1;
+        if redirects > MAX_MOD_REDIRECTS {
+            anyhow::bail!("too many redirects");
+        }
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .ok_or_else(|| anyhow::anyhow!("HTTP {} without a Location header", resp.status()))?
+            .to_str()
+            .map_err(|_| anyhow::anyhow!("redirect Location is not valid text"))?;
+        url = url
+            .join(location)
+            .map_err(|e| anyhow::anyhow!("invalid redirect target: {e}"))?;
+    };
 
-    let client = reqwest::Client::new();
-    let resp = client.get(url).send().await?;
     if !resp.status().is_success() {
         anyhow::bail!("Download failed: HTTP {}", resp.status());
     }
+    if resp.content_length().is_some_and(|len| len > MAX_MOD_DOWNLOAD_BYTES) {
+        anyhow::bail!("download exceeds the {} MiB limit", MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024));
+    }
 
-    let bytes = resp.bytes().await?;
-    let file_path = format!("{mods_dir}/{filename}");
-    let mut file = tokio::fs::File::create(&file_path).await?;
-    file.write_all(&bytes).await?;
-
+    let mut written: u64 = 0;
+    while let Some(chunk) = resp.chunk().await? {
+        written += chunk.len() as u64;
+        if written > MAX_MOD_DOWNLOAD_BYTES {
+            anyhow::bail!("download exceeds the {} MiB limit", MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024));
+        }
+        file.write_all(&chunk).await?;
+    }
+    file.flush().await?;
+    file.sync_all().await?;
     Ok(())
+}
+
+/// A download hop that passed validation, and the address its connection must
+/// use. `domain` is `None` for an IP-literal URL, which needs no pinning.
+struct DownloadTarget {
+    domain: Option<String>,
+    addr: std::net::SocketAddr,
+}
+
+/// Validate one download hop: https on the default port, no credentials, and
+/// a host whose every resolved address is public. Resolving here and pinning
+/// the result into the client closes the DNS-rebinding window between the
+/// check and the connection.
+async fn resolve_download_target(url: &reqwest::Url) -> Result<DownloadTarget, String> {
+    if url.scheme() != "https" {
+        return Err("only https download URLs are allowed".to_string());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("download URLs must not carry credentials".to_string());
+    }
+    // Only the standard https port: a public IP that happens to be this node
+    // must not become a way to reach whatever else it listens on.
+    let port = url.port_or_known_default().unwrap_or(443);
+    if port != 443 {
+        return Err("download URLs must use the default https port".to_string());
+    }
+    let host = url.host_str().ok_or_else(|| "url has no host".to_string())?;
+
+    // The url crate normalises IP literals (incl. octal/hex IPv4 forms), so a
+    // literal here parses as an address and is checked without DNS.
+    let literal = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host)
+        .parse::<std::net::IpAddr>();
+    if let Ok(ip) = literal {
+        if !is_public_ip(ip) {
+            return Err("download host is not a public address".to_string());
+        }
+        return Ok(DownloadTarget { domain: None, addr: std::net::SocketAddr::new(ip, port) });
+    }
+
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".internal") {
+        return Err("download host not allowed".to_string());
+    }
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| format!("could not resolve download host: {e}"))?
+        .collect();
+    let first = *addrs.first().ok_or_else(|| "download host did not resolve".to_string())?;
+    // Refuse if *any* answer is internal: a mixed answer is a rebinding setup.
+    if addrs.iter().any(|a| !is_public_ip(a.ip())) {
+        return Err("download host resolves to a disallowed address".to_string());
+    }
+    Ok(DownloadTarget { domain: Some(host.to_string()), addr: first })
+}
+
+/// A client for exactly one request to `target`: redirects off (the caller
+/// follows and re-validates them), proxies off (a proxy would resolve the host
+/// itself and undo the pinning), TLS verification on.
+fn pinned_download_client(target: &DownloadTarget) -> reqwest::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(true)
+        .no_proxy()
+        .connect_timeout(MOD_CONNECT_TIMEOUT)
+        .timeout(MOD_DOWNLOAD_TIMEOUT);
+    if let Some(domain) = &target.domain {
+        builder = builder.resolve(domain, target.addr);
+    }
+    builder.build()
+}
+
+/// Fail if `path` is a symlink. Tenants can plant files in their server
+/// directory, and the daemon must never write through a link they control.
+async fn refuse_symlink(path: &std::path::Path) -> anyhow::Result<()> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(md) if md.file_type().is_symlink() => {
+            anyhow::bail!("refusing to write through symlink {}", path.display())
+        }
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Create `dir` if it is missing (its parent must exist) and require it to be
+/// a real directory rather than a symlink to somewhere else on the node.
+async fn ensure_real_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    match tokio::fs::create_dir(dir).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.into()),
+    }
+    let md = tokio::fs::symlink_metadata(dir).await?;
+    if md.file_type().is_symlink() || !md.is_dir() {
+        anyhow::bail!("{} is not a real directory", dir.display());
+    }
+    Ok(())
+}
+
+/// Open `tmp` as a brand-new file. A stale temp from a crash — or a symlink
+/// planted in its place — is unlinked first (remove_file removes a link, never
+/// its target), and create_new (O_EXCL) refuses anything that reappears.
+async fn create_fresh_temp(tmp: &std::path::Path) -> anyhow::Result<tokio::fs::File> {
+    match tokio::fs::symlink_metadata(tmp).await {
+        Ok(_) => tokio::fs::remove_file(tmp).await?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(tokio::fs::OpenOptions::new().write(true).create_new(true).open(tmp).await?)
 }
 
 /// Directory a mod/plugin toggle defaults to when the payload omits "dir".
@@ -610,41 +802,6 @@ fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
     !blocked
 }
 
-/// Validate a mod download URL before fetching it. Requires https and resolves
-/// the host, rejecting any address inside the node's trust boundary. This is a
-/// best-effort SSRF guard (a rebinding attack could still race between this
-/// check and the fetch); pairing it with an allowlist is recommended.
-async fn validate_download_url(raw: &str) -> Result<(), String> {
-    let url = reqwest::Url::parse(raw).map_err(|e| format!("invalid url: {e}"))?;
-    if url.scheme() != "https" {
-        return Err("only https download URLs are allowed".to_string());
-    }
-    let host = url
-        .host_str()
-        .ok_or_else(|| "url has no host".to_string())?
-        .to_lowercase();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".internal") {
-        return Err("download host not allowed".to_string());
-    }
-    let port = url.port_or_known_default().unwrap_or(443);
-    let mut resolved_any = false;
-    match tokio::net::lookup_host((host.as_str(), port)).await {
-        Ok(addrs) => {
-            for addr in addrs {
-                resolved_any = true;
-                if !is_public_ip(addr.ip()) {
-                    return Err("download host resolves to a disallowed address".to_string());
-                }
-            }
-        }
-        Err(e) => return Err(format!("could not resolve download host: {e}")),
-    }
-    if !resolved_any {
-        return Err("download host did not resolve".to_string());
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,6 +911,104 @@ mod tests {
             let ip: std::net::IpAddr = addr.parse().unwrap();
             assert!(!is_public_ip(ip), "{addr} must be blocked");
         }
+    }
+
+    async fn target_err(raw: &str) -> String {
+        let url = reqwest::Url::parse(raw).unwrap();
+        match resolve_download_target(&url).await {
+            Ok(_) => panic!("{raw} must be rejected"),
+            Err(e) => e,
+        }
+    }
+
+    #[tokio::test]
+    async fn download_target_rejects_unsafe_urls_without_dns() {
+        assert!(target_err("http://1.1.1.1/m.jar").await.contains("https"));
+        assert!(target_err("https://1.1.1.1:8443/m.jar").await.contains("port"));
+        assert!(target_err("https://u:p@1.1.1.1/m.jar").await.contains("credentials"));
+        assert!(target_err("https://localhost/m.jar").await.contains("not allowed"));
+        assert!(target_err("https://metadata.google.internal/m.jar").await.contains("not allowed"));
+        for raw in [
+            "https://169.254.169.254/latest/meta-data/",
+            "https://100.100.100.200/",
+            "https://127.0.0.1/m.jar",
+            "https://0x7f.1/m.jar",          // url crate normalises to 127.0.0.1
+            "https://2130706433/m.jar",      // ditto, decimal form
+            "https://[::1]/m.jar",
+            "https://[::ffff:10.0.0.1]/m.jar",
+            "https://[fd00::1]/m.jar",
+            "https://[fe80::1]/m.jar",
+        ] {
+            assert!(target_err(raw).await.contains("not a public address"), "{raw}");
+        }
+    }
+
+    #[tokio::test]
+    async fn download_target_accepts_public_ip_literal_unpinned() {
+        let url = reqwest::Url::parse("https://1.1.1.1/m.jar").unwrap();
+        let t = resolve_download_target(&url).await.expect("public literal is fine");
+        assert!(t.domain.is_none());
+        assert_eq!(t.addr, "1.1.1.1:443".parse().unwrap());
+
+        let url = reqwest::Url::parse("https://[2606:4700:4700::1111]/m.jar").unwrap();
+        let t = resolve_download_target(&url).await.expect("public v6 literal is fine");
+        assert_eq!(t.addr.ip(), "2606:4700:4700::1111".parse::<std::net::IpAddr>().unwrap());
+    }
+
+    #[tokio::test]
+    async fn failed_mod_download_leaves_nothing_behind() {
+        let root = scratch_dir("mod-ssrf");
+        let data_path = root.join("server");
+
+        let err = download_and_install_mod("https://169.254.169.254/latest", data_path.to_str().unwrap(), "x.jar")
+            .await
+            .expect_err("internal target must be refused");
+        assert!(err.to_string().contains("not a public address"), "{err}");
+
+        let mods = data_path.join("mods");
+        assert!(!mods.join("x.jar").exists());
+        assert!(!mods.join(".x.jar.part").exists(), "partial download must be removed");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mod_install_refuses_symlinked_mods_dir() {
+        let root = scratch_dir("mod-symlink-dir");
+        let data_path = root.join("server");
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&data_path).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, data_path.join("mods")).unwrap();
+
+        let err = download_and_install_mod("https://1.1.1.1/x.jar", data_path.to_str().unwrap(), "x.jar")
+            .await
+            .expect_err("symlinked mods/ must be refused");
+        assert!(err.to_string().contains("not a real directory"), "{err}");
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing written through the link");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fresh_temp_unlinks_a_planted_symlink_instead_of_following_it() {
+        let root = scratch_dir("fresh-temp");
+        let victim = root.join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        let tmp = root.join("config.json.tmp");
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+
+        let mut f = create_fresh_temp(&tmp).await.expect("temp must be created");
+        tokio::io::AsyncWriteExt::write_all(&mut f, b"new").await.unwrap();
+        drop(f);
+
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
+        assert!(!std::fs::symlink_metadata(&tmp).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
