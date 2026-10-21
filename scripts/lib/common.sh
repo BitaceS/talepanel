@@ -73,6 +73,19 @@ gen_secret() {
   openssl rand -hex 32
 }
 
+# gen_setup_code prints a one-time code like ABCD-EFGH-JKLM.  The alphabet
+# leaves out the look-alikes 0/O and 1/I and has 32 symbols, so mapping a
+# random byte with % 32 has no bias.
+gen_setup_code() {
+  local alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789" code="" byte bytes
+  bytes="$(openssl rand 12 | od -An -tu1)" || fail "could not read random bytes"
+  for byte in $bytes; do
+    code+="${alphabet:$((byte % 32)):1}"
+  done
+  [ ${#code} -eq 12 ] || fail "could not generate a setup code"
+  printf '%s-%s-%s\n' "${code:0:4}" "${code:4:4}" "${code:8:4}"
+}
+
 # require_cmds aborts if any of the given commands is missing.
 # Usage: require_cmds curl openssl jq
 require_cmds() {

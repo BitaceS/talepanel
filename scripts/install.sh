@@ -8,6 +8,10 @@
 # Usage (interactive):
 #   sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh)
 #
+# Quick setup (panel + game server on this host, no questions; prints a link
+# and a one-time code to create your account in the browser):
+#   sudo bash install.sh --quick [--domain panel.example.com]
+#
 # Usage (unattended):
 #   sudo bash install.sh --mode panel --domain panel.example.com \
 #     --admin-email you@example.com --admin-username you \
@@ -21,6 +25,10 @@
 #   uninstall Stop containers and remove /opt/talepanel and /opt/taledaemon.
 #   check     Run pre-flight checks only (OS, Docker, ports, network).
 #             Touches nothing — safe to run on production hosts.
+#
+# --quick is "both" with an sslip.io hostname, the solo profile and no
+# prompts.  It is also the default when stdin is not a terminal and no
+# --mode is given.
 #
 # Hostname:
 #   --domain panel.example.com   Use this public domain for the panel URL
@@ -77,11 +85,15 @@ BRANCH="main"
 PANEL_DIR="/opt/talepanel"
 DAEMON_DIR="/opt/taledaemon"
 ASSUME_YES=0
+QUICK=0
+SETUP_CODE=""
+HTTPS_READY=0
 
 # ── Flag parsing ────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode)              MODE="$2"; shift 2 ;;
+    --quick)             QUICK=1; shift ;;
     --domain)            DOMAIN="$2"; shift 2 ;;
     --ip-only)           IP_ONLY=1; shift ;;
     --no-domain)         NO_DOMAIN=1; shift ;;
@@ -100,7 +112,7 @@ while [ $# -gt 0 ]; do
     --daemon-dir)        DAEMON_DIR="$2"; shift 2 ;;
     --check)             MODE=check; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
-    -h|--help)           sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,31p' "$0"; exit 0 ;;
     *)                   fail "unknown flag: $1" ;;
   esac
 done
@@ -111,8 +123,19 @@ if [ "$MODE" != "check" ]; then
 fi
 detect_os
 
+if [ "$QUICK" -eq 1 ] && [ -n "$MODE" ] && [ "$MODE" != "both" ]; then
+  fail "--quick installs panel and daemon together; it cannot be combined with --mode $MODE"
+fi
+
+# Piped into bash (curl ... | sudo bash) there is no terminal to answer the
+# menu, so fall back to the quick setup instead of failing on read.
+if [ -z "$MODE" ] && [ "$QUICK" -eq 0 ] && [ ! -t 0 ]; then
+  log "no terminal attached — running the quick setup"
+  QUICK=1
+fi
+
 # ── Menu (when --mode is not given) ─────────────────────────────────────────
-if [ -z "$MODE" ]; then
+if [ -z "$MODE" ] && [ "$QUICK" -eq 0 ]; then
   clear || true
   printf "%b" "$CYAN"
   cat <<'BANNER'
@@ -123,23 +146,43 @@ if [ -z "$MODE" ]; then
 BANNER
   printf "%b" "$NC"
   echo
-  echo "  [1] Install Panel (control plane — API + web + DB + Caddy)"
-  echo "  [2] Install Daemon (node agent running Hytale servers)"
-  echo "  [3] Install Both (all-in-one, dev/home setup)"
-  echo "  [4] Upgrade existing install"
-  echo "  [5] Uninstall"
-  echo "  [6] Quit"
+  echo "  [1] Quick setup (recommended): panel + game server on this machine,"
+  echo "      finish in your browser"
+  echo "  [2] Install Panel (control plane — API + web + DB + Caddy)"
+  echo "  [3] Install Daemon (node agent running Hytale servers)"
+  echo "  [4] Install Both (all-in-one, dev/home setup)"
+  echo "  [5] Upgrade existing install"
+  echo "  [6] Uninstall"
+  echo "  [7] Quit"
   echo
-  read -rp "Select an option [1-6]: " choice
+  read -rp "Select an option [1-7]: " choice
   case "$choice" in
-    1) MODE=panel ;;
-    2) MODE=daemon ;;
-    3) MODE=both ;;
-    4) MODE=upgrade ;;
-    5) MODE=uninstall ;;
-    6|q|Q) exit 0 ;;
+    1) QUICK=1 ;;
+    2) MODE=panel ;;
+    3) MODE=daemon ;;
+    4) MODE=both ;;
+    5) MODE=upgrade ;;
+    6) MODE=uninstall ;;
+    7|q|Q) exit 0 ;;
     *) fail "invalid choice: $choice" ;;
   esac
+fi
+
+# Quick setup: everything on this host, sslip.io hostname unless --domain is
+# given, and no questions. The first account is created in the browser with
+# a one-time setup code instead of admin prompts here.
+if [ "$QUICK" -eq 1 ]; then
+  MODE=both
+  if [ "$NO_DOMAIN" -eq 1 ]; then
+    fail "--quick needs a hostname with a real certificate; drop --no-domain (or pass --domain)"
+  fi
+  [ -n "$DOMAIN" ] || IP_ONLY=1
+  DEPLOYMENT_PROFILE="${DEPLOYMENT_PROFILE:-solo}"
+  ASSUME_YES=1
+  if [ -n "$ADMIN_EMAIL$ADMIN_USERNAME$ADMIN_PASSWORD" ]; then
+    warn "--quick ignores --admin-* flags; you create your account in the browser"
+    ADMIN_EMAIL=""; ADMIN_USERNAME=""; ADMIN_PASSWORD=""
+  fi
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -184,6 +227,9 @@ EOF
     local pub_ip
     pub_ip="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
     if [ -z "$pub_ip" ]; then
+      if [ "$QUICK" -eq 1 ]; then
+        fail "could not detect this server's public IP address.  Point a domain at this server and rerun with: --quick --domain panel.example.com"
+      fi
       read -rp "Could not auto-detect public IP — enter it manually: " pub_ip
     fi
     [ -z "$pub_ip" ] && fail "no public IP available"
@@ -227,14 +273,21 @@ EOF
     *) fail "--profile must be 'solo' or 'hoster' (got: $DEPLOYMENT_PROFILE)" ;;
   esac
 
-  [ -z "$ADMIN_EMAIL" ]    && read -rp "Admin email: " ADMIN_EMAIL
-  [ -z "$ADMIN_USERNAME" ] && read -rp "Admin username: " ADMIN_USERNAME
-  if [ -z "$ADMIN_PASSWORD" ]; then
-    read -rsp "Admin password (min 12 chars incl. 1 digit + 1 symbol): " ADMIN_PASSWORD; echo
-  fi
+  local admin_summary
+  if [ "$QUICK" -eq 1 ]; then
+    admin_summary="  Admin:       created in the browser with a one-time setup code"
+  else
+    [ -z "$ADMIN_EMAIL" ]    && read -rp "Admin email: " ADMIN_EMAIL
+    [ -z "$ADMIN_USERNAME" ] && read -rp "Admin username: " ADMIN_USERNAME
+    if [ -z "$ADMIN_PASSWORD" ]; then
+      read -rsp "Admin password (min 12 chars incl. 1 digit + 1 symbol): " ADMIN_PASSWORD; echo
+    fi
 
-  if [ ${#ADMIN_PASSWORD} -lt 12 ]; then
-    fail "password must be at least 12 characters"
+    if [ ${#ADMIN_PASSWORD} -lt 12 ]; then
+      fail "password must be at least 12 characters"
+    fi
+    admin_summary="  Admin email: $ADMIN_EMAIL
+  Admin user:  $ADMIN_USERNAME"
   fi
 
   cat <<EOF
@@ -242,8 +295,7 @@ EOF
 ${BOLD}Panel installer — summary${NC}
   Domain:      $DOMAIN
   Profile:     $DEPLOYMENT_PROFILE
-  Admin email: $ADMIN_EMAIL
-  Admin user:  $ADMIN_USERNAME
+$admin_summary
   Install dir: $PANEL_DIR
   Repo:        $REPO_URL ($BRANCH)
 
@@ -270,6 +322,15 @@ EOF
     set_env_var "$env_file" DEPLOYMENT_PROFILE  "$DEPLOYMENT_PROFILE"
   fi
 
+  if [ "$QUICK" -eq 1 ]; then
+    # Only the hash is stored; the code itself is shown once at the end.
+    local code_hash
+    SETUP_CODE="$(gen_setup_code)" || fail "could not generate a setup code"
+    code_hash="$(printf '%s' "$SETUP_CODE" | sha256sum | cut -d' ' -f1)"
+    [[ "$code_hash" =~ ^[0-9a-f]{64}$ ]] || fail "could not hash the setup code"
+    set_env_var "$env_file" SETUP_CODE_HASH "$code_hash"
+  fi
+
   # Render Caddyfile with substituted domain and TLS directive.
   sed -e "s|{{DOMAIN}}|$DOMAIN|g" \
       -e "s|{{TLS_DIRECTIVE}}|${TLS_DIRECTIVE:-}|g" \
@@ -293,15 +354,20 @@ EOF
   log "building API + Web images (this takes a few minutes)..."
   docker compose build api web
 
-  log "creating admin account via tale-cli..."
-  docker compose run --rm --entrypoint /usr/local/bin/tale-cli -T api admin create \
-    --email "$ADMIN_EMAIL" \
-    --username "$ADMIN_USERNAME" \
-    --password "$ADMIN_PASSWORD" \
-    --non-interactive
+  if [ "$QUICK" -eq 0 ]; then
+    log "creating admin account via tale-cli..."
+    docker compose run --rm --entrypoint /usr/local/bin/tale-cli -T api admin create \
+      --email "$ADMIN_EMAIL" \
+      --username "$ADMIN_USERNAME" \
+      --password "$ADMIN_PASSWORD" \
+      --non-interactive
+  fi
 
   log "starting api, web, and caddy..."
   docker compose up -d api web caddy
+
+  # Quick setup prints its own summary once the game server is installed too.
+  [ "$QUICK" -eq 1 ] && return 0
 
   cat <<EOF
 
@@ -377,7 +443,8 @@ EOF
       --argjson port "$DAEMON_PORT" --arg pub "${DAEMON_PUBLIC_ADDRESS:-}" \
       '{token: $token, fqdn: $fqdn, port: $port, public_address: $pub}' |
     curl $curl_flags -X POST "$PANEL_URL/api/v1/nodes/enroll" \
-      -H 'Content-Type: application/json' --data-binary @-)"
+      -H 'Content-Type: application/json' --data-binary @-)" ||
+    fail "could not reach the panel at $PANEL_URL to enroll this node — check DNS, ports 80/443 and TLS, then rerun the installer"
   node_id="$(echo "$resp" | jq -r .node_id)"
   node_token="$(echo "$resp" | jq -r .node_token)"
   if [ -z "$node_id" ] || [ "$node_id" = "null" ]; then
@@ -438,25 +505,45 @@ install_daemon_local() {
   require_cmds jq
 
   local PANEL_URL_LOCAL="https://$DOMAIN"
-  # Get an owner JWT to mint an enrollment token.
-  local token
-  # Built with jq: the password policy requires a symbol, and a " or \ would
-  # otherwise break (or rewrite) the JSON. Sent on stdin, not in argv.
-  token="$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" \
-      '{email: $email, password: $password}' |
-    (cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
-      --post-file=/dev/stdin \
-      --header='Content-Type: application/json' \
-      http://localhost:8080/api/v1/auth/login 2>/dev/null) | jq -r .access_token)"
-  if [ -z "$token" ] || [ "$token" = "null" ]; then
-    fail "could not log in to newly-installed panel to mint enrollment token"
-  fi
   local enr_token
-  enr_token="$(cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
-    --post-data='{"node_name":"local","max_servers":10}' \
-    --header='Content-Type: application/json' \
-    --header="Authorization: Bearer $token" \
-    http://localhost:8080/api/v1/admin/nodes/enroll 2>/dev/null | jq -r .token)"
+  if [ "$QUICK" -eq 1 ]; then
+    # No account exists yet, so mint the token directly in the database.
+    wait_for_api || fail "the panel API did not start — check: cd $PANEL_DIR/deploy/panel && docker compose logs api"
+
+    # The daemon enrolls over the public HTTPS URL, so Caddy needs its
+    # certificate first.
+    log "waiting for the HTTPS certificate for $DOMAIN (up to 3 minutes)..."
+    if wait_for_https "$PANEL_URL_LOCAL" 36; then
+      HTTPS_READY=1
+      success "panel reachable at $PANEL_URL_LOCAL"
+    else
+      warn "https://$DOMAIN is not reachable yet — make sure ports 80 and 443 are open"
+    fi
+
+    enr_token="$(cd "$PANEL_DIR/deploy/panel" && docker compose run --rm \
+      --entrypoint /usr/local/bin/tale-cli -T api node enroll --name local --max-servers 10)" ||
+      fail "could not create an enrollment token for the local node"
+    is_hex "$enr_token" || fail "tale-cli returned an invalid enrollment token"
+  else
+    # Get an owner JWT to mint an enrollment token.
+    local token
+    # Built with jq: the password policy requires a symbol, and a " or \ would
+    # otherwise break (or rewrite) the JSON. Sent on stdin, not in argv.
+    token="$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" \
+        '{email: $email, password: $password}' |
+      (cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
+        --post-file=/dev/stdin \
+        --header='Content-Type: application/json' \
+        http://localhost:8080/api/v1/auth/login 2>/dev/null) | jq -r .access_token)"
+    if [ -z "$token" ] || [ "$token" = "null" ]; then
+      fail "could not log in to newly-installed panel to mint enrollment token"
+    fi
+    enr_token="$(cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
+      --post-data='{"node_name":"local","max_servers":10}' \
+      --header='Content-Type: application/json' \
+      --header="Authorization: Bearer $token" \
+      http://localhost:8080/api/v1/admin/nodes/enroll 2>/dev/null | jq -r .token)"
+  fi
 
   PANEL_URL="$PANEL_URL_LOCAL"
   ENROLL_TOKEN="$enr_token"
@@ -526,6 +613,68 @@ confirm_or_exit() {
   if [ "$ASSUME_YES" -eq 1 ]; then return 0; fi
   read -rp "Proceed? [y/N] " ans
   [[ "$ans" =~ ^[Yy]$ ]] || fail "aborted by user"
+}
+
+# wait_for_api waits until the panel API answers inside its container.
+wait_for_api() {
+  local i
+  for i in $(seq 1 60); do
+    if (cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api \
+        wget -qO /dev/null http://localhost:8080/api/v1/health) >/dev/null 2>&1; then
+      return 0
+    fi
+    [ "$i" -lt 60 ] && sleep 2
+  done
+  return 1
+}
+
+# wait_for_https polls the panel's public URL with certificate verification
+# until Caddy has obtained a certificate.  Usage: wait_for_https URL TRIES
+wait_for_https() {
+  local url="$1" tries="$2" i
+  for i in $(seq 1 "$tries"); do
+    if curl -fsS --max-time 5 -o /dev/null "$url/api/v1/health" 2>/dev/null; then
+      return 0
+    fi
+    [ "$i" -lt "$tries" ] && sleep 5
+  done
+  return 1
+}
+
+# print_quick_summary shows where to finish the setup.  The code is printed
+# on its own, never as part of the URL, so it stays out of browser history,
+# proxy logs and referrers.
+print_quick_summary() {
+  if [ "$HTTPS_READY" -eq 0 ] && wait_for_https "https://$DOMAIN" 12; then
+    HTTPS_READY=1
+  fi
+
+  # Colors are escape strings, so they go through printf %b, not a heredoc.
+  echo
+  printf '%b\n' "${BOLD}${GREEN}TalePanel is installed.${NC}"
+  echo
+  echo "  Finish the setup in your browser:"
+  echo
+  echo "    1. Open this address:"
+  echo
+  printf '         %b%s%b\n' "$BOLD" "https://$DOMAIN/setup" "$NC"
+  echo
+  echo "    2. Enter this one-time setup code:"
+  echo
+  printf '         %b%s%b\n' "$BOLD" "$SETUP_CODE" "$NC"
+  echo
+  echo "    3. Create your account, then your first Hytale server."
+  echo
+  echo "  The code works only until the first account is created.  Do not share it."
+  if [ "$HTTPS_READY" -eq 0 ]; then
+    echo
+    printf '  %bNote:%b the HTTPS certificate may take another minute.  If the page\n' "$YELLOW" "$NC"
+    echo "  does not load yet, wait a moment and reload it."
+  fi
+  echo
+  echo "  Players connect to: $DOMAIN (port 5520 and up)"
+  echo "  Install dirs:       $PANEL_DIR, $DAEMON_DIR"
+  echo
 }
 
 # ── Pre-flight check (read-only) ────────────────────────────────────────────
@@ -623,7 +772,11 @@ preflight_check() {
 case "$MODE" in
   panel)     install_panel ;;
   daemon)    install_daemon ;;
-  both)      install_panel; install_daemon_local ;;
+  both)
+    install_panel
+    install_daemon_local
+    if [ "$QUICK" -eq 1 ]; then print_quick_summary; fi
+    ;;
   upgrade)   upgrade_stack ;;
   uninstall) uninstall_stack ;;
   check)     preflight_check ;;
