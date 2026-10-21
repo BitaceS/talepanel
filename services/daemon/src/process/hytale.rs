@@ -126,10 +126,14 @@ pub struct HytaleServerProcess {
 
     /// Daemon-level Hytale configuration (jar path, java binary, timeouts).
     hytale_cfg: Arc<HytaleConfig>,
+
+    /// Whether a `#!` dev-mode stub may be run with `sh` (non-production
+    /// nodes with `allow_dev_stub` only; see `Config::dev_stub_allowed`).
+    dev_stub_allowed: bool,
 }
 
 impl HytaleServerProcess {
-    pub fn new(config: ServerConfig, hytale_cfg: Arc<HytaleConfig>) -> Self {
+    pub fn new(config: ServerConfig, hytale_cfg: Arc<HytaleConfig>, dev_stub_allowed: bool) -> Self {
         let (log_tx, _) = tokio::sync::broadcast::channel(2048);
         let (status_tx, status_rx) = watch::channel(ServerStatus::Stopped);
 
@@ -144,6 +148,7 @@ impl HytaleServerProcess {
             stop_requested: Arc::new(AtomicBool::new(false)),
             stdin: Arc::new(Mutex::new(None)),
             hytale_cfg,
+            dev_stub_allowed,
         }
     }
 
@@ -223,10 +228,22 @@ impl HytaleServerProcess {
 
         // Detect dev-mode stub: if the "JAR" starts with `#!` it's a shell
         // script created by the provisioner when the Hytale Downloader is
-        // unavailable.  Run it with sh instead of java.
-        let is_dev_stub = match tokio::fs::read(&jar_path).await {
-            Ok(bytes) => bytes.starts_with(b"#!"),
-            Err(_) => false,
+        // unavailable.  Run it with sh instead of java — but only when the
+        // node allows the dev stub. The JAR lives in the tenant's directory,
+        // so without the gate any tenant with file access could replace it by
+        // a shell script and have the daemon run it with `sh`.
+        let is_dev_stub = if self.dev_stub_allowed {
+            let mut head = [0u8; 2];
+            match tokio::fs::File::open(&jar_path).await {
+                Ok(mut f) => {
+                    use tokio::io::AsyncReadExt;
+                    let read = f.read_exact(&mut head).await.ok();
+                    is_dev_stub_script(self.dev_stub_allowed, read.map(|_| &head[..]))
+                }
+                Err(_) => false,
+            }
+        } else {
+            false
         };
 
         let mut cmd = if is_dev_stub {
@@ -648,6 +665,12 @@ impl HytaleServerProcess {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// True if the server JAR is a dev-mode `#!` stub that may be run with `sh`:
+/// the node must allow the dev stub and the file must start with `#!`.
+fn is_dev_stub_script(dev_stub_allowed: bool, head: Option<&[u8]>) -> bool {
+    dev_stub_allowed && head.is_some_and(|h| h.starts_with(b"#!"))
+}
+
 /// Classify a log line level from its text content.
 fn classify_level(line: &str) -> String {
     let upper = line.to_ascii_uppercase();
@@ -816,6 +839,17 @@ mod tests {
         )
         .unwrap();
         assert!(cfg.launch_flags.is_empty());
+    }
+
+    #[test]
+    fn shebang_jar_runs_with_sh_only_when_dev_stub_is_allowed() {
+        assert!(is_dev_stub_script(true, Some(b"#!")));
+        assert!(
+            !is_dev_stub_script(false, Some(b"#!")),
+            "a tenant-planted script must not run without the gate"
+        );
+        assert!(!is_dev_stub_script(true, Some(b"PK")));
+        assert!(!is_dev_stub_script(true, None));
     }
 
     #[test]

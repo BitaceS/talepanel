@@ -71,6 +71,7 @@ impl ProcessManager {
         let process = Arc::new(HytaleServerProcess::new(
             config,
             Arc::new(self.config.hytale.clone()),
+            self.config.dev_stub_allowed(),
         ));
         // A fresh Hytale game session per start: sessions last an hour, so one
         // fetched for an earlier start would be stale on a later restart.
