@@ -21,6 +21,8 @@ func TestResolveCommandTemplate(t *testing.T) {
 		{"world is injected", "time set day --world {world}", nil, "default", "time set day --world default"},
 		{"unknown world drops the flag instead of leaving it dangling", "time set day --world {world}", nil, "", "time set day"},
 		{"bare flags are kept", "world save --confirm --all", nil, "", "world save --confirm --all"},
+		{"negative coordinates are not flags", "teleport {player} {x} {y} {z}",
+			map[string]string{"player": "Eve", "x": "-10", "y": "64", "z": "-3"}, "", "teleport Eve -10 64 -3"},
 		{"multi-word values survive", "say {message}", map[string]string{"message": "hello there"}, "", "say hello there"},
 	}
 	for _, tc := range cases {
@@ -41,6 +43,16 @@ func TestResolveCommandTemplate(t *testing.T) {
 func TestResolveCommandTemplate_RejectsLineBreaksInParams(t *testing.T) {
 	for _, v := range []string{"Eve\nop add Mallory", "Eve\rstop", "Eve\x00"} {
 		if _, err := resolveCommandTemplate("kick {player}", map[string]string{"player": v}, ""); err == nil {
+			t.Errorf("param %q accepted, want error", v)
+		}
+	}
+}
+
+// Non-text params must stay one token, or a value like "day --world other"
+// would append arguments the stored template never had.
+func TestResolveCommandTemplate_RejectsExtraArgsInParams(t *testing.T) {
+	for _, v := range []string{"Eve Mallory", "--world", "-1 --all"} {
+		if _, err := resolveCommandTemplate("op add {player}", map[string]string{"player": v}, ""); err == nil {
 			t.Errorf("param %q accepted, want error", v)
 		}
 	}
