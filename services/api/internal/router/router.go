@@ -51,6 +51,9 @@ func SetupRouter(
 	r.Use(middleware.GinLogger(log))
 	r.Use(middleware.SecurityHeaders(!cfg.IsDevelopment()))
 	r.Use(corsMiddleware(cfg))
+	// Cap request bodies (1 MiB default, per-route exceptions for uploads and
+	// daemon callbacks) so no handler can be made to buffer unbounded input.
+	r.Use(middleware.BodyLimit())
 
 	// ── Daemon client pool ─────────────────────────────────────────────────────
 	// Starts empty; nodes populate it via POST /nodes/:id/heartbeat.
