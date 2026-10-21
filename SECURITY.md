@@ -46,7 +46,7 @@ The installer cannot enforce what is outside its reach. As the operator, you are
 - Protecting the panel host's filesystem — `/opt/talepanel/deploy/panel/.env` is `chmod 600` owned by root, keep it that way.
 - Backing up the Postgres database off-site. TalePanel does not back up its own control plane.
 - Copying server backups off the node. TalePanel's backups are Zip archives stored on the same node as the server — they survive a bad update, not a dead disk. Off-site/S3 upload is on the roadmap.
-- Rotating your CurseForge API key if exposed (only relevant if you enabled the experimental CurseForge browser).
+- Rotating your CurseForge API key if exposed (only relevant if you set one under Admin → Integrations).
 - If you use GDPR-relevant personal data (player IPs, emails), publishing a privacy policy and honouring deletion requests via the admin UI.
 
 ## Known limitations (v0.9.x)
@@ -58,6 +58,6 @@ These are on the roadmap but not yet implemented. Operators should know:
 - No 2FA backup codes. If a user loses their TOTP device, an admin must disable 2FA for them via `tale-cli` (not yet implemented; SQL workaround: `UPDATE users SET totp_enabled=false, totp_secret=NULL WHERE email=...`).
 - No automatic session cleanup. Expired sessions accumulate in the `sessions` table. Run `DELETE FROM sessions WHERE expires_at < NOW() - INTERVAL '30 days';` occasionally.
 - No IP allowlist for admin routes. If your threat model requires it, put `/api/v1/admin/*` behind a VPN or an additional Caddy `@allowed` matcher.
-- Thin automated test coverage (a few Go tests, no Rust tests). Security-relevant paths are reviewed by hand, not by a suite. Treat v0.9.x as beta.
+- Automated test coverage is growing but incomplete. The injection-relevant paths (SQL identifiers, path confinement, archive extraction, SSRF filter, console input) have unit tests; the rest is reviewed by hand. Treat v0.9.x as beta.
 
 These are tracked with the `roadmap:v1.1` label on GitHub.

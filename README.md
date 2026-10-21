@@ -13,6 +13,38 @@ It is currently in **public beta (v0.9.0-beta)**. It runs against real Hytale se
 
 ---
 
+## Why TalePanel
+
+A lot of Hytale panels are showing up right now. A game panel hands strangers a console, a file manager and a mod installer on your machine, so most of them will turn out to be the weakest link of the box they run on. TalePanel was built the other way around.
+
+### Security is the default, not a setting
+
+- **Nothing to forget after install.** No seed account, no default password. Every secret (JWT, TOTP key, DB/Redis passwords) is generated per install, and the admin account is the one you create during setup.
+- **Logins that hold up.** bcrypt passwords, TOTP 2FA encrypted at rest (AES-256-GCM), short-lived access tokens kept in memory only, rotating refresh tokens, rate limiting on auth, and an audit log of who did what.
+- **Permissions per server.** Owner / admin / moderator / user roles plus per-server membership, checked on every server route. A moderator on one server sees nothing of the others, and dangerous console commands (stop, op, give, ...) need the right role.
+- **Built to survive hostile input.** Users can upload files, mods and archives, type console commands and paste URLs. All of it is treated as untrusted:
+  - SQL is always parameterised.
+  - Console input with control characters is rejected.
+  - Every file operation is confined to the server's own directory and refuses symlinks planted there.
+  - Archives are checked for zip-slip and size bombs.
+  - Mod downloads only reach public HTTPS addresses, so no SSRF into your network or cloud metadata.
+  - The panel ships a strict CSP and anti-clickjacking headers.
+- **Daemon you can reason about.** The node agent is written in Rust. It only accepts requests carrying its node token, compared in constant time, and validates every path it is given against the server it belongs to.
+- **Open about the gaps.** What is not done yet is listed in [`SECURITY.md`](SECURITY.md) instead of hidden. The main gap is process isolation per server. Vulnerability reports get an answer within 48 hours.
+
+### Install in one command, not one afternoon
+
+- **One script for everything.** Panel, daemon or both. Docker gets installed if missing, secrets are generated, and HTTPS is set up automatically with Let's Encrypt.
+- **No domain needed.** Without a domain the installer uses an `sslip.io` hostname with a real certificate: no self-signed warnings, no reverse-proxy tutorial.
+- **Adding a node takes one token.** Create a one-time enrollment token in the panel, paste it into the daemon installer, and the node shows up online about 30 seconds later.
+- **Updates migrate themselves.** Database migrations run on API start, and the installer has an `Upgrade` mode. There are no SQL files to apply by hand.
+
+### Made for Hytale, not adapted to it
+
+Worlds, mods, players and the Hytale account link are real objects in the UI, not files you edit by hand. The daemon knows Hytale's launch flags, auth modes and exit codes. Mods come from CurseForge or from upload.
+
+---
+
 ## Status — what works today
 
 **Shipped and working against real Hytale servers:**
@@ -73,9 +105,9 @@ daemon host with `--panel-url` and `--enrollment-token`. The node appears
 as `online` within ~30 seconds.
 
 > **Offline / air-gapped install:** drop `HytaleServer.jar` and `Assets.zip`
-> into `/srv/taledaemon/hytale-bin/` on the daemon host. Servers
-> provision in milliseconds via hardlink instead of pulling from the
-> Hytale CDN, which is IPv4-only.
+> into `/srv/taledaemon/hytale-bin/` on the daemon host. New servers
+> copy them locally instead of pulling from the Hytale CDN, which is
+> IPv4-only.
 
 ---
 
