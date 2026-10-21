@@ -32,6 +32,9 @@ type ServerHandler struct {
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
 }
 
+// maxLogLinesPerPush bounds one daemon log push; the daemon flushes at 500.
+const maxLogLinesPerPush = 5000
+
 // gameSessionInterval is the minimum gap between game-session mints for one
 // server. A start needs one; a leaked node token must not be able to mint
 // sessions for the panel's Hytale account in a loop.
@@ -766,6 +769,10 @@ func (h *ServerHandler) DaemonLogsIngest(c *gin.Context) {
 		return
 	}
 
+	if len(lines) > maxLogLinesPerPush {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many log lines in one push"})
+		return
+	}
 	if len(lines) == 0 {
 		c.JSON(http.StatusOK, gin.H{"message": "no lines"})
 		return

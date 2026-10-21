@@ -468,13 +468,21 @@ type LogLineInput struct {
 
 // IngestLogs bulk-inserts log lines from a daemon into server_logs.
 func (s *ServerService) IngestLogs(ctx context.Context, serverID uuid.UUID, lines []LogLineInput) error {
-	if len(lines) == 0 {
-		return nil
+	// Postgres caps a statement at 65535 bind parameters (4 per line), so a
+	// burst of chat spam must be written in chunks, not one INSERT.
+	for start := 0; start < len(lines); start += logInsertChunk {
+		end := min(start+logInsertChunk, len(lines))
+		if err := s.insertLogChunk(ctx, serverID, lines[start:end]); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	// Build a single multi-row INSERT for efficiency.
-	// pgx supports batch/copy but a simple parameterised INSERT is safe for
-	// the expected batch size (~60 lines/minute per server).
+// logInsertChunk keeps one INSERT well under Postgres' bind-parameter limit.
+const logInsertChunk = 1000
+
+func (s *ServerService) insertLogChunk(ctx context.Context, serverID uuid.UUID, lines []LogLineInput) error {
 	const baseQ = `INSERT INTO server_logs (server_id, logged_at, level, message) VALUES `
 	args := make([]any, 0, len(lines)*4)
 	placeholders := make([]string, 0, len(lines))
@@ -492,8 +500,7 @@ func (s *ServerService) IngestLogs(ctx context.Context, serverID uuid.UUID, line
 	}
 
 	q := baseQ + strings.Join(placeholders, ", ")
-	_, err := s.db.Exec(ctx, q, args...)
-	if err != nil {
+	if _, err := s.db.Exec(ctx, q, args...); err != nil {
 		return fmt.Errorf("inserting log lines: %w", err)
 	}
 	return nil

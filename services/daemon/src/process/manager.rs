@@ -13,6 +13,9 @@ use crate::downloader;
 use super::hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
 use super::LogLine;
 
+/// Log lines pushed to the API in one request at most (the API caps at 5000).
+const MAX_LOG_BATCH: usize = 500;
+
 /// Central registry and lifecycle controller for all managed server processes
 /// on this node.
 pub struct ProcessManager {
@@ -523,6 +526,14 @@ done
                                     let _ = event_tx.send((action, username, hytale_uuid));
                                 }
                                 batch.push(line);
+                                // Chat spam can produce thousands of lines a
+                                // second; the API rejects oversized pushes.
+                                if batch.len() >= MAX_LOG_BATCH {
+                                    let wire_lines = to_wire_log_lines(std::mem::take(&mut batch));
+                                    if let Err(err) = api_client.push_log_lines(&server_id, wire_lines).await {
+                                        warn!(%err, %server_id, "Failed to push log batch to API");
+                                    }
+                                }
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                                 warn!(%server_id, skipped = n, "Log relay lagged; some lines were dropped");
