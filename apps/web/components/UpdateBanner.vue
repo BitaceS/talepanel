@@ -12,7 +12,7 @@ const { info, dismissed } = useUpdateCheck()
       TalePanel {{ info.latest_version }} is available — you're on {{ info.current_version }}.
     </span>
     <a
-      :href="info.release_url"
+      :href="httpsHref(info.release_url)"
       target="_blank"
       rel="noopener"
       class="font-semibold underline underline-offset-2 hover:text-tp-warning/80 transition-colors shrink-0"

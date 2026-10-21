@@ -456,7 +456,7 @@ const isInstalled = (filename: string) =>
               </UiButton>
               <a
                 v-if="mod.links?.websiteUrl"
-                :href="mod.links.websiteUrl"
+                :href="httpsHref(mod.links.websiteUrl)"
                 target="_blank"
                 rel="noopener"
                 class="p-2 rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"

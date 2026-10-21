@@ -1510,7 +1510,7 @@ const sidebarMods = computed(() => {
                   <div class="flex items-start justify-between gap-2">
                     <p class="text-tp-text text-sm font-semibold truncate">{{ mod.name }}</p>
                     <a
-                      :href="mod.links.websiteUrl"
+                      :href="httpsHref(mod.links.websiteUrl)"
                       target="_blank"
                       rel="noopener noreferrer"
                       class="text-tp-muted hover:text-tp-text transition-colors shrink-0"
