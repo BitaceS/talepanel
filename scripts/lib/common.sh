@@ -15,6 +15,8 @@ if [ -t 1 ]; then
 else
   CYAN=''; GREEN=''; YELLOW=''; RED=''; BOLD=''; NC=''
 fi
+# Only used by scripts that source this file.
+export BOLD
 
 log()     { printf "%b[TalePanel]%b %s\n" "$CYAN"  "$NC" "$1"; }
 success() { printf "%b[OK]%b %s\n"        "$GREEN" "$NC" "$1"; }
