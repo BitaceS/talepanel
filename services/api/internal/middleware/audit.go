@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -95,6 +96,23 @@ func AuditLog(db *pgxpool.Pool, logger *zap.Logger) gin.HandlerFunc {
 				payload,
 			)
 			if err != nil {
+				// A payload Postgres refuses must not erase the audit record
+				// itself; retry once without it.
+				logger.Warn("audit log insert failed, retrying without payload",
+					zap.String("request_id", requestID),
+					zap.String("action", action),
+					zap.Error(err),
+				)
+				_, err = db.Exec(ctx, q,
+					uuid.New(),
+					userID,
+					action,
+					targetType,
+					ip,
+					json.RawMessage("{}"),
+				)
+			}
+			if err != nil {
 				logger.Error("audit log insert failed",
 					zap.String("request_id", requestID),
 					zap.String("action", action),
@@ -161,25 +179,58 @@ func sanitizePayload(body []byte) json.RawMessage {
 		return json.RawMessage("null")
 	}
 
-	for key := range data {
-		if _, sensitive := sensitiveFields[strings.ToLower(key)]; sensitive {
-			data[key] = "[REDACTED]"
-		}
-	}
-
-	out, err := json.Marshal(data)
+	out, err := json.Marshal(cleanPayloadValue(data))
 	if err != nil {
 		return json.RawMessage("null")
 	}
 	return out
 }
 
-// realIP extracts the client IP preferring X-Real-IP then RemoteAddr.
-func realIP(c *gin.Context) string {
-	if ip := c.GetHeader("X-Real-IP"); ip != "" {
-		return ip
+// cleanPayloadValue walks a decoded JSON value, redacting sensitive keys at
+// any depth and making every string storable in jsonb: Postgres rejects the
+// \u0000 escape, and invalid UTF-8 is replaced rather than passed through.
+func cleanPayloadValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			key := cleanPayloadString(k)
+			if _, sensitive := sensitiveFields[strings.ToLower(key)]; sensitive {
+				out[key] = "[REDACTED]"
+				continue
+			}
+			out[key] = cleanPayloadValue(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, val := range t {
+			out[i] = cleanPayloadValue(val)
+		}
+		return out
+	case string:
+		return cleanPayloadString(t)
+	default:
+		return v
 	}
-	return c.RemoteIP()
+}
+
+func cleanPayloadString(s string) string {
+	s = strings.ToValidUTF8(s, "�")
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// realIP returns the client address for the audit row. c.ClientIP() only
+// honours X-Forwarded-For / X-Real-IP from proxies configured via
+// SetTrustedProxies, so a client cannot forge its logged address. The result
+// is validated because ip_address is an INET column; nil stores SQL NULL.
+func realIP(c *gin.Context) *string {
+	ip := net.ParseIP(c.ClientIP())
+	if ip == nil {
+		return nil
+	}
+	s := ip.String()
+	return &s
 }
 
 // toSnake converts a string to snake_case, replacing hyphens and spaces.
