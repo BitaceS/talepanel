@@ -1506,6 +1506,30 @@ fn safe_join(base: &std::path::Path, raw_name: &str) -> Result<PathBuf, String> 
     Ok(dest)
 }
 
+/// Build an RFC 6266 `attachment` header value. The quoted `filename` is an
+/// ASCII fallback with quotes, backslashes and control characters replaced by
+/// `_` (a tenant-chosen name cannot break out of the quotes or inject header
+/// syntax); `filename*` carries the exact name percent-encoded as UTF-8.
+fn content_disposition_attachment(name: &str) -> String {
+    let fallback: String = name
+        .chars()
+        .map(|c| match c {
+            ' '..='~' if c != '"' && c != '\\' => c,
+            _ => '_',
+        })
+        .collect();
+    let mut encoded = String::with_capacity(name.len());
+    for b in name.bytes() {
+        // RFC 5987 attr-char.
+        if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+}
+
 /// `GET /servers/:id/files/download?path=`
 ///
 /// Download a file as a binary stream.
@@ -1549,7 +1573,7 @@ async fn download_file(
                 (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
                 (
                     axum::http::header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{file_name}\""),
+                    content_disposition_attachment(&file_name),
                 ),
             ];
             (headers, data).into_response()
@@ -1864,7 +1888,7 @@ async fn download_backup(
         Ok(data) => {
             let headers = [
                 (axum::http::header::CONTENT_TYPE, "application/zip".to_string()),
-                (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{backup_id}.zip\"")),
+                (axum::http::header::CONTENT_DISPOSITION, content_disposition_attachment(&format!("{backup_id}.zip"))),
             ];
             (headers, data).into_response()
         }
@@ -1969,6 +1993,19 @@ async fn network_stats(State(state): State<AppState>) -> impl IntoResponse {
 // Auth middleware — verify node token on all requests
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Constant-time token check. Both sides are hashed first so the comparison
+/// runs over two fixed-length digests: neither the position of the first
+/// mismatching byte nor the length of the expected token leaks via timing.
+fn token_matches(presented: &str, expected: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    if expected.is_empty() {
+        return false;
+    }
+    let a = Sha256::digest(presented.as_bytes());
+    let b = Sha256::digest(expected.as_bytes());
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Simple bearer token extractor for daemon endpoint auth.
 /// The Go API sends: Authorization: Bearer <node_token>
 async fn auth_middleware(
@@ -1983,7 +2020,7 @@ async fn auth_middleware(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match token {
-        Some(t) if t == state.node_token => next.run(req).await.into_response(),
+        Some(t) if token_matches(t, &state.node_token) => next.run(req).await.into_response(),
         _ => (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"error": "unauthorized"})),
@@ -2114,6 +2151,25 @@ mod tests {
         assert!(!valid_server_id("../etc"));
         assert!(!valid_server_id("123e4567e89b12d3a456426614174000"));
         assert!(!valid_server_id("{123e4567-e89b-12d3-a456-426614174000}"));
+    }
+
+    #[test]
+    fn token_compare_accepts_only_the_exact_token() {
+        assert!(token_matches("secret-token", "secret-token"));
+        assert!(!token_matches("secret-tokem", "secret-token"));
+        assert!(!token_matches("secret", "secret-token"));
+        assert!(!token_matches("", ""));
+    }
+
+    #[test]
+    fn content_disposition_cannot_break_out_of_the_quotes() {
+        let v = content_disposition_attachment("a\"b\\c\r\nX-Evil: 1;\u{fc}.txt");
+        assert!(
+            v.starts_with("attachment; filename=\"a_b_c__X-Evil: 1;_.txt\"; filename*=UTF-8''"),
+            "{v}"
+        );
+        assert!(v.ends_with("a%22b%5Cc%0D%0AX-Evil%3A%201%3B%C3%BC.txt"), "{v}");
+        assert!(axum::http::HeaderValue::from_str(&v).is_ok());
     }
 
     #[test]
