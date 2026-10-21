@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 // ErrEnrollmentNotFound is returned when a token does not resolve to an
@@ -119,7 +119,10 @@ func (s *EnrollmentService) Create(ctx context.Context, req CreateEnrollmentRequ
 // or neither.
 func (s *EnrollmentService) Redeem(ctx context.Context, plainToken string, payload RedeemPayload) (*models.Node, string, error) {
 	if payload.FQDN == "" || payload.Port == 0 {
-		return nil, "", fmt.Errorf("fqdn and port are required")
+		return nil, "", fmt.Errorf("%w: fqdn and port are required", ErrInvalidNodeAddress)
+	}
+	if err := validateNodeAddress(payload.FQDN, payload.Port, payload.PublicAddress); err != nil {
+		return nil, "", err
 	}
 
 	sum := sha256.Sum256([]byte(plainToken))

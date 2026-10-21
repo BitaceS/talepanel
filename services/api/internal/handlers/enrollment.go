@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -96,6 +96,8 @@ func (h *EnrollmentHandler) Redeem(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "enrollment not found or already used"})
 		case errors.Is(err, services.ErrEnrollmentExpired):
 			c.JSON(http.StatusGone, gin.H{"error": "enrollment token expired"})
+		case errors.Is(err, services.ErrInvalidNodeAddress):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			h.log.Error("redeem enrollment", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not redeem enrollment"})

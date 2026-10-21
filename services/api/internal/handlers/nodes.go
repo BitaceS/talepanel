@@ -434,6 +434,8 @@ func nodeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrNodeNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+	case errors.Is(err, services.ErrInvalidNodeAddress):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}

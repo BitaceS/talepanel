@@ -11,15 +11,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/daemon"
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 var (
-	ErrNodeNotFound  = errors.New("node not found")
+	ErrNodeNotFound = errors.New("node not found")
+	// ErrInvalidNodeAddress is the daemon package's sentinel, so errors.Is
+	// matches whichever layer rejected the address.
+	ErrInvalidNodeAddress = daemon.ErrInvalidNodeAddress
 )
+
+// validateNodeAddress checks a node's daemon fqdn/port and optional public
+// address syntactically: bare hostname or IP literal, no URL metacharacters.
+// Private ranges and single-label names (Docker service names) are allowed.
+func validateNodeAddress(fqdn string, port int, publicAddress string) error {
+	if err := daemon.ValidateNodeHost(fqdn); err != nil {
+		return fmt.Errorf("%w: fqdn must be a hostname or IP address", ErrInvalidNodeAddress)
+	}
+	if err := daemon.ValidateNodePort(port); err != nil {
+		return fmt.Errorf("%w: port must be between 1 and 65535", ErrInvalidNodeAddress)
+	}
+	if publicAddress != "" {
+		if err := daemon.ValidateNodeHost(publicAddress); err != nil {
+			return fmt.Errorf("%w: public_address must be a hostname or IP address", ErrInvalidNodeAddress)
+		}
+	}
+	return nil
+}
 
 // RegisterNodeRequest carries the fields supplied when onboarding a new daemon node.
 type RegisterNodeRequest struct {
@@ -36,15 +58,15 @@ type RegisterNodeRequest struct {
 
 // NodeHeartbeatRequest is sent by daemons on every heartbeat tick.
 type NodeHeartbeatRequest struct {
-	Status    string          `json:"status"`
-	Metrics   json.RawMessage `json:"metrics,omitempty"`
+	Status  string          `json:"status"`
+	Metrics json.RawMessage `json:"metrics,omitempty"`
 	// NodeToken is the daemon's registration token, used by the API to
 	// (re-)register the in-memory daemon HTTP client pool entry.
-	NodeToken   string  `json:"node_token,omitempty"`
+	NodeToken string `json:"node_token,omitempty"`
 	// Resource metrics sent inline by the daemon (cpu_percent is already 0–100).
-	CPUPercent  float32 `json:"cpu_percent"`
-	RAMUsedMB   uint64  `json:"ram_used_mb"`
-	DiskUsedMB  uint64  `json:"disk_used_mb"`
+	CPUPercent float32 `json:"cpu_percent"`
+	RAMUsedMB  uint64  `json:"ram_used_mb"`
+	DiskUsedMB uint64  `json:"disk_used_mb"`
 }
 
 // NodeService handles CRUD and heartbeat logic for daemon nodes.
@@ -128,6 +150,9 @@ func (s *NodeService) GetNode(ctx context.Context, nodeID uuid.UUID) (*models.No
 // plaintext registration token.  The token is shown exactly once; only its
 // SHA-256 hash is persisted.
 func (s *NodeService) RegisterNode(ctx context.Context, req RegisterNodeRequest) (*models.Node, string, error) {
+	if err := validateNodeAddress(req.FQDN, req.Port, ""); err != nil {
+		return nil, "", err
+	}
 	plainToken, tokenHash, err := generateNodeToken()
 	if err != nil {
 		return nil, "", fmt.Errorf("generating registration token: %w", err)
@@ -483,6 +508,11 @@ type UpdateNodeRequest struct {
 func (s *NodeService) UpdateNode(ctx context.Context, nodeID uuid.UUID, req UpdateNodeRequest) (*models.Node, error) {
 	if req.Name == nil && req.Location == nil && req.MaxServers == nil && req.PublicAddress == nil {
 		return s.GetNode(ctx, nodeID)
+	}
+	if req.PublicAddress != nil && *req.PublicAddress != "" {
+		if err := daemon.ValidateNodeHost(*req.PublicAddress); err != nil {
+			return nil, fmt.Errorf("%w: public_address must be a hostname or IP address", ErrInvalidNodeAddress)
+		}
 	}
 
 	setClauses := []string{}
