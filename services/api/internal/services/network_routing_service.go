@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,9 +16,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// NetworkRoutingService owns the installation-wide routing config: the HMAC
-// secret that the hub mod signs handoff tickets with and the gamemode mod
-// verifies them against, plus each server's network role.
+// NetworkRoutingService owns the installation-wide routing config: the master
+// HMAC secret, from which each server's ticket key is derived, plus each
+// server's network role.
 type NetworkRoutingService struct {
 	db  *pgxpool.Pool
 	log *zap.Logger
@@ -60,6 +62,37 @@ func (s *NetworkRoutingService) GetOrCreateSecrets(ctx context.Context) ([]strin
 	return out, nil
 }
 
+// serverKeyLabel versions the per-server key derivation.
+const serverKeyLabel = "talepanel-network-v2:"
+
+// deriveServerKey is the ticket key for one server: HMAC-SHA256(master,
+// label+serverID). A gamemode only ever sees its own key, so a tenant who reads
+// their server's network.json can forge tickets for that server alone, not for
+// every gamemode in the installation.
+func deriveServerKey(master []byte, serverID uuid.UUID) []byte {
+	mac := hmac.New(sha256.New, master)
+	mac.Write([]byte(serverKeyLabel + serverID.String()))
+	return mac.Sum(nil)
+}
+
+// serverKeys returns serverID's ticket keys as hex, current first (the
+// previous one keeps in-flight tickets valid across a master rotation).
+func (s *NetworkRoutingService) serverKeys(ctx context.Context, serverID uuid.UUID) ([]string, error) {
+	masters, err := s.GetOrCreateSecrets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(masters))
+	for _, m := range masters {
+		raw, err := hex.DecodeString(m)
+		if err != nil {
+			return nil, fmt.Errorf("decoding network secret: %w", err)
+		}
+		out = append(out, hex.EncodeToString(deriveServerKey(raw, serverID)))
+	}
+	return out, nil
+}
+
 func (s *NetworkRoutingService) readSecrets(ctx context.Context) (current, previous []byte, err error) {
 	err = s.db.QueryRow(ctx, `
 		SELECT hmac_secret_current, hmac_secret_previous FROM network_settings WHERE id = true
@@ -95,6 +128,10 @@ func (s *NetworkRoutingService) SetServerRole(ctx context.Context, serverID uuid
 	return nil
 }
 
+// modConfigVersion 2: secrets are per-server derived keys, and a hub signs a
+// ticket with the target gamemode's key (ModGamemode.Secret).
+const modConfigVersion = 2
+
 // ModNetworkConfig is the contract with the Hytale-side mod. It is written to
 // {data_path}/talepanel/network.json on every networked server.
 type ModNetworkConfig struct {
@@ -111,12 +148,15 @@ type ModGamemode struct {
 	ServerID uuid.UUID `json:"server_id"`
 	Name     string    `json:"name"`
 	Address  string    `json:"address"`
+	Secret   string    `json:"secret"` // the gamemode's current ticket key, hex
 }
 
 // BuildServerConfig assembles the mod config for one networked server. A hub
 // gets the full gamemode address table (so it can send ClientReferral); a
-// gamemode gets none. Both carry the shared secret(s) and this server's own id
-// (a gamemode checks a ticket's target against it).
+// gamemode gets none. Both carry their own derived key(s) and this server's
+// own id (a gamemode checks a ticket's target against it). The hub holds every
+// gamemode's key, so only give the hub role to a server whose owner is trusted
+// with the whole network.
 func (s *NetworkRoutingService) BuildServerConfig(ctx context.Context, serverID uuid.UUID) (*ModNetworkConfig, error) {
 	var role *string
 	var requireReferral bool
@@ -133,13 +173,13 @@ func (s *NetworkRoutingService) BuildServerConfig(ctx context.Context, serverID 
 		return nil, ErrPlayerNotFound // not part of the network → nothing to configure
 	}
 
-	secrets, err := s.GetOrCreateSecrets(ctx)
+	secrets, err := s.serverKeys(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := &ModNetworkConfig{
-		Version:         1,
+		Version:         modConfigVersion,
 		Role:            *role,
 		ServerID:        serverID,
 		RequireReferral: requireReferral,
@@ -180,7 +220,22 @@ func (s *NetworkRoutingService) listGamemodes(ctx context.Context) ([]ModGamemod
 		}
 		out = append(out, gm)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	masters, err := s.GetOrCreateSecrets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current, err := hex.DecodeString(masters[0])
+	if err != nil {
+		return nil, fmt.Errorf("decoding network secret: %w", err)
+	}
+	for i := range out {
+		out[i].Secret = hex.EncodeToString(deriveServerKey(current, out[i].ServerID))
+	}
+	return out, nil
 }
 
 // DistributeConfig writes one server's mod config out by enqueuing a

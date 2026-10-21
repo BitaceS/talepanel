@@ -87,4 +87,30 @@ class HubRouterTest {
             """.formatted(HUB, SKYWARS));
         assertInstanceOf(HubRouter.Unavailable.class, HubRouter.route(cfg, "SkyWars", PLAYER, NOW));
     }
+
+    private static final String HUB_KEY_HEX = "aa".repeat(32);
+    private static final String SKYWARS_KEY_HEX = "bb".repeat(32);
+
+    @Test
+    void version2SignsWithTheTargetGamemodesOwnKey() {
+        NetworkConfig cfg = NetworkConfig.parse("""
+            {"version":2,"role":"hub","server_id":"%s","secrets":["%s"],
+             "gamemodes":[{"server_id":"%s","name":"SkyWars","address":"sky.example.com:5521","secret":"%s"}]}
+            """.formatted(HUB, HUB_KEY_HEX, SKYWARS, SKYWARS_KEY_HEX));
+        HubRouter.Referral ref = assertInstanceOf(HubRouter.Referral.class, HubRouter.route(cfg, "SkyWars", PLAYER, NOW));
+
+        List<byte[]> skywarsKeys = List.of(NetworkConfig.hexToBytes(SKYWARS_KEY_HEX));
+        assertEquals(Optional.of(PLAYER), HandoffTicket.verify(ref.ticket(), skywarsKeys, SKYWARS, NOW + 1));
+        assertTrue(HandoffTicket.verify(ref.ticket(), cfg.secrets, SKYWARS, NOW + 1).isEmpty(),
+                "the hub's own key must not verify a ticket for another server");
+    }
+
+    @Test
+    void version2GamemodeWithoutAKeyIsUnavailable() {
+        NetworkConfig cfg = NetworkConfig.parse("""
+            {"version":2,"role":"hub","server_id":"%s","secrets":["%s"],
+             "gamemodes":[{"server_id":"%s","name":"SkyWars","address":"sky.example.com:5521"}]}
+            """.formatted(HUB, HUB_KEY_HEX, SKYWARS));
+        assertInstanceOf(HubRouter.Unavailable.class, HubRouter.route(cfg, "SkyWars", PLAYER, NOW));
+    }
 }

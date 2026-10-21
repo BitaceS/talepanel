@@ -30,25 +30,35 @@ public final class HubRouter {
         if (cfg == null || !"hub".equals(cfg.role)) {
             return new Unavailable("This server is not a TalePanel network hub.");
         }
-        if (cfg.secrets.isEmpty() || cfg.secrets.get(0).length == 0) {
-            return new Unavailable("The network is not configured yet. Ask an admin to sync it from the panel.");
-        }
-
         for (NetworkConfig.Gamemode gm : cfg.gamemodes) {
             if (gm.name != null && gm.name.equalsIgnoreCase(gamemode)) {
-                // Sign with the first (current) secret; gamemodes accept any
-                // listed secret so a rotation does not break in-flight joins.
+                byte[] key = signingKey(cfg, gm);
+                if (key == null) {
+                    return new Unavailable("The network is not configured yet. Ask an admin to sync it from the panel.");
+                }
                 ServerAddress address;
                 try {
                     address = ServerAddress.parse(gm.address);
                 } catch (IllegalArgumentException e) {
                     return new Unavailable("Gamemode " + gm.name + " has no valid address. Ask an admin to check the network.");
                 }
-                byte[] ticket = HandoffTicket.sign(cfg.secrets.get(0), gm.serverId, player,
+                byte[] ticket = HandoffTicket.sign(key, gm.serverId, player,
                         nowEpochSec, nowEpochSec + TICKET_TTL_SEC);
                 return new Referral(gm.name, address, ticket);
             }
         }
         return new Unknown(cfg.gamemodes.stream().map(g -> g.name).filter(n -> n != null).toList());
+    }
+
+    /**
+     * The key a ticket for {@code gm} is signed with: the gamemode's own key
+     * (config version 2+), or the shared network secret of a version 1 config.
+     * Null when there is none to sign with.
+     */
+    private static byte[] signingKey(NetworkConfig cfg, NetworkConfig.Gamemode gm) {
+        byte[] key = cfg.version >= 2
+                ? gm.secret
+                : (cfg.secrets.isEmpty() ? null : cfg.secrets.get(0));
+        return key == null || key.length == 0 ? null : key;
     }
 }

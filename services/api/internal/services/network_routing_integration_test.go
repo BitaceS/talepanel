@@ -93,7 +93,7 @@ func TestBuildServerConfig_HubListsGamemodesWithAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildServerConfig: %v", err)
 	}
-	if cfg.Version != 1 || cfg.Role != "hub" || cfg.ServerID != hub {
+	if cfg.Version != modConfigVersion || cfg.Role != "hub" || cfg.ServerID != hub {
 		t.Fatalf("unexpected header: %+v", cfg)
 	}
 	if len(cfg.Secrets) < 1 || len(cfg.Secrets[0]) != 64 {
@@ -106,6 +106,20 @@ func TestBuildServerConfig_HubListsGamemodesWithAddresses(t *testing.T) {
 		if gm.Address == "" || !containsColon(gm.Address) {
 			t.Fatalf("expected host:port address, got %q", gm.Address)
 		}
+		// The hub signs with the key the gamemode itself verifies with.
+		gmCfg, err := svc.BuildServerConfig(ctx, gm.ServerID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gm.Secret != gmCfg.Secrets[0] {
+			t.Fatalf("hub's key for %s does not match the gamemode's own key", gm.ServerID)
+		}
+		if gm.Secret == cfg.Secrets[0] {
+			t.Fatal("gamemode key must differ from the hub's own key")
+		}
+	}
+	if cfg.Gamemodes[0].Secret == cfg.Gamemodes[1].Secret {
+		t.Fatal("each gamemode must get its own key")
 	}
 }
 
