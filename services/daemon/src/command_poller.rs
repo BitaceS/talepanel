@@ -553,21 +553,61 @@ async fn write_mod_config_file(data_path: &str, config: &serde_json::Value) -> a
     Ok(())
 }
 
-/// Returns true for addresses a mod download must never reach: loopback,
-/// private, link-local (incl. the 169.254.169.254 cloud-metadata endpoint),
-/// and unspecified ranges. Blocks SSRF into the node's internal network.
-fn is_disallowed_ip(ip: &std::net::IpAddr) -> bool {
+/// True only for globally routable unicast addresses a mod download may reach.
+///
+/// Everything else is refused: loopback, RFC 1918, CGNAT (100.64.0.0/10, which
+/// also holds Alibaba's 100.100.100.200 metadata endpoint), link-local (incl.
+/// 169.254.169.254), benchmarking, documentation, IETF-reserved, multicast,
+/// class E and broadcast. An IPv4-mapped IPv6 address is judged by the IPv4
+/// address it carries; the other IPv4-embedding forms (v4-compatible, NAT64,
+/// 6to4, Teredo) are refused outright. IPv6 is an allowlist: only 2000::/3
+/// global unicast minus its special-purpose blocks passes, so ULA, link-local
+/// and multicast cannot.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_unspecified()
-                || v4.octets()[0] == 0
-        }
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        std::net::IpAddr::V4(v4) => is_public_ipv4(v4),
+        std::net::IpAddr::V6(v6) => is_public_ipv6(v6),
     }
+}
+
+fn is_public_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    let blocked = a == 0                                // 0.0.0.0/8 "this network"
+        || a == 10                                      // 10.0.0.0/8 private
+        || (a == 100 && (b & 0xC0) == 64)               // 100.64.0.0/10 CGNAT
+        || a == 127                                     // 127.0.0.0/8 loopback
+        || (a == 169 && b == 254)                       // 169.254.0.0/16 link-local
+        || (a == 172 && (b & 0xF0) == 16)               // 172.16.0.0/12 private
+        || (a == 192 && b == 0 && c == 0)               // 192.0.0.0/24 IETF protocol
+        || (a == 192 && b == 0 && c == 2)               // 192.0.2.0/24 TEST-NET-1
+        || (a == 192 && b == 88 && c == 99)             // 192.88.99.0/24 6to4 relay
+        || (a == 192 && b == 168)                       // 192.168.0.0/16 private
+        || (a == 198 && (b & 0xFE) == 18)               // 198.18.0.0/15 benchmarking
+        || (a == 198 && b == 51 && c == 100)            // 198.51.100.0/24 TEST-NET-2
+        || (a == 203 && b == 0 && c == 113)             // 203.0.113.0/24 TEST-NET-3
+        || a >= 224;                                    // multicast, 240/4, broadcast
+    !blocked
+}
+
+fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    // ::ffff:a.b.c.d reaches the IPv4 address on a dual-stack socket, so it is
+    // exactly as public as that address.
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return is_public_ipv4(v4);
+    }
+    let s = ip.segments();
+    // Allowlist: global unicast is 2000::/3. This alone refuses ::, ::1, the
+    // deprecated IPv4-compatible ::a.b.c.d, NAT64 64:ff9b::/96 and
+    // 64:ff9b:1::/48, discard-only 100::/64, ULA fc00::/7, link-local
+    // fe80::/10, site-local fec0::/10 and multicast ff00::/8.
+    if (s[0] & 0xE000) != 0x2000 {
+        return false;
+    }
+    let blocked = (s[0] == 0x2001 && s[1] < 0x0200)     // 2001::/23 IETF protocol (Teredo, ORCHID, benchmarking)
+        || (s[0] == 0x2001 && s[1] == 0x0db8)           // 2001:db8::/32 documentation
+        || s[0] == 0x2002                               // 2002::/16 6to4, embeds an arbitrary IPv4
+        || (s[0] & 0xFFF0) == 0x3FF0;                   // 3fff::/20 documentation
+    !blocked
 }
 
 /// Validate a mod download URL before fetching it. Requires https and resolves
@@ -592,7 +632,7 @@ async fn validate_download_url(raw: &str) -> Result<(), String> {
         Ok(addrs) => {
             for addr in addrs {
                 resolved_any = true;
-                if is_disallowed_ip(&addr.ip()) {
+                if !is_public_ip(addr.ip()) {
                     return Err("download host resolves to a disallowed address".to_string());
                 }
             }
@@ -627,6 +667,93 @@ mod tests {
         assert!(!is_within_data_root("/srv/taledaemon/servers-evil", root));
         assert!(!is_within_data_root("", root));
         assert!(!is_within_data_root("/srv/taledaemon/servers/a\0b", root));
+    }
+
+    // ── SSRF address filter ───────────────────────────────────────────────────
+
+    #[test]
+    fn public_ip_allows_global_unicast() {
+        for addr in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "104.16.0.1",
+            "100.63.255.255",   // just below CGNAT
+            "100.128.0.0",      // just above CGNAT
+            "172.15.255.255",   // just below 172.16/12
+            "172.32.0.0",       // just above 172.16/12
+            "198.17.255.255",   // just below benchmarking
+            "198.20.0.0",       // just above benchmarking
+            "223.255.255.255",  // last unicast before multicast
+            "2606:4700:4700::1111",
+            "2a00:1450:4001::200e",
+            "2001:4860:4860::8888",
+            "2001:200::1",      // first address after 2001::/23
+            "::ffff:1.1.1.1",   // v4-mapped public
+        ] {
+            let ip: std::net::IpAddr = addr.parse().unwrap();
+            assert!(is_public_ip(ip), "{addr} should be public");
+        }
+    }
+
+    #[test]
+    fn public_ip_blocks_internal_and_special_ranges() {
+        for addr in [
+            // IPv4
+            "0.0.0.0",
+            "0.1.2.3",
+            "10.0.0.1",
+            "100.64.0.1",
+            "100.100.100.200",  // Alibaba metadata
+            "100.127.255.255",
+            "127.0.0.1",
+            "127.255.255.254",
+            "169.254.169.254",  // AWS/GCP/Azure metadata
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.0.0.1",
+            "192.0.0.170",
+            "192.0.2.1",
+            "192.88.99.1",
+            "192.168.1.1",
+            "198.18.0.1",
+            "198.19.255.255",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "239.255.255.250",
+            "240.0.0.1",
+            "255.255.255.255",
+            // IPv6
+            "::",
+            "::1",
+            "::ffff:10.0.0.1",          // v4-mapped private
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:100.100.100.200",
+            "::10.0.0.1",               // v4-compatible
+            "::8.8.8.8",                // v4-compatible, refused regardless
+            "64:ff9b::a00:1",           // NAT64 -> 10.0.0.1
+            "64:ff9b::808:808",         // NAT64, refused regardless
+            "64:ff9b:1::1",             // local-use NAT64
+            "100::1",                   // discard-only
+            "fc00::1",
+            "fd12:3456:789a::1",        // ULA
+            "fe80::1",                  // link-local
+            "febf::1",
+            "fec0::1",                  // site-local (deprecated)
+            "ff02::1",                  // multicast
+            "ff0e::1",
+            "2001::1",                  // Teredo
+            "2001:2::1",                // benchmarking
+            "2001:10::1",               // ORCHID
+            "2001:db8::1",              // documentation
+            "2002:a00:1::1",            // 6to4 -> 10.0.0.1
+            "3fff::1",                  // documentation (RFC 9637)
+            "4000::1",                  // outside 2000::/3
+        ] {
+            let ip: std::net::IpAddr = addr.parse().unwrap();
+            assert!(!is_public_ip(ip), "{addr} must be blocked");
+        }
     }
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
