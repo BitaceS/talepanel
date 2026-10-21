@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -206,6 +206,10 @@ func (h *PlayerHandler) KickPlayer(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
 			return
 		}
+		if errors.Is(err, services.ErrUnsafePlayerName) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		h.log.Error("failed to kick player", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not kick player"})
 		return
@@ -237,6 +241,10 @@ func (h *PlayerHandler) SetOp(c *gin.Context) {
 	if err := h.playerSvc.SetOp(c.Request.Context(), serverID, playerID, req.Op); err != nil {
 		if errors.Is(err, services.ErrPlayerNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
+			return
+		}
+		if errors.Is(err, services.ErrUnsafePlayerName) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 			return
 		}
 		h.log.Error("failed to set op", zap.Error(err))
@@ -272,6 +280,10 @@ func (h *PlayerHandler) SetMute(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
 			return
 		}
+		if errors.Is(err, services.ErrUnsafePlayerName) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		h.log.Error("failed to set mute", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update mute status"})
 		return
@@ -296,6 +308,10 @@ func (h *PlayerHandler) GetPlayer(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
 			return
 		}
+		if errors.Is(err, services.ErrUnsafePlayerName) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		h.log.Error("failed to get player", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not fetch player"})
 		return
@@ -318,6 +334,10 @@ func (h *PlayerHandler) GetPlayerSessions(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, services.ErrPlayerNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
+			return
+		}
+		if errors.Is(err, services.ErrUnsafePlayerName) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 			return
 		}
 		h.log.Error("failed to get player sessions", zap.Error(err))

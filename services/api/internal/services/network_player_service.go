@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/BitaceS/talepanel/api/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -164,7 +163,7 @@ func (s *PlayerService) UnbanNetworkPlayer(ctx context.Context, hytaleUUID, acto
 	if current, err := s.latestUsername(ctx, hytaleUUID); err == nil {
 		username = current
 	}
-	if username != "" && !strings.ContainsAny(username, "\n\r;|&`") {
+	if isSafePlayerName(username) {
 		s.fanOutConsoleCommand(ctx, "unban "+username, "network_unban")
 	}
 
@@ -200,8 +199,8 @@ func (s *PlayerService) IsNetworkBanned(ctx context.Context, hytaleUUID uuid.UUI
 // network-banned.  Runs inside the join transaction so a banned player can never
 // be recorded as joined without the kick being queued alongside.
 func enforceNetworkBanOnJoin(ctx context.Context, q queryExecer, serverID, hytaleUUID uuid.UUID, username string) error {
-	if strings.ContainsAny(username, "\n\r;|&`") {
-		return nil // Unreachable via the daemon's parser, which rejects such names.
+	if !isSafePlayerName(username) {
+		return nil // Never spliced into a console line; the daemon's parser rejects such names anyway.
 	}
 	payload, err := json.Marshal(map[string]any{"cmd": "kick " + username})
 	if err != nil {
@@ -234,8 +233,8 @@ func (s *PlayerService) latestUsername(ctx context.Context, hytaleUUID uuid.UUID
 	if err != nil {
 		return "", fmt.Errorf("resolving player name: %w", err)
 	}
-	if strings.ContainsAny(username, "\n\r;|&`") {
-		return "", fmt.Errorf("player username contains unsafe characters")
+	if !isSafePlayerName(username) {
+		return "", ErrUnsafePlayerName
 	}
 	return username, nil
 }

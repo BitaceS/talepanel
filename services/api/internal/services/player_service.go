@@ -5,18 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 	"go.uber.org/zap"
 )
 
-var ErrPlayerNotFound = errors.New("player not found")
+var (
+	ErrPlayerNotFound = errors.New("player not found")
+	// ErrUnsafePlayerName: a stored username outside the allowlist; it is never
+	// put into a console command.
+	ErrUnsafePlayerName = errors.New("player username contains unsafe characters")
+)
+
+// playerNameRe is the only username shape that is put into console commands.
+// An allowlist, because the name is spliced into a console line verbatim.
+var playerNameRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+
+func isSafePlayerName(name string) bool { return playerNameRe.MatchString(name) }
 
 // PlayerSession represents a single login/logout session for a player.
 type PlayerSession struct {
@@ -241,8 +252,8 @@ func (s *PlayerService) playerTarget(ctx context.Context, serverID, playerID uui
 		}
 		return "", uuid.Nil, fmt.Errorf("fetching player: %w", err)
 	}
-	if strings.ContainsAny(username, "\n\r;|&`") {
-		return "", uuid.Nil, fmt.Errorf("player username contains unsafe characters")
+	if !isSafePlayerName(username) {
+		return "", uuid.Nil, ErrUnsafePlayerName
 	}
 	return username, nodeID, nil
 }
@@ -315,28 +326,14 @@ func (s *PlayerService) GetPlayer(ctx context.Context, serverID, playerID uuid.U
 // KickPlayer sends a kick console command for the player via the node command queue.
 // actorName is included in the audit log payload.
 func (s *PlayerService) KickPlayer(ctx context.Context, serverID, playerID uuid.UUID, reason, actorName string) error {
-	// 1. Fetch username and node info.
-	var username string
-	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `
-		SELECT p.username, sv.node_id
-		FROM players p
-		JOIN servers sv ON sv.id = p.server_id
-		WHERE p.id = $1 AND p.server_id = $2
-	`, playerID, serverID).Scan(&username, &nodeID)
+	// 1. Fetch username and node info; playerTarget rejects any username
+	// outside the allowlist before it reaches a console line.
+	username, nodeID, err := s.playerTarget(ctx, serverID, playerID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrPlayerNotFound
-		}
-		return fmt.Errorf("fetching player for kick: %w", err)
+		return err
 	}
 
-	// 2. Build kick command. Sanitize username — reject shell-unsafe characters
-	// that could be interpreted as command separators by the game console.
-	if strings.ContainsAny(username, "\n\r;|&`") {
-		return fmt.Errorf("player username contains unsafe characters")
-	}
-	// Hytale's kick takes only the player; an extra reason argument makes the
+	// 2. Build kick command. Hytale's kick takes only the player; an extra reason argument makes the
 	// command fail. The reason is kept in the audit log below.
 	cmd := fmt.Sprintf("kick %s", username)
 
@@ -367,20 +364,10 @@ func (s *PlayerService) KickPlayer(ctx context.Context, serverID, playerID uuid.
 
 // SetOp grants or revokes operator status for a player.
 func (s *PlayerService) SetOp(ctx context.Context, serverID, playerID uuid.UUID, op bool) error {
-	// 1. Fetch username and node info.
-	var username string
-	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `
-		SELECT p.username, sv.node_id
-		FROM players p
-		JOIN servers sv ON sv.id = p.server_id
-		WHERE p.id = $1 AND p.server_id = $2
-	`, playerID, serverID).Scan(&username, &nodeID)
+	// 1. Fetch username and node info (validated, like ban/kick).
+	username, nodeID, err := s.playerTarget(ctx, serverID, playerID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrPlayerNotFound
-		}
-		return fmt.Errorf("fetching player for op: %w", err)
+		return err
 	}
 
 	// 2. Update DB.
@@ -416,20 +403,10 @@ func (s *PlayerService) SetOp(ctx context.Context, serverID, playerID uuid.UUID,
 
 // SetMute mutes or unmutes a player.
 func (s *PlayerService) SetMute(ctx context.Context, serverID, playerID uuid.UUID, muted bool) error {
-	// 1. Fetch username and node info.
-	var username string
-	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `
-		SELECT p.username, sv.node_id
-		FROM players p
-		JOIN servers sv ON sv.id = p.server_id
-		WHERE p.id = $1 AND p.server_id = $2
-	`, playerID, serverID).Scan(&username, &nodeID)
+	// 1. Fetch username and node info (validated, like ban/kick).
+	username, nodeID, err := s.playerTarget(ctx, serverID, playerID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrPlayerNotFound
-		}
-		return fmt.Errorf("fetching player for mute: %w", err)
+		return err
 	}
 
 	// 2. Update DB.
