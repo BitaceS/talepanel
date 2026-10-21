@@ -32,7 +32,22 @@ Major bumps (`v0.x` → `v1.x`, `v1.x` → `v2.x`) may include breaking changes.
 
 ---
 
-## v0.9.0-beta → v1.0.0 (planned)
+## v0.9.0-beta → v0.10.0-beta
+
+Run the installer's **Upgrade** mode (or `git pull` + `docker compose up -d --build` in `/opt/talepanel`). The API applies migrations 016–035 on start; nothing to run by hand.
+
+Things that behave differently afterwards:
+
+- **Hytale 0.6+ required.** Default commands were rewritten for the 0.6 syntax (`whitelist add/remove`, `give --quantity`, weather ids). Servers need Java 25.
+- **Network mod:** update `talepanel-network` on every networked server. Handoff keys are now per server (config version 2), and the API rewrites each `network.json` on start.
+- **Hytale account link** is opt-in per server (Settings → Launch Settings, admins only).
+- **Stricter input:** world names `[A-Za-z0-9_-]{1,64}`, player names `[A-Za-z0-9_]{1,32}`. Console commands with control characters are rejected. Non-admin mod URLs must point at the CurseForge CDN.
+- **Alerts:** global and node-level rules (CPU/RAM/disk, node offline, DDoS) are admin-only now. Existing global rules owned by non-admins stop firing.
+- **Offline binaries** in `/srv/taledaemon/hytale-bin/` are copied per server instead of hardlinked, which costs about one `Assets.zip` of disk per server.
+
+---
+
+## v0.10.0-beta → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

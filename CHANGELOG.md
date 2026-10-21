@@ -4,7 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
+## [0.10.0-beta] — 2026-10-21
+
+Hytale 0.6 (Update 6) compatibility (verified against HytaleServer 0.6.8), Hytale account link, the network mod, and a full injection-hardening pass across API, daemon, web and installer.
 
 ### Added
 - Per-server launch flags in the panel (Settings → Launch Settings): `--accept-early-plugins`, `--allow-op`, `--disable-sentry`. Allowlisted in the API and again in the daemon. Migration 033.

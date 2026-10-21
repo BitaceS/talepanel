@@ -47,7 +47,8 @@ jobs:
       - name: Compute tags
         id: tags
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # CHANGELOG headings have no leading "v": "## [0.10.0-beta] — date".
+          TAG="${GITHUB_REF_NAME#v}"
           MINOR="${TAG%.*}"
           IMAGE="${REGISTRY}/${OWNER}/${{ matrix.component.name }}"
           echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
@@ -84,11 +85,12 @@ jobs:
       - name: Extract release notes from CHANGELOG
         id: notes
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # Tags are "v0.10.0-beta", CHANGELOG headings "## [0.10.0-beta] — date".
+          TAG="${GITHUB_REF_NAME#v}"
           # Extract the section for this version — between the matching H2
           # heading and the next H2 heading.
           awk -v tag="$TAG" '
-            /^## / { if (seen) exit; if ($0 ~ tag) { seen=1; next } }
+            /^## / { if (seen) exit; if (index($0, "[" tag "]")) { seen=1; next } }
             seen { print }
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
