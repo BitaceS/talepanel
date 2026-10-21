@@ -653,6 +653,9 @@ async fn write_active_world(data_path: &str, world: &str) -> anyhow::Result<()> 
     }
 
     let cfg_path = std::path::Path::new(data_path).join("config.json");
+    // A tenant-planted config.json -> /etc/... link must be neither read nor
+    // replaced.
+    refuse_symlink(&cfg_path).await?;
 
     // Parse the existing config if there is one; otherwise start from an empty
     // object so a not-yet-started server can still be pointed at a world.
@@ -683,9 +686,33 @@ async fn write_active_world(data_path: &str, world: &str) -> anyhow::Result<()> 
     // server with a truncated config.json.
     let tmp_path = cfg_path.with_extension("json.tmp");
     let body = serde_json::to_string_pretty(&cfg)?;
-    tokio::fs::write(&tmp_path, body).await?;
-    tokio::fs::rename(&tmp_path, &cfg_path).await?;
-    Ok(())
+    write_file_atomic(&cfg_path, &tmp_path, body.as_bytes()).await
+}
+
+/// Replace `target` with `body` via `tmp` + rename, without following any
+/// symlink a tenant may have planted at either path: the target must not be a
+/// link, and the temp is always a freshly created regular file.
+async fn write_file_atomic(target: &std::path::Path, tmp: &std::path::Path, body: &[u8]) -> anyhow::Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    refuse_symlink(target).await?;
+    let mut file = create_fresh_temp(tmp).await?;
+    let result: anyhow::Result<()> = async {
+        file.write_all(body).await?;
+        file.flush().await?;
+        file.sync_all().await?;
+        Ok(())
+    }
+    .await;
+    drop(file);
+    let result = match result {
+        Ok(()) => tokio::fs::rename(tmp, target).await.map_err(anyhow::Error::from),
+        Err(e) => Err(e),
+    };
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(tmp).await;
+    }
+    result
 }
 
 /// Recursively delete `{data_path}/universe/worlds/{world}`.
@@ -726,23 +753,35 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
 /// data root at the top of the poll loop.
 async fn write_mod_config_file(data_path: &str, config: &serde_json::Value) -> anyhow::Result<()> {
     let root = std::path::Path::new(data_path);
+    tokio::fs::create_dir_all(root).await?;
     let dir = root.join("talepanel");
-    tokio::fs::create_dir_all(&dir).await?;
+    ensure_real_dir(&dir).await?;
 
     let cfg_path = dir.join("network.json");
     let tmp_path = dir.join("network.json.tmp");
     let body = serde_json::to_string_pretty(config)?;
-    tokio::fs::write(&tmp_path, body).await?;
-    tokio::fs::rename(&tmp_path, &cfg_path).await?;
+    write_file_atomic(&cfg_path, &tmp_path, body.as_bytes()).await?;
 
     // Remove the config older daemons wrote into mods/talepanel-network/.
     // Only our own files are deleted, and the dir only if that left it empty.
-    let legacy = root.join("mods").join("talepanel-network");
-    for name in ["config.json", "config.json.tmp"] {
-        let _ = tokio::fs::remove_file(legacy.join(name)).await;
+    // Both path components are tenant-writable, so only descend into them if
+    // they are real directories — never delete through a planted symlink.
+    let mods = root.join("mods");
+    let legacy = mods.join("talepanel-network");
+    if is_real_dir(&mods).await && is_real_dir(&legacy).await {
+        for name in ["config.json", "config.json.tmp"] {
+            let _ = tokio::fs::remove_file(legacy.join(name)).await;
+        }
+        let _ = tokio::fs::remove_dir(&legacy).await;
     }
-    let _ = tokio::fs::remove_dir(&legacy).await;
     Ok(())
+}
+
+/// True if `path` exists and is a directory, not a symlink to one.
+async fn is_real_dir(path: &std::path::Path) -> bool {
+    tokio::fs::symlink_metadata(path)
+        .await
+        .is_ok_and(|md| md.file_type().is_dir())
 }
 
 /// True only for globally routable unicast addresses a mod download may reach.
@@ -1007,6 +1046,91 @@ mod tests {
         assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
         assert!(!std::fs::symlink_metadata(&tmp).unwrap().file_type().is_symlink());
         assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_active_world_refuses_symlinked_config() {
+        let root = scratch_dir("active-world-symlink");
+        let data_path = root.join("server");
+        std::fs::create_dir_all(&data_path).unwrap();
+        let victim = root.join("victim.json");
+        std::fs::write(&victim, br#"{"secret":true}"#).unwrap();
+        std::os::unix::fs::symlink(&victim, data_path.join("config.json")).unwrap();
+
+        let err = write_active_world(data_path.to_str().unwrap(), "w")
+            .await
+            .expect_err("symlinked config.json must be refused");
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert_eq!(std::fs::read(&victim).unwrap(), br#"{"secret":true}"#);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_active_world_does_not_follow_a_planted_temp_symlink() {
+        let root = scratch_dir("active-world-tmp-symlink");
+        let data_path = root.join("server");
+        std::fs::create_dir_all(&data_path).unwrap();
+        let victim = root.join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, data_path.join("config.json.tmp")).unwrap();
+
+        write_active_world(data_path.to_str().unwrap(), "w")
+            .await
+            .expect("write should succeed");
+
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
+        let cfg = data_path.join("config.json");
+        assert!(!std::fs::symlink_metadata(&cfg).unwrap().file_type().is_symlink());
+        let parsed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(parsed["Defaults"]["World"], "w");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_mod_config_file_refuses_symlinks() {
+        let root = scratch_dir("modconfig-symlink");
+        let data_path = root.join("server");
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&data_path).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let config = serde_json::json!({ "role": "hub" });
+
+        // talepanel/ pointing elsewhere.
+        std::os::unix::fs::symlink(&elsewhere, data_path.join("talepanel")).unwrap();
+        let err = write_mod_config_file(data_path.to_str().unwrap(), &config)
+            .await
+            .expect_err("symlinked talepanel/ must be refused");
+        assert!(err.to_string().contains("not a real directory"), "{err}");
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+        std::fs::remove_file(data_path.join("talepanel")).unwrap();
+
+        // network.json pointing elsewhere.
+        let victim = elsewhere.join("victim.json");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::fs::create_dir_all(data_path.join("talepanel")).unwrap();
+        std::os::unix::fs::symlink(&victim, data_path.join("talepanel").join("network.json")).unwrap();
+        let err = write_mod_config_file(data_path.to_str().unwrap(), &config)
+            .await
+            .expect_err("symlinked network.json must be refused");
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+        std::fs::remove_file(data_path.join("talepanel").join("network.json")).unwrap();
+
+        // Legacy cleanup must not delete through mods/talepanel-network -> elsewhere.
+        std::fs::write(elsewhere.join("config.json"), b"keep").unwrap();
+        std::fs::create_dir_all(data_path.join("mods")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, data_path.join("mods").join("talepanel-network")).unwrap();
+        write_mod_config_file(data_path.to_str().unwrap(), &config)
+            .await
+            .expect("write should succeed");
+        assert!(elsewhere.join("config.json").exists(), "cleanup must not follow the link");
 
         let _ = std::fs::remove_dir_all(&root);
     }
