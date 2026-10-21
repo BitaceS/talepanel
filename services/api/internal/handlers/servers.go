@@ -65,7 +65,8 @@ func (h *ServerHandler) SetHytaleAuth(auth *services.HytaleAuthService) {
 
 // DaemonGameSession hands a daemon a fresh Hytale game session for a server
 // it is about to start, so the server boots authenticated. 204 when no Hytale
-// account is linked (the server then starts unauthenticated, as before).
+// account is linked or an admin has not enabled it for this server (the
+// server then starts unauthenticated, as before).
 // POST /api/v1/servers/:id/daemon/game-session
 func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
@@ -76,6 +77,15 @@ func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 		return
 	}
 	if h.hytaleAuth == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	use, err := h.svc.UsesHytaleAccount(c.Request.Context(), serverID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "loading server settings failed"})
+		return
+	}
+	if !use {
 		c.Status(http.StatusNoContent)
 		return
 	}

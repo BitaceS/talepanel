@@ -814,8 +814,9 @@ async function submitCreateUser() {
               Hytale Account
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Link a Hytale account once and every server starts authenticated, with no
+              Link a Hytale account once and servers start authenticated, with no
               <code class="font-mono">/auth login</code> in the console. Players can only join authenticated servers.
+              Enable it per server under Settings → Launch Settings; plugins on those servers can read the session.
             </p>
           </div>
           <span

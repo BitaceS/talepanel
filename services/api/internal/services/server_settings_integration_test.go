@@ -78,6 +78,67 @@ func TestUpdateServer_LaunchFlagsAreAllowlisted(t *testing.T) {
 	}
 }
 
+// --allow-op lets players op themselves, so only an admin may add or remove
+// it; an owner editing other flags keeps whatever the admin chose.
+func TestUpdateServer_AllowOpIsAdminOnly(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	adminID := seedTestUser(t, pool, models.RoleAdmin)
+	serverID := seedServerWithLimits(t, pool, ownerID)
+
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{LaunchFlags: ptr([]string{"--allow-op"})}); !errors.Is(err, ErrServerForbidden) {
+		t.Fatalf("owner adding --allow-op: err = %v, want ErrServerForbidden", err)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, adminID, models.RoleAdmin,
+		UpdateServerRequest{LaunchFlags: ptr([]string{"--allow-op"})}); err != nil {
+		t.Fatalf("admin adding --allow-op: %v", err)
+	}
+	got, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{LaunchFlags: ptr([]string{"--allow-op", "--disable-sentry"})})
+	if err != nil {
+		t.Fatalf("owner keeping --allow-op while adding another flag: %v", err)
+	}
+	if len(got.LaunchFlags) != 2 {
+		t.Fatalf("launch_flags = %v", got.LaunchFlags)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{LaunchFlags: ptr([]string{"--disable-sentry"})}); !errors.Is(err, ErrServerForbidden) {
+		t.Fatalf("owner removing --allow-op: err = %v, want ErrServerForbidden", err)
+	}
+}
+
+// Every plugin on a server can read the game session it starts with, so only
+// an admin may hand a server the panel's Hytale account. Owners can opt out.
+func TestUpdateServer_UseHytaleAccountIsAdminOptIn(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	adminID := seedTestUser(t, pool, models.RoleAdmin)
+	serverID := seedServerWithLimits(t, pool, ownerID)
+
+	if use, err := svc.UsesHytaleAccount(ctx, serverID); err != nil || use {
+		t.Fatalf("new server uses the account: use=%v err=%v, want false", use, err)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{UseHytaleAccount: ptr(true)}); !errors.Is(err, ErrServerForbidden) {
+		t.Fatalf("owner enabling: err = %v, want ErrServerForbidden", err)
+	}
+	got, err := svc.UpdateServer(ctx, serverID, adminID, models.RoleAdmin, UpdateServerRequest{UseHytaleAccount: ptr(true)})
+	if err != nil || !got.UseHytaleAccount {
+		t.Fatalf("admin enabling: use=%v err=%v", got != nil && got.UseHytaleAccount, err)
+	}
+	got, err = svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser, UpdateServerRequest{UseHytaleAccount: ptr(false)})
+	if err != nil || got.UseHytaleAccount {
+		t.Fatalf("owner opting out: use=%v err=%v", got != nil && got.UseHytaleAccount, err)
+	}
+}
+
 // seedServerWithLimits seeds a server with the resource columns CreateServer
 // always fills (the shared seed leaves them NULL, which GetServer rejects).
 func seedServerWithLimits(t *testing.T, pool *pgxpool.Pool, ownerID uuid.UUID) uuid.UUID {

@@ -132,16 +132,17 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
 // ── Launch settings (RAM + allowlisted Hytale flags; apply on next start) ──
 const LAUNCH_FLAG_OPTIONS = [
   { flag: '--accept-early-plugins', label: 'Accept early plugins', hint: 'Required by mods that load before the server boots.' },
-  { flag: '--allow-op', label: 'Allow /op', hint: 'Lets operators grant themselves op in game.' },
+  { flag: '--allow-op', label: 'Allow /op', hint: 'Lets players grant themselves op in game. Admins only.', adminOnly: true },
   { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'Do not send crash reports to Hypixel (Sentry).' },
 ]
-const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[] })
+const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[], use_hytale_account: false })
 const launchSaving = ref(false)
 
 watch(server, (s) => {
   if (!s) return
   launchForm.ram_limit_mb = s.ram_limit_mb ?? 0
   launchForm.launch_flags = [...(s.launch_flags ?? [])]
+  launchForm.use_hytale_account = !!s.use_hytale_account
 }, { immediate: true })
 
 async function saveLaunchSettings() {
@@ -151,6 +152,9 @@ async function saveLaunchSettings() {
     const body: Record<string, unknown> = { launch_flags: launchForm.launch_flags }
     if (authStore.isAdmin && launchForm.ram_limit_mb !== server.value.ram_limit_mb) {
       body.ram_limit_mb = Number(launchForm.ram_limit_mb)
+    }
+    if (launchForm.use_hytale_account !== !!server.value.use_hytale_account) {
+      body.use_hytale_account = launchForm.use_hytale_account
     }
     await api.patch(`/servers/${serverId.value}`, body)
     await serversStore.fetchServer(serverId.value)
@@ -2132,8 +2136,10 @@ const sidebarMods = computed(() => {
               <p class="text-tp-muted text-xs mt-1">Hytale recommends at least 4096 MB.</p>
             </div>
             <div class="space-y-2">
-              <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3 cursor-pointer">
-                <input v-model="launchForm.launch_flags" type="checkbox" :value="opt.flag" class="mt-1 accent-tp-primary">
+              <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3"
+                :class="opt.adminOnly && !authStore.isAdmin ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'">
+                <input v-model="launchForm.launch_flags" type="checkbox" :value="opt.flag" class="mt-1 accent-tp-primary"
+                  :disabled="opt.adminOnly && !authStore.isAdmin">
                 <span>
                   <span class="text-tp-text text-sm">{{ opt.label }}</span>
                   <span class="text-tp-muted text-xs font-mono ml-2">{{ opt.flag }}</span>
@@ -2141,6 +2147,18 @@ const sidebarMods = computed(() => {
                 </span>
               </label>
             </div>
+            <!-- Admins enable it; an owner only sees it (and can opt out) once enabled. -->
+            <label v-if="authStore.isAdmin || server?.use_hytale_account" class="flex items-start gap-3 cursor-pointer">
+              <input v-model="launchForm.use_hytale_account" type="checkbox" class="mt-1 accent-tp-primary"
+                :disabled="!authStore.isAdmin && !launchForm.use_hytale_account">
+              <span>
+                <span class="text-tp-text text-sm">Start with the linked Hytale account</span>
+                <span class="block text-tp-muted text-xs">
+                  The server boots authenticated with the account from Admin → Integrations.
+                  Every plugin on this server can read that session, so only enable it for servers you trust.
+                </span>
+              </span>
+            </label>
             <div class="flex justify-end">
               <UiButton type="submit" :loading="launchSaving">Save</UiButton>
             </div>

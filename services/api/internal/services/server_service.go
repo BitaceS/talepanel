@@ -46,7 +46,9 @@ type UpdateServerRequest struct {
 	AutoRestart *bool     `json:"auto_restart"`
 	CrashLimit  *int      `json:"crash_limit"`
 	RAMLimitMB  *int      `json:"ram_limit_mb"` // admin+ only; applies on next start
-	LaunchFlags *[]string `json:"launch_flags"` // applies on next start
+	LaunchFlags *[]string `json:"launch_flags"` // applies on next start; admin-only flags need admin+
+	// Enabling is admin+ only; an owner may still turn it off.
+	UseHytaleAccount *bool `json:"use_hytale_account"`
 }
 
 // MinServerRAMMB is the smallest heap the panel lets a server run with.
@@ -56,6 +58,10 @@ const MinServerRAMMB = 512
 // per server. Value-less only: flags taking a path (--universe, --backup-dir)
 // could point outside the server's data dir. Mirrors the daemon's allowlist.
 var AllowedLaunchFlags = []string{"--accept-early-plugins", "--allow-op", "--disable-sentry"}
+
+// AdminOnlyLaunchFlags may only be added or removed by admin+. --allow-op lets
+// players on the server grant themselves operator.
+var AdminOnlyLaunchFlags = []string{"--allow-op"}
 
 // normalizeLaunchFlags validates and de-duplicates requested launch flags.
 func normalizeLaunchFlags(flags []string) ([]string, error) {
@@ -135,7 +141,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
 		       s.created_at, s.updated_at, s.metadata,
 		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, ''),
-		       s.launch_flags
+		       s.launch_flags, s.use_hytale_account
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1
@@ -148,7 +154,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.CrashWindowS, &server.ActiveWorld, &server.CreatedAt, &server.UpdatedAt,
 		&server.Metadata,
 		&server.NodeFQDN,
-		&server.LaunchFlags,
+		&server.LaunchFlags, &server.UseHytaleAccount,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -340,8 +346,24 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 		if err != nil {
 			return nil, err
 		}
+		if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			for _, f := range AdminOnlyLaunchFlags {
+				if slices.Contains(flags, f) != slices.Contains(server.LaunchFlags, f) {
+					return nil, fmt.Errorf("%w: only an admin can change %s", ErrServerForbidden, f)
+				}
+			}
+		}
 		setClauses = append(setClauses, fmt.Sprintf("launch_flags = $%d", argIdx))
 		args = append(args, flags)
+		argIdx++
+	}
+
+	if req.UseHytaleAccount != nil {
+		if *req.UseHytaleAccount && !server.UseHytaleAccount && models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			return nil, fmt.Errorf("%w: only an admin can let a server use the linked Hytale account", ErrServerForbidden)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("use_hytale_account = $%d", argIdx))
+		args = append(args, *req.UseHytaleAccount)
 		argIdx++
 	}
 
@@ -352,6 +374,14 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	}
 
 	return s.GetServer(ctx, serverID, userID, role)
+}
+
+// UsesHytaleAccount reports whether serverID may start with a game session of
+// the panel's linked Hytale account.
+func (s *ServerService) UsesHytaleAccount(ctx context.Context, serverID uuid.UUID) (bool, error) {
+	var use bool
+	err := s.db.QueryRow(ctx, `SELECT use_hytale_account FROM servers WHERE id = $1`, serverID).Scan(&use)
+	return use, err
 }
 
 // ─── UpdateServerDataPath ─────────────────────────────────────────────────────
