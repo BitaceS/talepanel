@@ -57,3 +57,33 @@ func TestResolveCommandTemplate_RejectsExtraArgsInParams(t *testing.T) {
 		}
 	}
 }
+
+// Substitution is single-pass: a single-word param whose value is another
+// placeholder must not pull a free-text value (with spaces) into its slot.
+func TestResolveCommandTemplate_NoRecursiveSubstitution(t *testing.T) {
+	got, err := resolveCommandTemplate("kick {player} {reason}",
+		map[string]string{"player": "{reason}", "reason": "x --all extra"}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "kick {reason} x --all extra" {
+		t.Fatalf("got %q: inserted value was re-scanned", got)
+	}
+	got, err = resolveCommandTemplate("op add {player}", map[string]string{"player": "{world}"}, "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "op add {world}" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// The server's world name gets the same single-word / control-char checks as
+// client params: it is substituted into the console line too.
+func TestResolveCommandTemplate_ValidatesWorld(t *testing.T) {
+	for _, w := range []string{"a b", "--all", "w\nstop", "w\x00"} {
+		if _, err := resolveCommandTemplate("time set day --world {world}", nil, w); err == nil {
+			t.Errorf("world %q accepted, want error", w)
+		}
+	}
+}

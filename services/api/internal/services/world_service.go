@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 var (
@@ -31,17 +31,17 @@ func NewWorldService(db *pgxpool.Pool) *WorldService {
 	return &WorldService{db: db}
 }
 
-// isSafeWorldName mirrors the daemon's is_safe_world_name guard. The daemon
-// re-validates every name it receives — this check exists so a bad name never
-// gets enqueued as a command in the first place.
+// worldNameRe is the only world-name shape the panel accepts. World names end
+// up as path components (the daemon's recursive delete), in config.json and as
+// the value of `--world` in console commands, so they are held to a strict
+// allowlist rather than a blocklist.
+var worldNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// isSafeWorldName reports whether name may be stored, enqueued or put into a
+// console command. The daemon re-validates every name it receives — this
+// check exists so a bad name never gets enqueued in the first place.
 func isSafeWorldName(name string) bool {
-	return name != "" &&
-		name != "." &&
-		name != ".." &&
-		!strings.Contains(name, "/") &&
-		!strings.Contains(name, `\`) &&
-		!strings.Contains(name, "..") &&
-		!strings.Contains(name, "\x00")
+	return worldNameRe.MatchString(name)
 }
 
 // serverNode returns the node and data path of a server, for enqueueing
@@ -70,8 +70,18 @@ type ScannedWorld struct {
 // SyncWorlds upserts the worlds the daemon found under universe/worlds and,
 // when activeWorld is known (from config.json), flags the active one and
 // updates the server's active_world. Worlds are keyed by (server_id, name).
+//
+// The report comes from the node, so names are not trusted: worlds with a name
+// outside the allowlist are skipped and an invalid active world is treated as
+// unknown, rather than being stored and later used in commands.
 func (s *WorldService) SyncWorlds(ctx context.Context, serverID uuid.UUID, worlds []ScannedWorld, activeWorld string) error {
+	if !isSafeWorldName(activeWorld) {
+		activeWorld = ""
+	}
 	for _, w := range worlds {
+		if !isSafeWorldName(w.Name) {
+			continue
+		}
 		if activeWorld != "" {
 			active := w.Name == activeWorld
 			if _, err := s.db.Exec(ctx, `

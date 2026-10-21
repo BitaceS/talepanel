@@ -1,11 +1,14 @@
 package services
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The API must never enqueue a world name that could make the daemon delete
 // outside universe/worlds. The daemon re-validates, but this is the first gate.
 func TestIsSafeWorldName(t *testing.T) {
-	safe := []string{"overworld", "my-world", "world_2", "Welt 1", "world.backup"}
+	safe := []string{"overworld", "my-world", "world_2", "default", strings.Repeat("a", 64)}
 	for _, name := range safe {
 		if !isSafeWorldName(name) {
 			t.Errorf("isSafeWorldName(%q) = false, want true", name)
@@ -24,6 +27,13 @@ func TestIsSafeWorldName(t *testing.T) {
 		"/etc/passwd",
 		`C:\Windows`,
 		"world\x00evil",
+		// Allowlist: no spaces, dots, flags or overlong names — world names
+		// also become `--world` values in console commands.
+		"Welt 1",
+		"world.backup",
+		"day --all",
+		"w\nstop",
+		strings.Repeat("a", 65),
 	}
 	for _, name := range unsafe {
 		if isSafeWorldName(name) {

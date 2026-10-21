@@ -7,11 +7,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -192,27 +192,28 @@ func (h *GameCommandHandler) DeleteGameCommand(c *gin.Context) {
 // characters are rejected: the daemon writes the command as one console line,
 // so a newline would smuggle in a second, unchecked command.  Only free-text
 // params may contain spaces; in any other a space or leading "--" would append
-// extra arguments or flags to the stored command.
+// extra arguments or flags to the stored command.  The server's world name
+// is held to the same single-word rule.
+//
+// Substitution is single-pass: the template is scanned once and every
+// inserted value is final, so a value that itself looks like a placeholder
+// (player="{message}") cannot pull a free-text value into a single-word slot.
 func resolveCommandTemplate(template string, params map[string]string, world string) (string, error) {
 	values := make(map[string]string, len(params)+1)
 	for k, v := range params {
-		if strings.IndexFunc(v, unicode.IsControl) >= 0 {
-			return "", fmt.Errorf("parameter %q contains control characters", k)
-		}
-		v = strings.TrimSpace(v)
-		if !freeTextParams[k] && (strings.IndexFunc(v, unicode.IsSpace) >= 0 || strings.HasPrefix(v, "--")) {
-			return "", fmt.Errorf("parameter %q must be a single word", k)
+		v, err := checkCommandValue(k, v, freeTextParams[k])
+		if err != nil {
+			return "", err
 		}
 		values[k] = v
 	}
-	values["world"] = world
-
-	fill := func(tok string) string {
-		for k, v := range values {
-			tok = strings.ReplaceAll(tok, "{"+k+"}", v)
-		}
-		return stripPlaceholders(tok)
+	w, err := checkCommandValue("world", world, false)
+	if err != nil {
+		return "", err
 	}
+	values["world"] = w
+
+	fill := func(tok string) string { return fillPlaceholders(tok, values) }
 
 	tokens := strings.Fields(template)
 	out := make([]string, 0, len(tokens))
@@ -236,17 +237,38 @@ func resolveCommandTemplate(template string, params map[string]string, world str
 // arguments, where Hytale reads the rest of the line as the value.
 var freeTextParams = map[string]bool{"message": true, "reason": true}
 
-// stripPlaceholders removes any `{name}` left after substitution.
-func stripPlaceholders(s string) string {
+// checkCommandValue validates one substituted value: no control characters
+// (one console line per command) and, unless freeText, a single word that does
+// not start with "--".
+func checkCommandValue(name, v string, freeText bool) (string, error) {
+	if strings.IndexFunc(v, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("parameter %q contains control characters", name)
+	}
+	v = strings.TrimSpace(v)
+	if !freeText && (strings.IndexFunc(v, unicode.IsSpace) >= 0 || strings.HasPrefix(v, "--")) {
+		return "", fmt.Errorf("parameter %q must be a single word", name)
+	}
+	return v, nil
+}
+
+// fillPlaceholders replaces each `{name}` in a template token with its value
+// in one left-to-right scan; placeholders without a value are dropped.
+// Inserted text is copied verbatim and never scanned again.
+func fillPlaceholders(tok string, values map[string]string) string {
+	var b strings.Builder
 	for {
-		start := strings.Index(s, "{")
+		start := strings.IndexByte(tok, '{')
 		if start == -1 {
-			return s
+			b.WriteString(tok)
+			return b.String()
 		}
-		end := strings.Index(s[start:], "}")
+		end := strings.IndexByte(tok[start:], '}')
 		if end == -1 {
-			return s
+			b.WriteString(tok)
+			return b.String()
 		}
-		s = s[:start] + s[start+end+1:]
+		b.WriteString(tok[:start])
+		b.WriteString(values[tok[start+1:start+end]])
+		tok = tok[start+end+1:]
 	}
 }
