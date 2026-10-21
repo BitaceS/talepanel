@@ -15,7 +15,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -281,8 +281,8 @@ func (c *Client) UploadFile(ctx context.Context, serverID, dir string, fileName 
 	}
 	writer.Close()
 
-	url := fmt.Sprintf("%s/servers/%s/files/upload?path=%s", c.baseURL, serverID, dir)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	uploadURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/files/upload", url.Values{"path": {dir}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &buf)
 	if err != nil {
 		return fmt.Errorf("daemon: build upload request: %w", err)
 	}
@@ -308,7 +308,7 @@ func (c *Client) UploadFile(ctx context.Context, serverID, dir string, fileName 
 // Content-Type header — it carries the multipart boundary. Uses a client with
 // no timeout since large uploads can take a while.
 func (c *Client) UploadStream(ctx context.Context, serverID, dir, contentType string, body io.Reader) error {
-	uploadURL := fmt.Sprintf("%s/servers/%s/files/upload?path=%s", c.baseURL, serverID, url.QueryEscape(dir))
+	uploadURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/files/upload", url.Values{"path": {dir}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, body)
 	if err != nil {
 		return fmt.Errorf("daemon: build upload request: %w", err)
@@ -331,8 +331,8 @@ func (c *Client) UploadStream(ctx context.Context, serverID, dir, contentType st
 
 // DownloadFile streams a file from the daemon as raw bytes.
 func (c *Client) DownloadFile(ctx context.Context, serverID, path string) (io.ReadCloser, string, error) {
-	url := fmt.Sprintf("%s/servers/%s/files/download?path=%s", c.baseURL, serverID, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	downloadURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/files/download", url.Values{"path": {path}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("daemon: build download request: %w", err)
 	}
@@ -349,13 +349,9 @@ func (c *Client) DownloadFile(ctx context.Context, serverID, path string) (io.Re
 		return nil, "", fmt.Errorf("daemon: download failed (%d): %s", resp.StatusCode, body)
 	}
 
-	// Extract filename from Content-Disposition header
-	fileName := "download"
-	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
-		if parts := strings.SplitN(cd, "filename=\"", 2); len(parts) == 2 {
-			fileName = strings.TrimSuffix(parts[1], "\"")
-		}
-	}
+	// Take the filename from the daemon's Content-Disposition, parsed
+	// properly rather than by string splitting.
+	fileName := filenameFromDisposition(resp.Header.Get("Content-Disposition"), "download")
 
 	return resp.Body, fileName, nil
 }
@@ -394,8 +390,8 @@ func (c *Client) longClient() *http.Client {
 // backups directory and returns the archive size and on-node path.
 func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string) (*BackupCreatedResponse, error) {
 	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
-	url := fmt.Sprintf("%s/servers/%s/backup", c.baseURL, serverID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	backupURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/backup", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backupURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("daemon: build backup request: %w", err)
 	}
@@ -423,8 +419,8 @@ func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string) (*
 // RestoreBackup asks the daemon to extract a backup archive back into the server.
 func (c *Client) RestoreBackup(ctx context.Context, serverID, backupID string) error {
 	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
-	url := fmt.Sprintf("%s/servers/%s/backup/restore", c.baseURL, serverID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	restoreURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/backup/restore", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, restoreURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("daemon: build restore request: %w", err)
 	}
@@ -446,8 +442,8 @@ func (c *Client) RestoreBackup(ctx context.Context, serverID, backupID string) e
 
 // DownloadBackup streams a backup archive from the daemon.
 func (c *Client) DownloadBackup(ctx context.Context, serverID, backupID string) (io.ReadCloser, error) {
-	url := fmt.Sprintf("%s/servers/%s/backup/download?backup_id=%s", c.baseURL, serverID, backupID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	downloadURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/backup/download", url.Values{"backup_id": {backupID}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("daemon: build backup download request: %w", err)
 	}
@@ -491,8 +487,8 @@ func (c *Client) ImportServer(ctx context.Context, serverID string, data io.Read
 		pw.CloseWithError(writer.Close())
 	}()
 
-	url := fmt.Sprintf("%s/servers/%s/import", c.baseURL, serverID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
+	importURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/import", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, importURL, pr)
 	if err != nil {
 		return fmt.Errorf("daemon: build import request: %w", err)
 	}
@@ -663,7 +659,10 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query map[s
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ClientPool holds a daemon client per registered node, keyed by node UUID.
+// Heartbeats register concurrently with request handlers reading, so the map
+// is guarded.
 type ClientPool struct {
+	mu      sync.RWMutex
 	clients map[string]*Client
 	log     *zap.Logger
 }
@@ -676,15 +675,25 @@ func NewClientPool(log *zap.Logger) *ClientPool {
 	}
 }
 
-// Register adds or replaces a daemon client for the given node.
-func (p *ClientPool) Register(nodeID, fqdn string, port int, token string) {
-	baseURL := fmt.Sprintf("http://%s:%d", fqdn, port)
+// Register adds or replaces a daemon client for the given node. The fqdn and
+// port are validated so a stored node address cannot smuggle a path, query or
+// userinfo into every daemon URL.
+func (p *ClientPool) Register(nodeID, fqdn string, port int, token string) error {
+	baseURL, err := BaseURL(fqdn, port)
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
 	p.clients[nodeID] = NewClient(baseURL, token, p.log)
+	p.mu.Unlock()
+	return nil
 }
 
 // Get returns the client for a node, or an error if the node is not registered.
 func (p *ClientPool) Get(nodeID string) (*Client, error) {
+	p.mu.RLock()
 	c, ok := p.clients[nodeID]
+	p.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("no daemon client registered for node %s", nodeID)
 	}
@@ -693,5 +702,7 @@ func (p *ClientPool) Get(nodeID string) (*Client, error) {
 
 // Remove deregisters a node's client.
 func (p *ClientPool) Remove(nodeID string) {
+	p.mu.Lock()
 	delete(p.clients, nodeID)
+	p.mu.Unlock()
 }

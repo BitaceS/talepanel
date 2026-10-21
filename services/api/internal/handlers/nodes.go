@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BitaceS/talepanel/api/internal/daemon"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -204,12 +204,18 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 	rawToken := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	node, err := h.svc.GetNode(c.Request.Context(), nodeID)
 	if err == nil {
-		h.daemons.Register(nodeID.String(), node.FQDN, node.Port, rawToken)
-		h.log.Debug("daemon client registered from heartbeat",
-			zap.String("node_id", nodeID.String()),
-			zap.String("fqdn", node.FQDN),
-			zap.Int("port", node.Port),
-		)
+		if regErr := h.daemons.Register(nodeID.String(), node.FQDN, node.Port, rawToken); regErr != nil {
+			h.log.Warn("node has an invalid fqdn/port; daemon client not registered",
+				zap.String("node_id", nodeID.String()),
+				zap.Error(regErr),
+			)
+		} else {
+			h.log.Debug("daemon client registered from heartbeat",
+				zap.String("node_id", nodeID.String()),
+				zap.String("fqdn", node.FQDN),
+				zap.Int("port", node.Port),
+			)
+		}
 
 		// Evaluate threshold-based alerts for CPU, RAM, and disk usage.
 		if h.alertSvc != nil {

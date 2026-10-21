@@ -4,10 +4,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"github.com/BitaceS/talepanel/api/internal/daemon"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -149,7 +150,7 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 	}
 	defer body.Close()
 
-	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Header("Content-Disposition", daemon.AttachmentDisposition(filename))
 	c.Header("Content-Type", "application/zip")
 	if _, err := io.Copy(c.Writer, body); err != nil {
 		h.log.Warn("backup download stream interrupted", zap.String("backup_id", backupID.String()), zap.Error(err))

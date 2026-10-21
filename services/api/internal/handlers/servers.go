@@ -1134,7 +1134,7 @@ func (h *ServerHandler) DownloadFile(c *gin.Context) {
 	}
 	defer body.Close()
 
-	c.Header("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	c.Header("Content-Disposition", daemon.AttachmentDisposition(fileName))
 	c.Header("Content-Type", "application/octet-stream")
 	c.Status(http.StatusOK)
 	io.Copy(c.Writer, body)
