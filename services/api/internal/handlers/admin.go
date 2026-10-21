@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -103,19 +104,23 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 
 	// Prevent changing own role.
 	caller, _ := middleware.GetUserFromCtx(c)
-	if caller != nil && caller.ID == targetID {
+	if caller == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	if caller.ID == targetID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change your own role"})
 		return
 	}
 
 	// Only owners can promote to owner.
-	if req.Role == models.RoleOwner && (caller == nil || caller.Role != models.RoleOwner) {
+	if req.Role == models.RoleOwner && caller.Role != models.RoleOwner {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only owners can promote to owner"})
 		return
 	}
 
-	if err := h.authSvc.UpdateUserRole(c.Request.Context(), targetID, req.Role); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.authSvc.UpdateUserRole(c.Request.Context(), caller.Role, targetID, req.Role); err != nil {
+		h.respondUserChangeError(c, err)
 		return
 	}
 
@@ -142,13 +147,17 @@ func (h *AdminHandler) ToggleUserActive(c *gin.Context) {
 
 	// Prevent disabling own account.
 	caller, _ := middleware.GetUserFromCtx(c)
-	if caller != nil && caller.ID == targetID {
+	if caller == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	if caller.ID == targetID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot disable your own account"})
 		return
 	}
 
-	if err := h.authSvc.SetUserActive(c.Request.Context(), targetID, req.IsActive); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.authSvc.SetUserActive(c.Request.Context(), caller.Role, targetID, req.IsActive); err != nil {
+		h.respondUserChangeError(c, err)
 		return
 	}
 
@@ -165,17 +174,37 @@ func (h *AdminHandler) DeleteUser(c *gin.Context) {
 
 	// Prevent deleting own account.
 	caller, _ := middleware.GetUserFromCtx(c)
-	if caller != nil && caller.ID == targetID {
+	if caller == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	if caller.ID == targetID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete your own account"})
 		return
 	}
 
-	if err := h.authSvc.DeleteUser(c.Request.Context(), targetID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.authSvc.DeleteUser(c.Request.Context(), caller.Role, targetID); err != nil {
+		h.respondUserChangeError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
+}
+
+// respondUserChangeError maps the owner-hierarchy errors of the admin user
+// mutations to HTTP statuses.
+func (h *AdminHandler) respondUserChangeError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrUserNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrOwnerProtected):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrLastOwner):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	default:
+		h.log.Error("admin user change failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update user"})
+	}
 }
 
 // ─── Node Activate / Deactivate ──────────────────────────────────────────────

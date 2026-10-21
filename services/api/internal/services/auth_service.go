@@ -564,42 +564,114 @@ func (s *AuthService) ListUsers(ctx context.Context) ([]*models.User, error) {
 
 // ─── Admin: UpdateUserRole ───────────────────────────────────────────────────
 
-func (s *AuthService) UpdateUserRole(ctx context.Context, userID uuid.UUID, role string) error {
-	ct, err := s.db.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, userID)
+var (
+	ErrUserNotFound = errors.New("user not found")
+	// ErrOwnerProtected: only an owner may change, disable or delete an owner.
+	ErrOwnerProtected = errors.New("only owners can modify owner accounts")
+	// ErrLastOwner: the change would leave the installation without an
+	// active owner.
+	ErrLastOwner = errors.New("cannot remove the last active owner")
+)
+
+// adminTargetChange runs fn in a transaction after enforcing the owner
+// hierarchy for an admin action on targetID. All owner rows are locked first,
+// so concurrent demotions cannot both pass the last-owner check. removesOwner
+// reports whether the change takes the target out of the active-owner set.
+func (s *AuthService) adminTargetChange(ctx context.Context, callerRole string, targetID uuid.UUID,
+	removesOwner func(targetRole string, targetActive bool) bool, fn func(pgx.Tx) error) error {
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("updating user role: %w", err)
+		return fmt.Errorf("beginning transaction: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
-		return errors.New("user not found")
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT id FROM users WHERE role = 'owner' FOR UPDATE`); err != nil {
+		return fmt.Errorf("locking owners: %w", err)
 	}
-	return nil
+	var targetRole string
+	var targetActive bool
+	err = tx.QueryRow(ctx, `SELECT role, is_active FROM users WHERE id = $1 FOR UPDATE`, targetID).
+		Scan(&targetRole, &targetActive)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("loading target user: %w", err)
+	}
+	if targetRole == models.RoleOwner && callerRole != models.RoleOwner {
+		return ErrOwnerProtected
+	}
+	if removesOwner(targetRole, targetActive) {
+		var others int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active AND id <> $1`, targetID,
+		).Scan(&others); err != nil {
+			return fmt.Errorf("counting owners: %w", err)
+		}
+		if others == 0 {
+			return ErrLastOwner
+		}
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateUserRole sets targetID's role on behalf of a caller with callerRole.
+// Promoting to owner and touching an owner both require the caller to be an
+// owner; demoting the last active owner is refused.
+func (s *AuthService) UpdateUserRole(ctx context.Context, callerRole string, targetID uuid.UUID, role string) error {
+	if role == models.RoleOwner && callerRole != models.RoleOwner {
+		return ErrOwnerProtected
+	}
+	return s.adminTargetChange(ctx, callerRole, targetID,
+		func(targetRole string, active bool) bool {
+			return targetRole == models.RoleOwner && active && role != models.RoleOwner
+		},
+		func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, targetID); err != nil {
+				return fmt.Errorf("updating user role: %w", err)
+			}
+			return nil
+		})
 }
 
 // ─── Admin: SetUserActive ────────────────────────────────────────────────────
 
-func (s *AuthService) SetUserActive(ctx context.Context, userID uuid.UUID, active bool) error {
-	ct, err := s.db.Exec(ctx, `UPDATE users SET is_active = $1 WHERE id = $2`, active, userID)
-	if err != nil {
-		return fmt.Errorf("updating user active status: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		return errors.New("user not found")
-	}
-	return nil
+// SetUserActive enables or disables targetID; disabling an owner requires an
+// owner caller and is refused for the last active owner.
+func (s *AuthService) SetUserActive(ctx context.Context, callerRole string, targetID uuid.UUID, active bool) error {
+	return s.adminTargetChange(ctx, callerRole, targetID,
+		func(targetRole string, wasActive bool) bool {
+			return targetRole == models.RoleOwner && wasActive && !active
+		},
+		func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE users SET is_active = $1 WHERE id = $2`, active, targetID); err != nil {
+				return fmt.Errorf("updating user active status: %w", err)
+			}
+			return nil
+		})
 }
 
 // ─── Admin: DeleteUser ───────────────────────────────────────────────────────
 
-func (s *AuthService) DeleteUser(ctx context.Context, userID uuid.UUID) error {
-	_, _ = s.db.Exec(ctx, `UPDATE sessions SET revoked = true WHERE user_id = $1`, userID)
-	ct, err := s.db.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
-	if err != nil {
-		return fmt.Errorf("deleting user: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		return errors.New("user not found")
-	}
-	return nil
+// DeleteUser removes targetID; deleting an owner requires an owner caller and
+// is refused for the last active owner.
+func (s *AuthService) DeleteUser(ctx context.Context, callerRole string, targetID uuid.UUID) error {
+	return s.adminTargetChange(ctx, callerRole, targetID,
+		func(targetRole string, active bool) bool {
+			return targetRole == models.RoleOwner && active
+		},
+		func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE sessions SET revoked = true WHERE user_id = $1`, targetID); err != nil {
+				return fmt.Errorf("revoking sessions: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, targetID); err != nil {
+				return fmt.Errorf("deleting user: %w", err)
+			}
+			return nil
+		})
 }
 
 // ─── Admin: CreateUserByAdmin ────────────────────────────────────────────────
