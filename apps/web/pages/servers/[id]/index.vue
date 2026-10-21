@@ -318,7 +318,15 @@ const hytaleAuthCodeRegex = /https:\/\/oauth\.accounts\.hytale\.com\/oauth2\/aut
 
 watch(logs, (lines) => {
   if (hytaleAuthUrl.value || hytaleAuthDismissed.value) return
+  // Players control chat, and chat lands in this log: a player could post
+  // their own device-login URL and have the operator approve it. The link only
+  // counts while provisioning (no game server, so no chat) and only from lines
+  // logged after the server entered 'installing' (updated_at moves with status;
+  // 60s of slack for clock skew between node and panel).
+  if (server.value?.status !== 'installing') return
+  const since = Date.parse(server.value.updated_at) - 60_000
   for (const line of lines) {
+    if (!(Date.parse(line.logged_at) >= since)) continue
     const dm = hytaleDeviceRegex.exec(line.message)
     if (dm) {
       hytaleAuthUrl.value = dm[0]
