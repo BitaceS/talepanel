@@ -197,6 +197,9 @@ EOF
     fi
   fi
 
+  # DOMAIN goes into .env and the Caddyfile, and may come from ipify.org.
+  is_host "$DOMAIN" || fail "invalid domain or IP: $DOMAIN"
+
   if [ -z "$DEPLOYMENT_PROFILE" ]; then
     cat <<EOF
 
@@ -258,14 +261,14 @@ EOF
     log "generating $env_file..."
     cp "$PANEL_DIR/deploy/panel/.env.template" "$env_file"
     chmod 600 "$env_file"
-    sed -i "s|^DOMAIN=.*|DOMAIN=$DOMAIN|"                                 "$env_file"
-    sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(gen_secret)|"     "$env_file"
-    sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(gen_secret)|"           "$env_file"
-    sed -i "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=$(gen_secret)|" "$env_file"
-    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(gen_secret)|"                   "$env_file"
-    sed -i "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$(gen_secret)|"   "$env_file"
-    sed -i "s|^TOTP_ENC_KEY=.*|TOTP_ENC_KEY=$(gen_secret)|"               "$env_file"
-    sed -i "s|^DEPLOYMENT_PROFILE=.*|DEPLOYMENT_PROFILE=$DEPLOYMENT_PROFILE|" "$env_file"
+    set_env_var "$env_file" DOMAIN              "$DOMAIN"
+    set_env_var "$env_file" POSTGRES_PASSWORD   "$(gen_secret)"
+    set_env_var "$env_file" REDIS_PASSWORD      "$(gen_secret)"
+    set_env_var "$env_file" MINIO_ROOT_PASSWORD "$(gen_secret)"
+    set_env_var "$env_file" JWT_SECRET          "$(gen_secret)"
+    set_env_var "$env_file" JWT_REFRESH_SECRET  "$(gen_secret)"
+    set_env_var "$env_file" TOTP_ENC_KEY        "$(gen_secret)"
+    set_env_var "$env_file" DEPLOYMENT_PROFILE  "$DEPLOYMENT_PROFILE"
   fi
 
   # Render Caddyfile with substituted domain and TLS directive.
@@ -344,6 +347,16 @@ install_daemon() {
     fi
   fi
 
+  # These values land in JSON, the root-owned daemon .env and the panel's node
+  # record, and DAEMON_HOST may come from ipify.org: accept plain values only.
+  is_http_url "$PANEL_URL" || fail "invalid panel URL: $PANEL_URL"
+  is_hex "$ENROLL_TOKEN"   || fail "invalid enrollment token (expected hex)"
+  is_host "$DAEMON_HOST"   || fail "invalid daemon host: $DAEMON_HOST"
+  is_port "$DAEMON_PORT"   || fail "invalid daemon port: $DAEMON_PORT"
+  if [ -n "${DAEMON_PUBLIC_ADDRESS:-}" ]; then
+    is_host "$DAEMON_PUBLIC_ADDRESS" || fail "invalid public address: $DAEMON_PUBLIC_ADDRESS"
+  fi
+
   cat <<EOF
 
 ${BOLD}Daemon installer — summary${NC}
@@ -361,33 +374,29 @@ EOF
 
   log "redeeming enrollment token..."
   local resp node_id node_token
-  resp="$(curl $curl_flags -X POST "$PANEL_URL/api/v1/nodes/enroll" \
-    -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$ENROLL_TOKEN\",\"fqdn\":\"$DAEMON_HOST\",\"port\":$DAEMON_PORT,\"public_address\":\"${DAEMON_PUBLIC_ADDRESS:-}\"}")"
+  resp="$(jq -n --arg token "$ENROLL_TOKEN" --arg fqdn "$DAEMON_HOST" \
+      --argjson port "$DAEMON_PORT" --arg pub "${DAEMON_PUBLIC_ADDRESS:-}" \
+      '{token: $token, fqdn: $fqdn, port: $port, public_address: $pub}' |
+    curl $curl_flags -X POST "$PANEL_URL/api/v1/nodes/enroll" \
+      -H 'Content-Type: application/json' --data-binary @-)"
   node_id="$(echo "$resp" | jq -r .node_id)"
   node_token="$(echo "$resp" | jq -r .node_token)"
   if [ -z "$node_id" ] || [ "$node_id" = "null" ]; then
     fail "enrollment failed — response: $resp"
   fi
+  # The response goes into a root-owned .env; never trust its shape.
+  is_uuid "$node_id"   || fail "enrollment returned an invalid node id"
+  is_hex "$node_token" || fail "enrollment returned an invalid node token"
   success "enrolled as node $node_id"
 
   local env_file="$DAEMON_DIR/deploy/daemon/.env"
   cp "$DAEMON_DIR/deploy/daemon/.env.template" "$env_file"
   chmod 600 "$env_file"
-  # Escape $ as $$ because Compose interpolates env_file on load.
-  local safe_url safe_id safe_token
-  safe_url="${PANEL_URL//$/\$\$}"
-  safe_id="${node_id//$/\$\$}"
-  safe_token="${node_token//$/\$\$}"
-  sed -i "s|^TALEDAEMON_API_URL=.*|TALEDAEMON_API_URL=$safe_url|"        "$env_file"
-  sed -i "s|^TALEDAEMON_NODE_ID=.*|TALEDAEMON_NODE_ID=$safe_id|"         "$env_file"
-  sed -i "s|^TALEDAEMON_NODE_TOKEN=.*|TALEDAEMON_NODE_TOKEN=$safe_token|" "$env_file"
+  set_env_var "$env_file" TALEDAEMON_API_URL    "$PANEL_URL"
+  set_env_var "$env_file" TALEDAEMON_NODE_ID    "$node_id"
+  set_env_var "$env_file" TALEDAEMON_NODE_TOKEN "$node_token"
   if [ "$INSECURE_TLS" -eq 1 ]; then
-    if grep -q '^TALEDAEMON_INSECURE_TLS=' "$env_file"; then
-      sed -i 's|^TALEDAEMON_INSECURE_TLS=.*|TALEDAEMON_INSECURE_TLS=1|' "$env_file"
-    else
-      echo 'TALEDAEMON_INSECURE_TLS=1' >> "$env_file"
-    fi
+    set_env_var "$env_file" TALEDAEMON_INSECURE_TLS 1
   fi
 
   mkdir -p /srv/taledaemon
@@ -432,10 +441,14 @@ install_daemon_local() {
   local PANEL_URL_LOCAL="https://$DOMAIN"
   # Get an owner JWT to mint an enrollment token.
   local token
-  token="$(cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
-    --post-data="{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" \
-    --header='Content-Type: application/json' \
-    http://localhost:8080/api/v1/auth/login 2>/dev/null | jq -r .access_token)"
+  # Built with jq: the password policy requires a symbol, and a " or \ would
+  # otherwise break (or rewrite) the JSON. Sent on stdin, not in argv.
+  token="$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" \
+      '{email: $email, password: $password}' |
+    (cd "$PANEL_DIR/deploy/panel" && docker compose exec -T api wget -qO- \
+      --post-file=/dev/stdin \
+      --header='Content-Type: application/json' \
+      http://localhost:8080/api/v1/auth/login 2>/dev/null) | jq -r .access_token)"
   if [ -z "$token" ] || [ "$token" = "null" ]; then
     fail "could not log in to newly-installed panel to mint enrollment token"
   fi

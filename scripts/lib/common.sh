@@ -99,3 +99,31 @@ install_pkgs() {
       ;;
   esac
 }
+
+# set_env_var writes KEY=VALUE into an env file, replacing any existing KEY
+# line. The value is handled as data only (no sed), so characters like | & \
+# cannot alter the edit. Values with line breaks are refused: they would add
+# extra variables. "$" is doubled because Compose interpolates env files.
+# Usage: set_env_var FILE KEY VALUE
+set_env_var() {
+  local file="$1" key="$2" value="$3" tmp
+  case "$value" in
+    *$'\n'*|*$'\r'*) fail "refusing to write $key: value contains a line break" ;;
+  esac
+  value="${value//\$/\$\$}"
+  tmp="$(mktemp "$file.XXXXXX")"
+  grep -v "^${key}=" "$file" > "$tmp" || true
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$file"
+}
+
+# Validators for values that end up in config files, JSON or Caddyfiles.
+is_hostname() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]]; }
+is_ipv6()     { [[ "$1" =~ ^[0-9A-Fa-f:]{2,39}$ ]] && [[ "$1" == *:* ]]; }
+is_host()     { is_hostname "$1" || is_ipv6 "$1"; }
+is_port()     { [[ "$1" =~ ^[0-9]{1,5}$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+is_uuid()     { [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; }
+is_hex()      { [[ "$1" =~ ^[0-9a-f]{16,128}$ ]]; }
+# http(s)://host[:port][/path] with no whitespace, quotes or shell metacharacters.
+is_http_url() { [[ "$1" =~ ^https?://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]]; }
