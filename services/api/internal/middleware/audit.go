@@ -30,6 +30,7 @@ var sensitiveFields = map[string]struct{}{
 	"refresh_token":    {},
 	"access_token":     {},
 	"secret":           {},
+	"setup_code":       {},
 }
 
 // multiSlash collapses consecutive slashes and trailing slashes for

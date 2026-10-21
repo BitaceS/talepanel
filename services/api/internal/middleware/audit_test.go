@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestSanitizePayloadRedactsSetupCode(t *testing.T) {
+	out := string(sanitizePayload([]byte(`{"setup_code":"ABCD-EFGH-JKLM","email":"a@b.cd"}`)))
+	if strings.Contains(out, "ABCD-EFGH-JKLM") {
+		t.Fatalf("setup code not redacted: %s", out)
+	}
+}
+
 func TestSanitizePayloadStripsNULAndRedactsNested(t *testing.T) {
 	body := []byte(`{"name":"a\u0000b","nested":{"password":"x","list":["c\u0000d",{"token":"t"}]},"k\u0000ey":1}`)
 	out := string(sanitizePayload(body))

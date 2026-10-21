@@ -19,16 +19,20 @@ type HealthHandler struct {
 	deploymentProfile string
 	updateSvc         *services.UpdateService
 	appVersion        string
+	setupCodeRequired bool
 }
 
 // NewHealthHandler constructs a HealthHandler.
-func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client, deploymentProfile string, updateSvc *services.UpdateService, appVersion string) *HealthHandler {
+// setupCodeRequired is true when the installer configured a one-time setup
+// code (SETUP_CODE_HASH), which enables the web setup wizard.
+func NewHealthHandler(db *pgxpool.Pool, rdb *redis.Client, deploymentProfile string, updateSvc *services.UpdateService, appVersion string, setupCodeRequired bool) *HealthHandler {
 	return &HealthHandler{
 		db:                db,
 		rdb:               rdb,
 		deploymentProfile: deploymentProfile,
 		updateSvc:         updateSvc,
 		appVersion:        appVersion,
+		setupCodeRequired: setupCodeRequired,
 	}
 }
 
@@ -72,7 +76,8 @@ func (h *HealthHandler) Liveness(c *gin.Context) {
 }
 
 // SetupStatus handles GET /health/setup.
-// Returns {"needs_setup": true} when no users exist in the DB.
+// Returns {"needs_setup": true} when no users exist in the DB, and
+// setup_code_required when the first owner can be created in the web wizard.
 // Public endpoint — no auth required.
 func (h *HealthHandler) SetupStatus(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
@@ -81,11 +86,11 @@ func (h *HealthHandler) SetupStatus(c *gin.Context) {
 	var count int
 	err := h.db.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"needs_setup": false})
+		c.JSON(http.StatusInternalServerError, gin.H{"needs_setup": false, "setup_code_required": h.setupCodeRequired})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"needs_setup": count == 0})
+	c.JSON(http.StatusOK, gin.H{"needs_setup": count == 0, "setup_code_required": h.setupCodeRequired})
 }
 
 // Readiness handles GET /health/ready.

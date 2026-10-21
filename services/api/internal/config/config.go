@@ -21,6 +21,11 @@ type Config struct {
 	// Used by the web frontend to seed default module visibility on first load.
 	DeploymentProfile string
 
+	// SetupCodeHash is the hex SHA-256 of the one-time setup code printed by
+	// the quick-setup installer. When set and no user exists yet, the web
+	// setup wizard may create the first owner account with that code.
+	SetupCodeHash string
+
 	// Database
 	DatabaseURL string
 
@@ -119,6 +124,14 @@ func Load() (*Config, error) {
 	cfg.DeploymentProfile = strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_PROFILE")))
 	if cfg.DeploymentProfile != "solo" && cfg.DeploymentProfile != "hoster" {
 		cfg.DeploymentProfile = "solo"
+	}
+
+	// SETUP_CODE_HASH — optional, 64 hex chars.
+	cfg.SetupCodeHash = strings.ToLower(strings.TrimSpace(os.Getenv("SETUP_CODE_HASH")))
+	if cfg.SetupCodeHash != "" {
+		if b, err := hex.DecodeString(cfg.SetupCodeHash); err != nil || len(b) != 32 {
+			return nil, fmt.Errorf("SETUP_CODE_HASH must be a hex-encoded SHA-256 (64 hex chars)")
+		}
 	}
 
 	// DATABASE_URL — required

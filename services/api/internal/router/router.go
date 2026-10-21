@@ -110,7 +110,7 @@ func SetupRouter(
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
-	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion)
+	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion, cfg.SetupCodeHash != "")
 	modH := handlers.NewModHandler(modSvc, cfSvc, daemonPool)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
@@ -145,6 +145,14 @@ func SetupRouter(
 		healthGroup.GET("/ready", healthH.Readiness)
 		healthGroup.GET("/setup", healthH.SetupStatus)
 		healthGroup.GET("/config", healthH.PublicConfig)
+	}
+
+	// First-owner setup with the installer's one-time code. Shares the auth
+	// rate limiter; answers 404 unless SETUP_CODE_HASH is configured.
+	setupGroup := v1.Group("/setup")
+	setupGroup.Use(authLimiter)
+	{
+		setupGroup.POST("/complete", authH.CompleteSetup)
 	}
 
 	// Auth — light rate limiting, no auth required (register/login)
