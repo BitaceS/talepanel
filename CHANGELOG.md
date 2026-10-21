@@ -11,7 +11,7 @@ Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
 - RAM limit editable in the panel (admins only, 512 MB up to the node's total).
 - `GET /api/v1/hytale/versions`: newest server build per patchline, read from maven.hytale.com. The create-server form now offers Release / Pre-release instead of a free-text version.
 - Network mod (`mods/talepanel-network`): Hytale plugin with `/play <gamemode>` on hubs (signed `referToServer` handoff) and a referral gate on `require_referral` gamemodes. Builds against `com.hypixel.hytale:Server:0.6.8`. The config now lives at `{server}/talepanel/network.json` instead of inside `mods/`, which Hytale mistook for an asset pack.
-- Hytale account link (Admin → Integrations → Hytale Account): sign in once with the OAuth device flow and every server start gets its own game session, so servers boot authenticated without `/auth login`. The refresh token is stored encrypted and rotated safely; tokens reach the server via environment variables.
+- Hytale account link (Admin → Integrations → Hytale Account): sign in once with the OAuth device flow and each opted-in server start gets its own game session, so servers boot authenticated without `/auth login`. Admins enable it per server (Settings → Launch Settings, migration 035), because every plugin on a server can read its session. The refresh token is stored encrypted and rotated safely; tokens reach the server via environment variables.
 
 ### Changed
 - Daemon sets `HYTALE_DISABLE_UPDATES` and explains exit codes 8 (self-update staged) and 11 (data inside the launcher install folder).
@@ -37,6 +37,9 @@ Hytale 0.6 (Update 6) compatibility, verified against HytaleServer 0.6.8.
 - Game server processes no longer inherit the daemon's environment secrets (`TALEDAEMON_NODE_TOKEN` etc.), which any plugin could read.
 - The web panel keeps the access token in memory only (it was in `localStorage`); a reload restores the session from the httpOnly refresh cookie.
 - The Hytale device-login link is only rendered if it is `https://`.
+- Network handoff tickets use a per-server key derived from the master secret (mod config version 2). A gamemode's `network.json` no longer holds a secret that is valid for every other gamemode. The hub still holds its gamemodes' keys, so give the hub role only to a trusted server. **Upgrade:** update the mod on all networked servers; the API rewrites their configs on start.
+- `--allow-op` can only be added or removed by admins.
+- Refresh tokens get a 30 s grace period after rotation, so parallel tabs or a reload during a refresh no longer log the user out.
 
 ## [0.9.0-beta] — 2026-04-17
 

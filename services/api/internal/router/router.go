@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -73,6 +74,15 @@ func SetupRouter(
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
 	networkRoutingSvc := services.NewNetworkRoutingServiceWithLogger(db, log)
+	// Re-write every networked server's mod config once per start, so configs
+	// follow format changes (e.g. per-server ticket keys) without a manual sync.
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		if err := networkRoutingSvc.DistributeAll(ctx); err != nil {
+			log.Warn("redistributing network mod configs on startup failed", zap.Error(err))
+		}
+	}()
 	backupSvc := services.NewBackupService(db, daemonPool, log)
 	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
 	webhookNotifier := alerting.NewWebhookNotifier(log)
