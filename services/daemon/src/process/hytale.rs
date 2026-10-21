@@ -72,6 +72,14 @@ fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
     out
 }
 
+/// Daemon secrets and settings a game server must not inherit: any plugin
+/// can read its JVM's environment, and the node token would let it act as
+/// this node towards the panel.
+fn is_daemon_env(key: &str) -> bool {
+    key.starts_with("TALEDAEMON_")
+        || matches!(key, "CURSEFORGE_API_KEY" | "MARIADB_DSN" | "MARIADB_ROOT_PASSWORD")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ServerMetrics
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +284,11 @@ impl HytaleServerProcess {
         // We launch the JAR directly and own updates via the downloader, so
         // turn it off rather than have servers drop into Crashed.
         cmd.env("HYTALE_DISABLE_UPDATES", "1");
+        for (key, _) in std::env::vars_os() {
+            if key.to_str().is_some_and(is_daemon_env) {
+                cmd.env_remove(key);
+            }
+        }
 
         cmd.current_dir(&self.config.data_path)
             .stdin(std::process::Stdio::piped())
@@ -729,6 +742,16 @@ mod tests {
     fn explains_hytale_updater_and_install_dir_exit_codes() {
         assert!(explain_exit_code(8).unwrap().contains("self-update"));
         assert!(explain_exit_code(11).unwrap().contains("--allow-install-dir"));
+    }
+
+    #[test]
+    fn daemon_secrets_are_not_inherited() {
+        assert!(is_daemon_env("TALEDAEMON_NODE_TOKEN"));
+        assert!(is_daemon_env("TALEDAEMON_API_URL"));
+        assert!(is_daemon_env("CURSEFORGE_API_KEY"));
+        assert!(!is_daemon_env("HYTALE_SERVER_SESSION_TOKEN"));
+        assert!(!is_daemon_env("JAVA_HOME"));
+        assert!(!is_daemon_env("PATH"));
     }
 
     #[test]
