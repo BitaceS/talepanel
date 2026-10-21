@@ -364,6 +364,10 @@ Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are b
 
 ---
 
+## Community
+
+Questions, setups and bug hunting with other server owners: [HytaleTalk, the Hytale server forum](https://hytaletalk.com/) and the [TalePanel Discord](https://discord.gg/6N8WNrW5WJ). Guides for running a Hytale server live in the [HytaleTalk server wiki](https://hytaletalk.com/pages/wiki/).
+
 ## Contributing
 
 Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow and coding-style notes, and be aware that opening a pull request constitutes acceptance of the [Contributor License Agreement](CLA.md) — the CLA-Assistant bot records your acceptance automatically on your first PR.
