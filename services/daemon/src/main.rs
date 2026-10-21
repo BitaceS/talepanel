@@ -31,11 +31,11 @@ async fn main() -> Result<()> {
     // ── 1. Load config ──────────────────────────────────────────────────────
     //
     // Priority: /etc/taledaemon/config.toml → ./config.toml → env vars.
-    // We bootstrap a minimal subscriber before loading config so that any
-    // errors during loading are visible.
-    init_bootstrap_tracing();
-
-    let config = Config::load().context("Failed to load configuration")?;
+    // A minimal subscriber is scoped to config loading so that any errors
+    // during loading are visible. It must not be installed globally, or the
+    // configured subscriber below could never replace it.
+    let config = tracing::subscriber::with_default(bootstrap_subscriber(), Config::load)
+        .context("Failed to load configuration")?;
     let config = Arc::new(config);
 
     // ── 2. Reinitialise tracing with the configured log level & format ──────
@@ -207,11 +207,10 @@ async fn main() -> Result<()> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Initialise a minimal tracing subscriber used only until the config is loaded.
-fn init_bootstrap_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
+/// Minimal tracing subscriber used only while the config is loaded.
+fn bootstrap_subscriber() -> impl tracing::Subscriber + Send + Sync {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).finish()
 }
 
 /// Reinitialise tracing with the log level and format specified in the config.
