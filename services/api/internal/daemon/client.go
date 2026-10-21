@@ -35,6 +35,8 @@ type ServerConfig struct {
 	RAMLimitMB uint32  `json:"ram_limit_mb"`
 	CPULimit   float32 `json:"cpu_limit"`
 	CrashLimit uint32  `json:"crash_limit"`
+	// Allowlisted per-server Hytale launch flags; the daemon re-checks them.
+	LaunchFlags []string `json:"launch_flags"`
 }
 
 // StartRequest is the body of POST /servers/:id/start

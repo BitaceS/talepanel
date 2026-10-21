@@ -4,6 +4,7 @@ mod config;
 mod downloader;
 mod heartbeat;
 mod http_server;
+mod machine_id;
 mod net_monitor;
 mod plugin_scanner;
 mod process;
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 use api_client::{ApiClient, HeartbeatMetrics, NodeRegistration};
 use config::Config;
@@ -30,15 +31,25 @@ async fn main() -> Result<()> {
     // ── 1. Load config ──────────────────────────────────────────────────────
     //
     // Priority: /etc/taledaemon/config.toml → ./config.toml → env vars.
-    // We bootstrap a minimal subscriber before loading config so that any
-    // errors during loading are visible.
-    init_bootstrap_tracing();
-
-    let config = Config::load().context("Failed to load configuration")?;
+    // A minimal subscriber is scoped to config loading so that any errors
+    // during loading are visible. It must not be installed globally, or the
+    // configured subscriber below could never replace it.
+    let config = tracing::subscriber::with_default(bootstrap_subscriber(), Config::load)
+        .context("Failed to load configuration")?;
     let config = Arc::new(config);
 
     // ── 2. Reinitialise tracing with the configured log level & format ──────
     init_tracing(&config);
+
+    // Hytale derives the key for its encrypted auth store (auth.enc) from the
+    // machine-id; container images have none, so persisted logins fail.
+    #[cfg(target_os = "linux")]
+    if let Err(e) = machine_id::ensure_machine_id(
+        std::path::Path::new("/etc/machine-id"),
+        &std::path::Path::new(&config.daemon.data_root).join("machine-id"),
+    ) {
+        warn!(error = %e, "Could not provide a machine-id; Hytale /auth logins will not persist");
+    }
 
     info!(
         node_id = %config.daemon.node_id,
@@ -196,11 +207,10 @@ async fn main() -> Result<()> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Initialise a minimal tracing subscriber used only until the config is loaded.
-fn init_bootstrap_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
+/// Minimal tracing subscriber used only while the config is loaded.
+fn bootstrap_subscriber() -> impl tracing::Subscriber + Send + Sync {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).finish()
 }
 
 /// Reinitialise tracing with the log level and format specified in the config.

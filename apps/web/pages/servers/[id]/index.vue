@@ -8,7 +8,7 @@ import {
   Gamepad2, Loader2, Plus, Database,
   File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X, Pencil,
   Upload, PackageOpen, Copy, Info,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
 import { useModsStore } from '~/stores/mods'
 import { useGameCommandsStore } from '~/stores/gameCommands'
@@ -107,11 +107,64 @@ const toastMessage = ref('')
 const toastType = ref<'success' | 'error'>('success')
 let toastTimer: ReturnType<typeof setTimeout>
 
+// Templates can't reach window globals; destructive buttons confirm through this.
+function confirmAction(message: string): boolean {
+  return window.confirm(message)
+}
+
+async function deleteServerAndLeave() {
+  if (!confirmAction('Delete this server? This cannot be undone.')) return
+  try {
+    await serversStore.deleteServer(serverId.value)
+    await navigateTo('/servers')
+  } catch {
+    showToast('Failed to delete server', 'error')
+  }
+}
+
 function showToast(message: string, type: 'success' | 'error' = 'success') {
   toastMessage.value = message
   toastType.value = type
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 3000)
+}
+
+// ── Launch settings (RAM + allowlisted Hytale flags; apply on next start) ──
+const LAUNCH_FLAG_OPTIONS = [
+  { flag: '--accept-early-plugins', label: 'Accept early plugins', hint: 'Required by mods that load before the server boots.' },
+  { flag: '--allow-op', label: 'Allow /op', hint: 'Lets players grant themselves op in game. Admins only.', adminOnly: true },
+  { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'Do not send crash reports to Hypixel (Sentry).' },
+]
+const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[], use_hytale_account: false })
+const launchSaving = ref(false)
+
+watch(server, (s) => {
+  if (!s) return
+  launchForm.ram_limit_mb = s.ram_limit_mb ?? 0
+  launchForm.launch_flags = [...(s.launch_flags ?? [])]
+  launchForm.use_hytale_account = !!s.use_hytale_account
+}, { immediate: true })
+
+async function saveLaunchSettings() {
+  if (!server.value) return
+  launchSaving.value = true
+  try {
+    const body: Record<string, unknown> = { launch_flags: launchForm.launch_flags }
+    if (authStore.isAdmin && launchForm.ram_limit_mb !== server.value.ram_limit_mb) {
+      body.ram_limit_mb = Number(launchForm.ram_limit_mb)
+    }
+    if (launchForm.use_hytale_account !== !!server.value.use_hytale_account) {
+      body.use_hytale_account = launchForm.use_hytale_account
+    }
+    await api.patch(`/servers/${serverId.value}`, body)
+    await serversStore.fetchServer(serverId.value)
+    showToast(server.value?.status === 'running' ? 'Saved. Restart the server to apply.' : 'Saved.')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save launch settings', 'error')
+  } finally {
+    launchSaving.value = false
+  }
 }
 
 async function runAction(action: 'start' | 'stop' | 'restart' | 'kill') {
@@ -269,7 +322,7 @@ watch(logs, (lines) => {
     const dm = hytaleDeviceRegex.exec(line.message)
     if (dm) {
       hytaleAuthUrl.value = dm[0]
-      hytaleAuthCode.value = dm[1]
+      hytaleAuthCode.value = dm[1] ?? ''
       break
     }
     const am = hytaleAuthCodeRegex.exec(line.message)
@@ -299,8 +352,9 @@ async function fetchLogs() {
   try {
     const data = await api.get<{ logs: LogLine[] }>(`/servers/${serverId.value}/logs`)
     logs.value = data.logs ?? []
-    if (logs.value.length > 0) {
-      lastLogId = logs.value[logs.value.length - 1].id
+    const lastLog = logs.value.at(-1)
+    if (lastLog) {
+      lastLogId = lastLog.id
     }
     await nextTick()
     if (!userScrolledUp.value) {
@@ -501,7 +555,7 @@ watch(activeTab, async (tab) => {
     await gameCmdStore.fetchCommands(serverId.value)
     // Auto-select first category
     if (!activeCmdCategory.value && gameCmdStore.categories.length > 0) {
-      activeCmdCategory.value = gameCmdStore.categories[0]
+      activeCmdCategory.value = gameCmdStore.categories[0] ?? null
     }
   }
 })
@@ -538,7 +592,7 @@ function hasRequiredParams(cmd: GameCommand): boolean {
   const params = Array.isArray(cmd.params) ? cmd.params : []
   if (params.length === 0) return true
   const values = getParamValues(cmd.id)
-  return params.every(p => !p.required || (values[p.name] && values[p.name].trim() !== ''))
+  return params.every(p => !p.required || (values[p.name]?.trim() ?? '') !== '')
 }
 
 async function executeCmd(cmd: GameCommand) {
@@ -921,6 +975,7 @@ async function runUpload(files: File[]) {
     while (idx < files.length) {
       const i = idx++
       const file = files[i]
+      if (!file) continue
       const relName = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath || file.name
       recompute(relName)
       try {
@@ -939,15 +994,16 @@ async function runUpload(files: File[]) {
     const CONCURRENCY = 3
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker))
 
+    const single = files.length === 1 ? files[0] : undefined
     if (failed > 0) {
       showToast(`${failed} of ${files.length} file(s) failed to upload`, 'error')
     } else {
-      showToast(files.length === 1 ? `${files[0].name} uploaded` : `${files.length} files uploaded`)
+      showToast(single ? `${single.name} uploaded` : `${files.length} files uploaded`)
     }
 
     // Auto-extract when a single .zip was uploaded and the option is enabled.
-    if (failed === 0 && autoExtractZip.value && files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
-      const name = files[0].name
+    if (failed === 0 && autoExtractZip.value && single && single.name.toLowerCase().endsWith('.zip')) {
+      const name = single.name
       const fpath = filePath.value === '/' ? '/' + name : filePath.value + '/' + name
       try {
         await api.post(`/servers/${serverId.value}/files/extract`, { path: fpath })
@@ -1220,12 +1276,12 @@ const sidebarMods = computed(() => {
             <div v-for="row in [
               { label: 'Node ID', value: server.node_id, mono: true },
               { label: 'Port', value: server.port, mono: true },
-              { label: 'Version', value: server.hytale_version },
-              { label: 'Auto Restart', value: server.auto_restart ? 'Enabled' : 'Disabled' },
-              { label: 'Active World', value: server.active_world || '\u2014' },
-              { label: 'CPU Limit', value: server.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited' },
-              { label: 'RAM Limit', value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : 'Unlimited' },
-              { label: 'Created', value: new Date(server.created_at).toLocaleString() },
+              { label: 'Version', value: server.hytale_version, mono: false },
+              { label: 'Auto Restart', value: server.auto_restart ? 'Enabled' : 'Disabled', mono: false },
+              { label: 'Active World', value: server.active_world || '\u2014', mono: false },
+              { label: 'CPU Limit', value: server.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited', mono: false },
+              { label: 'RAM Limit', value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : 'Unlimited', mono: false },
+              { label: 'Created', value: new Date(server.created_at).toLocaleString(), mono: false },
             ]" :key="row.label" class="flex items-center px-5 py-3">
               <span class="text-tp-outline text-sm w-40 shrink-0">{{ row.label }}</span>
               <span :class="['text-tp-text text-sm truncate', row.mono ? 'font-mono text-xs' : '']">{{ row.value }}</span>
@@ -1848,7 +1904,7 @@ const sidebarMods = computed(() => {
                 <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                   :disabled="w.is_active"
                   :title="w.is_active ? 'Activate another world first' : 'Delete this world from disk'"
-                  @click="confirm(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
+                  @click="confirmAction(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1924,8 +1980,8 @@ const sidebarMods = computed(() => {
               </div>
             </div>
             <div class="flex items-center gap-1">
-              <button v-if="b.status === 'complete'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
-              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirm('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
+              <button v-if="b.status === 'completed'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
+              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirmAction('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -2068,6 +2124,46 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </div>
+        <!-- Launch settings -->
+        <form class="bg-tp-surface rounded-xl overflow-hidden" @submit.prevent="saveLaunchSettings">
+          <div class="px-5 py-3 border-b border-tp-border">
+            <h3 class="text-tp-text font-display font-semibold text-sm">Launch Settings</h3>
+            <p class="text-tp-muted text-xs mt-0.5">Applied the next time the server starts.</p>
+          </div>
+          <div class="px-5 py-4 space-y-4">
+            <div v-if="authStore.isAdmin" class="max-w-xs">
+              <UiInput v-model="launchForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="4096" />
+              <p class="text-tp-muted text-xs mt-1">Hytale recommends at least 4096 MB.</p>
+            </div>
+            <div class="space-y-2">
+              <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3"
+                :class="opt.adminOnly && !authStore.isAdmin ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'">
+                <input v-model="launchForm.launch_flags" type="checkbox" :value="opt.flag" class="mt-1 accent-tp-primary"
+                  :disabled="opt.adminOnly && !authStore.isAdmin">
+                <span>
+                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
+                  <span class="text-tp-muted text-xs font-mono ml-2">{{ opt.flag }}</span>
+                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                </span>
+              </label>
+            </div>
+            <!-- Admins enable it; an owner only sees it (and can opt out) once enabled. -->
+            <label v-if="authStore.isAdmin || server?.use_hytale_account" class="flex items-start gap-3 cursor-pointer">
+              <input v-model="launchForm.use_hytale_account" type="checkbox" class="mt-1 accent-tp-primary"
+                :disabled="!authStore.isAdmin && !launchForm.use_hytale_account">
+              <span>
+                <span class="text-tp-text text-sm">Start with the linked Hytale account</span>
+                <span class="block text-tp-muted text-xs">
+                  The server boots authenticated with the account from Admin → Integrations.
+                  Every plugin on this server can read that session, so only enable it for servers you trust.
+                </span>
+              </span>
+            </label>
+            <div class="flex justify-end">
+              <UiButton type="submit" :loading="launchSaving">Save</UiButton>
+            </div>
+          </div>
+        </form>
         <!-- Shared access / invitations -->
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
@@ -2143,7 +2239,7 @@ const sidebarMods = computed(() => {
           <h3 class="text-tp-danger font-display font-semibold text-sm mb-2">Danger Zone</h3>
           <p class="text-tp-muted text-xs mb-3">Permanently delete this server and all associated data.</p>
           <button class="px-4 py-2 rounded-xl bg-tp-danger text-white text-xs font-medium hover:bg-tp-danger/90 transition-colors"
-            @click="confirm('Delete this server? This cannot be undone.') && serversStore.deleteServer(serverId).then(() => navigateTo('/servers'))">
+            @click="deleteServerAndLeave">
             Delete Server
           </button>
         </div>

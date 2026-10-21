@@ -5,7 +5,7 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{get, post, put},
+    routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -567,9 +567,9 @@ async fn list_files(
         let modified = metadata
             .modified()
             .ok()
-            .and_then(|t| {
+            .map(|t| {
                 let dt: chrono::DateTime<chrono::Utc> = t.into();
-                Some(dt.to_rfc3339())
+                dt.to_rfc3339()
             })
             .unwrap_or_default();
 
@@ -1218,7 +1218,7 @@ async fn create_archive(
                     let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
 
                     if path.is_dir() {
-                        writer.add_directory(&format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
+                        writer.add_directory(format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
                         add_dir(writer, base, &path, options)?;
                     } else {
                         writer.start_file(&rel, options).map_err(|e| format!("start file: {e}"))?;
@@ -1309,7 +1309,7 @@ fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Resul
             let path = entry.path();
             let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
             if path.is_dir() {
-                writer.add_directory(&format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
+                writer.add_directory(format!("{rel}/"), options).map_err(|e| format!("add dir: {e}"))?;
                 add_dir(writer, base, &path, options)?;
             } else {
                 writer.start_file(&rel, options).map_err(|e| format!("start file: {e}"))?;

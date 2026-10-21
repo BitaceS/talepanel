@@ -372,107 +372,10 @@ pub async fn download_server_files(
     })
 }
 
-/// Copy server files from a local Launcher installation instead of downloading.
-///
-/// Launcher paths:
-///   Windows: %APPDATA%\Hytale\install\release\package\game\latest
-///   Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest
-///   macOS:   ~/Library/Application Support/Hytale/install/release/package/game/latest
-pub async fn copy_from_launcher(server_data_path: &Path) -> Result<DownloadResult> {
-    let launcher_path = find_launcher_path()?;
-
-    info!(
-        from = %launcher_path.display(),
-        to   = %server_data_path.display(),
-        "Copying Hytale server files from Launcher installation"
-    );
-
-    let src_server = launcher_path.join("Server");
-    let src_assets = launcher_path.join("Assets.zip");
-
-    if !src_server.exists() {
-        bail!(
-            "Launcher Server folder not found at {}. Is Hytale installed?",
-            src_server.display()
-        );
-    }
-
-    tokio::fs::create_dir_all(server_data_path).await?;
-
-    // Copy Server/ directory
-    let dst_server = server_data_path.join("Server");
-    copy_dir_recursive(&src_server, &dst_server)
-        .await
-        .context("Failed to copy Server directory from Launcher")?;
-
-    // Copy Assets.zip
-    if src_assets.exists() {
-        tokio::fs::copy(&src_assets, server_data_path.join("Assets.zip"))
-            .await
-            .context("Failed to copy Assets.zip from Launcher")?;
-    } else {
-        warn!("Assets.zip not found in Launcher installation — server may not start correctly");
-    }
-
-    info!("Launcher copy complete");
-
-    Ok(DownloadResult {
-        data_path: server_data_path.to_path_buf(),
-        version: "launcher-local".to_string(),
-    })
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn find_launcher_path() -> Result<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var("APPDATA")
-            .context("APPDATA environment variable not set")?;
-        Ok(PathBuf::from(appdata)
-            .join("Hytale")
-            .join("install")
-            .join("release")
-            .join("package")
-            .join("game")
-            .join("latest"))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let base = std::env::var("XDG_DATA_HOME")
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_default();
-                format!("{home}/.local/share")
-            });
-        Ok(PathBuf::from(base)
-            .join("Hytale")
-            .join("install")
-            .join("release")
-            .join("package")
-            .join("game")
-            .join("latest"))
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var("HOME").context("HOME not set")?;
-        Ok(PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join("Hytale")
-            .join("install")
-            .join("release")
-            .join("package")
-            .join("game")
-            .join("latest"))
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    bail!("Unsupported platform for Launcher copy")
-}
 
 // The Hytale Downloader CLI updates its progress bar in place using \r,
 // which our line-based reader collects into one giant line that looks like
@@ -561,19 +464,3 @@ fn find_binary_recursive(dir: &Path, name: &str) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
-async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    tokio::fs::create_dir_all(dst).await?;
-    let mut entries = tokio::fs::read_dir(src).await?;
-
-    while let Some(entry) = entries.next_entry().await? {
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
-            Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
-        } else {
-            tokio::fs::copy(&src_path, &dst_path).await?;
-        }
-    }
-    Ok(())
-}

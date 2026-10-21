@@ -525,23 +525,31 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
     }
 }
 
-/// Write the TalePanel network mod config to
-/// {data_path}/mods/talepanel-network/config.json, creating the directory if
-/// needed. Atomic via temp file + rename so a crash mid-write cannot leave a
-/// half-written config the mod would fail to parse. The path is fixed (no
-/// caller-supplied filename); data_path was already checked against the data
-/// root at the top of the poll loop.
+/// Write the TalePanel network mod config to {data_path}/talepanel/network.json,
+/// creating the directory if needed. It lives outside mods/ because Hytale
+/// treats every folder there as an asset pack ("Skipping pack ... missing
+/// manifest.json"). Atomic via temp file + rename so a crash mid-write cannot
+/// leave a half-written config the mod would fail to parse. The path is fixed
+/// (no caller-supplied filename); data_path was already checked against the
+/// data root at the top of the poll loop.
 async fn write_mod_config_file(data_path: &str, config: &serde_json::Value) -> anyhow::Result<()> {
-    let dir = std::path::Path::new(data_path)
-        .join("mods")
-        .join("talepanel-network");
+    let root = std::path::Path::new(data_path);
+    let dir = root.join("talepanel");
     tokio::fs::create_dir_all(&dir).await?;
 
-    let cfg_path = dir.join("config.json");
-    let tmp_path = dir.join("config.json.tmp");
+    let cfg_path = dir.join("network.json");
+    let tmp_path = dir.join("network.json.tmp");
     let body = serde_json::to_string_pretty(config)?;
     tokio::fs::write(&tmp_path, body).await?;
     tokio::fs::rename(&tmp_path, &cfg_path).await?;
+
+    // Remove the config older daemons wrote into mods/talepanel-network/.
+    // Only our own files are deleted, and the dir only if that left it empty.
+    let legacy = root.join("mods").join("talepanel-network");
+    for name in ["config.json", "config.json.tmp"] {
+        let _ = tokio::fs::remove_file(legacy.join(name)).await;
+    }
+    let _ = tokio::fs::remove_dir(&legacy).await;
     Ok(())
 }
 
@@ -798,10 +806,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_mod_config_file_writes_atomically_into_mod_dir() {
+    async fn write_mod_config_file_writes_atomically_outside_mods() {
         let root = scratch_dir("modconfig");
         let data_path = root.join("server");
         std::fs::create_dir_all(&data_path).unwrap();
+        // A config left by older daemons inside mods/ — Hytale treats every
+        // folder in mods/ as an asset pack and warns about it.
+        let legacy_dir = data_path.join("mods").join("talepanel-network");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(legacy_dir.join("config.json"), "{}").unwrap();
 
         let config = serde_json::json!({
             "version": 1,
@@ -813,16 +826,17 @@ mod tests {
             .await
             .expect("write should succeed");
 
-        let cfg_path = data_path.join("mods").join("talepanel-network").join("config.json");
-        assert!(cfg_path.exists(), "config.json must exist");
+        let cfg_path = data_path.join("talepanel").join("network.json");
+        assert!(cfg_path.exists(), "network.json must exist");
         let raw = std::fs::read_to_string(&cfg_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(parsed["role"], "hub");
         assert_eq!(parsed["secrets"][0], "deadbeef");
         assert!(
-            !data_path.join("mods").join("talepanel-network").join("config.json.tmp").exists(),
+            !data_path.join("talepanel").join("network.json.tmp").exists(),
             "temp file must be renamed away"
         );
+        assert!(!legacy_dir.exists(), "the legacy config dir in mods/ must be removed");
 
         let _ = std::fs::remove_dir_all(&root);
     }

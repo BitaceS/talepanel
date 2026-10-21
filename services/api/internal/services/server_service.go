@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ var (
 	ErrServerNotFound   = errors.New("server not found")
 	ErrServerForbidden  = errors.New("access denied")
 	ErrNoAvailableNode  = errors.New("no available node to host the server")
+
+	// ErrInvalidServerSettings wraps a rejected field value in UpdateServer;
+	// handlers report its message as a 400.
+	ErrInvalidServerSettings = errors.New("invalid server settings")
 )
 
 // CreateServerRequest carries the user-supplied fields for a new server.
@@ -37,9 +42,40 @@ type CreateServerRequest struct {
 
 // UpdateServerRequest carries the fields that may be patched by a user.
 type UpdateServerRequest struct {
-	Name        *string `json:"name"`
-	AutoRestart *bool   `json:"auto_restart"`
-	CrashLimit  *int    `json:"crash_limit"`
+	Name        *string   `json:"name"`
+	AutoRestart *bool     `json:"auto_restart"`
+	CrashLimit  *int      `json:"crash_limit"`
+	RAMLimitMB  *int      `json:"ram_limit_mb"` // admin+ only; applies on next start
+	LaunchFlags *[]string `json:"launch_flags"` // applies on next start; admin-only flags need admin+
+	// Enabling is admin+ only; an owner may still turn it off.
+	UseHytaleAccount *bool `json:"use_hytale_account"`
+}
+
+// MinServerRAMMB is the smallest heap the panel lets a server run with.
+const MinServerRAMMB = 512
+
+// AllowedLaunchFlags are the Hytale launch switches a panel user may enable
+// per server. Value-less only: flags taking a path (--universe, --backup-dir)
+// could point outside the server's data dir. Mirrors the daemon's allowlist.
+var AllowedLaunchFlags = []string{"--accept-early-plugins", "--allow-op", "--disable-sentry"}
+
+// AdminOnlyLaunchFlags may only be added or removed by admin+. --allow-op lets
+// players on the server grant themselves operator.
+var AdminOnlyLaunchFlags = []string{"--allow-op"}
+
+// normalizeLaunchFlags validates and de-duplicates requested launch flags.
+func normalizeLaunchFlags(flags []string) ([]string, error) {
+	out := []string{}
+	for _, f := range flags {
+		f = strings.TrimSpace(f)
+		if !slices.Contains(AllowedLaunchFlags, f) {
+			return nil, fmt.Errorf("%w: launch flag %q is not allowed (allowed: %s)", ErrInvalidServerSettings, f, strings.Join(AllowedLaunchFlags, ", "))
+		}
+		if !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 // ServerService handles all business logic related to game server lifecycle.
@@ -104,7 +140,8 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.cpu_limit, s.ram_limit_mb, s.disk_limit_mb, s.port, s.data_path,
 		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
 		       s.created_at, s.updated_at, s.metadata,
-		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, '')
+		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, ''),
+		       s.launch_flags, s.use_hytale_account
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1
@@ -117,6 +154,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.CrashWindowS, &server.ActiveWorld, &server.CreatedAt, &server.UpdatedAt,
 		&server.Metadata,
 		&server.NodeFQDN,
+		&server.LaunchFlags, &server.UseHytaleAccount,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -154,9 +192,11 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 	if req.Name == "" {
 		return nil, fmt.Errorf("server name cannot be empty")
 	}
-	if req.HytaleVersion == "" {
-		req.HytaleVersion = "latest"
+	version, err := NormalizeHytaleVersion(req.HytaleVersion)
+	if err != nil {
+		return nil, err
 	}
+	req.HytaleVersion = version
 	if req.RAMLimitMB <= 0 {
 		req.RAMLimitMB = 2048
 	}
@@ -170,7 +210,7 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 	// Find best available node — prefer lowest recent CPU load; fall back to
 	// server count for nodes that have not yet reported metrics.
 	var nodeID uuid.UUID
-	err := s.db.QueryRow(ctx, `
+	err = s.db.QueryRow(ctx, `
 		SELECT n.id
 		FROM nodes n
 		WHERE n.status = 'online'
@@ -266,7 +306,7 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			return nil, fmt.Errorf("server name cannot be empty")
+			return nil, fmt.Errorf("%w: server name cannot be empty", ErrInvalidServerSettings)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
 		args = append(args, name)
@@ -279,10 +319,51 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	}
 	if req.CrashLimit != nil {
 		if *req.CrashLimit < 0 {
-			return nil, fmt.Errorf("crash_limit cannot be negative")
+			return nil, fmt.Errorf("%w: crash_limit cannot be negative", ErrInvalidServerSettings)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("crash_limit = $%d", argIdx))
 		args = append(args, *req.CrashLimit)
+		argIdx++
+	}
+	if req.RAMLimitMB != nil {
+		// Resource allocation is the operator's call, not the server owner's.
+		if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			return nil, ErrServerForbidden
+		}
+		var nodeRAM int
+		if err := s.db.QueryRow(ctx, `SELECT total_ram_mb FROM nodes WHERE id = $1`, server.NodeID).Scan(&nodeRAM); err != nil {
+			return nil, fmt.Errorf("loading node capacity: %w", err)
+		}
+		if *req.RAMLimitMB < MinServerRAMMB || *req.RAMLimitMB > nodeRAM {
+			return nil, fmt.Errorf("%w: ram_limit_mb must be between %d and the node's %d MB", ErrInvalidServerSettings, MinServerRAMMB, nodeRAM)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("ram_limit_mb = $%d", argIdx))
+		args = append(args, *req.RAMLimitMB)
+		argIdx++
+	}
+	if req.LaunchFlags != nil {
+		flags, err := normalizeLaunchFlags(*req.LaunchFlags)
+		if err != nil {
+			return nil, err
+		}
+		if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			for _, f := range AdminOnlyLaunchFlags {
+				if slices.Contains(flags, f) != slices.Contains(server.LaunchFlags, f) {
+					return nil, fmt.Errorf("%w: only an admin can change %s", ErrServerForbidden, f)
+				}
+			}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("launch_flags = $%d", argIdx))
+		args = append(args, flags)
+		argIdx++
+	}
+
+	if req.UseHytaleAccount != nil {
+		if *req.UseHytaleAccount && !server.UseHytaleAccount && models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) {
+			return nil, fmt.Errorf("%w: only an admin can let a server use the linked Hytale account", ErrServerForbidden)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("use_hytale_account = $%d", argIdx))
+		args = append(args, *req.UseHytaleAccount)
 		argIdx++
 	}
 
@@ -293,6 +374,14 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 	}
 
 	return s.GetServer(ctx, serverID, userID, role)
+}
+
+// UsesHytaleAccount reports whether serverID may start with a game session of
+// the panel's linked Hytale account.
+func (s *ServerService) UsesHytaleAccount(ctx context.Context, serverID uuid.UUID) (bool, error) {
+	var use bool
+	err := s.db.QueryRow(ctx, `SELECT use_hytale_account FROM servers WHERE id = $1`, serverID).Scan(&use)
+	return use, err
 }
 
 // ─── UpdateServerDataPath ─────────────────────────────────────────────────────

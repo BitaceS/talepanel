@@ -43,10 +43,7 @@ export const useGameCommandsStore = defineStore('gameCommands', {
       const groups: GroupedCommands = {}
       const cmds = Array.isArray(this.commands) ? this.commands : []
       for (const cmd of cmds) {
-        if (!groups[cmd.category]) {
-          groups[cmd.category] = []
-        }
-        groups[cmd.category].push(cmd)
+        ;(groups[cmd.category] ??= []).push(cmd)
       }
       return groups
     },

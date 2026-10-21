@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { User, Lock, Shield, Bell, Puzzle } from 'lucide-vue-next'
+import { User, Lock, Shield, Bell, Puzzle } from '@lucide/vue'
 import { useAuthStore } from '~/stores/auth'
 import { useModulesStore } from '~/stores/modules'
 import { useApi } from '~/composables/useApi'

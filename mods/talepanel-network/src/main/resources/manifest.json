@@ -1,0 +1,18 @@
+{
+    "Group": "BitaceS",
+    "Name": "TalePanelNetwork",
+    "Version": "0.1.0",
+    "Description": "TalePanel hub/gamemode network: /play referrals with signed handoff tickets",
+    "Authors": [
+        {
+            "Name": "BitaceS",
+            "Email": "info@diengdoh.com"
+        }
+    ],
+    "DisabledByDefault": false,
+    "IncludesAssetPack": false,
+    "Dependencies": {},
+    "OptionalDependencies": {},
+    "ServerVersion": ">=0.6.0",
+    "Main": "dev.bitaces.talepanel.network.TalePanelNetworkPlugin"
+}

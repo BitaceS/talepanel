@@ -8,10 +8,30 @@ definePageMeta({
 })
 
 const serversStore = useServersStore()
+const api = useApi()
+
+interface HytalePatchline { patchline: string; latest: string }
+const patchlines = ref<HytalePatchline[]>([])
 
 onMounted(() => {
   serversStore.fetchServers()
 })
+
+// The downloader installs the newest build of a patchline; it cannot pin a
+// build number, so the form offers patchlines and shows what each resolves to.
+async function loadPatchlines() {
+  if (patchlines.value.length) return
+  try {
+    const res = await api.get<{ patchlines: HytalePatchline[] }>('/hytale/versions')
+    patchlines.value = res.patchlines
+  } catch {
+    patchlines.value = []
+  }
+}
+
+function patchlineLatest(name: string) {
+  return patchlines.value.find(p => p.patchline === name)?.latest
+}
 
 // Modal state
 const showCreateModal = ref(false)
@@ -21,8 +41,8 @@ const createError = ref('')
 const createForm = reactive({
   name: '',
   hytale_version: 'latest',
-  ram_limit_mb: null as number | null,
-  cpu_limit: null as number | null,
+  ram_limit_mb: undefined as string | number | undefined, // UiInput emits strings
+  cpu_limit: undefined as string | number | undefined,
   auto_restart: false,
 })
 
@@ -51,8 +71,8 @@ async function submitCreate() {
 function resetForm() {
   createForm.name = ''
   createForm.hytale_version = 'latest'
-  createForm.ram_limit_mb = null
-  createForm.cpu_limit = null
+  createForm.ram_limit_mb = undefined
+  createForm.cpu_limit = undefined
   createForm.auto_restart = false
   createError.value = ''
 }
@@ -60,6 +80,7 @@ function resetForm() {
 function openModal() {
   resetForm()
   showCreateModal.value = true
+  loadPatchlines()
 }
 
 // Filtering
@@ -454,7 +475,17 @@ onMounted(() => {
         </div>
 
         <UiInput v-model="createForm.name" label="Server Name" placeholder="My Hytale Server" :required="true" />
-        <UiInput v-model="createForm.hytale_version" label="Hytale Version" placeholder="latest" />
+        <div class="flex flex-col gap-1.5">
+          <label for="create-hytale-version" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Hytale Version</label>
+          <select id="create-hytale-version" v-model="createForm.hytale_version"
+            class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
+            <option value="latest">Release{{ patchlineLatest('release') ? ` (${patchlineLatest('release')})` : '' }}</option>
+            <option value="pre-release">Pre-release{{ patchlineLatest('pre-release') ? ` (${patchlineLatest('pre-release')})` : '' }}</option>
+          </select>
+          <p v-if="createForm.hytale_version === 'pre-release'" class="text-tp-warning text-xs">
+            Pre-release worlds cannot be opened by release servers.
+          </p>
+        </div>
 
         <div class="grid grid-cols-2 gap-3">
           <UiInput v-model="createForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="e.g. 2048" />

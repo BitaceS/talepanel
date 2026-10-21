@@ -2,23 +2,32 @@ plugins {
     java
 }
 
+// Pinned Hytale server build to compile against. The server is provided at
+// runtime, so it is compileOnly; bump it when a new release changes the API.
+val hytaleServerVersion = "0.6.8"
+
 repositories {
     mavenCentral()
+    maven("https://maven.hytale.com/release")
 }
 
 dependencies {
-    implementation("com.google.code.gson:gson:2.11.0")
+    compileOnly("com.hypixel.hytale:Server:$hytaleServerVersion")
+    // Gson ships inside HytaleServer.jar, so the mod must not bundle its own.
+    compileOnly("com.google.code.gson:gson:2.11.0")
+    testImplementation("com.google.code.gson:gson:2.11.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// Build with the JDK that runs Gradle (JDK 25 is installed) but emit Java-21
-// bytecode via --release, so the eventual mod loads on a Java-21 server without
-// forcing a toolchain download. Do NOT add a java.toolchain block: only JDK 25
-// is installed, so a toolchain pinned to 21 would trigger an auto-provision
-// download (or fail offline).
+// Hytale servers require Java 25 and HytaleServer.jar is Java 25 bytecode, so
+// compile for 25. Build with JAVA_HOME pointing at a JDK 25.
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(21)
+    options.release.set(25)
+}
+
+tasks.jar {
+    archiveFileName.set("talepanel-network.jar")
 }
 
 tasks.test {

@@ -264,7 +264,15 @@ func (s *PlayerService) enqueueConsoleCommand(ctx context.Context, nodeID, serve
 	}
 }
 
+// SetWhitelist sets the DB flag and sends the matching whitelist command.  Since
+// Hytale 0.6 the whitelist is the hytale.server.join permission and the console
+// commands grant/revoke it, so the flag alone changed nothing in game.
 func (s *PlayerService) SetWhitelist(ctx context.Context, serverID, playerID uuid.UUID, whitelisted bool) error {
+	username, nodeID, err := s.playerTarget(ctx, serverID, playerID)
+	if err != nil {
+		return err
+	}
+
 	ct, err := s.db.Exec(ctx, `
 		UPDATE players SET is_whitelisted = $1 WHERE id = $2 AND server_id = $3
 	`, whitelisted, playerID, serverID)
@@ -273,6 +281,12 @@ func (s *PlayerService) SetWhitelist(ctx context.Context, serverID, playerID uui
 	}
 	if ct.RowsAffected() == 0 {
 		return ErrPlayerNotFound
+	}
+
+	if whitelisted {
+		s.enqueueConsoleCommand(ctx, nodeID, serverID, "whitelist add "+username, "whitelist_add")
+	} else {
+		s.enqueueConsoleCommand(ctx, nodeID, serverID, "whitelist remove "+username, "whitelist_remove")
 	}
 	return nil
 }
@@ -322,10 +336,9 @@ func (s *PlayerService) KickPlayer(ctx context.Context, serverID, playerID uuid.
 	if strings.ContainsAny(username, "\n\r;|&`") {
 		return fmt.Errorf("player username contains unsafe characters")
 	}
+	// Hytale's kick takes only the player; an extra reason argument makes the
+	// command fail. The reason is kept in the audit log below.
 	cmd := fmt.Sprintf("kick %s", username)
-	if reason != "" {
-		cmd = fmt.Sprintf("kick %s %s", username, strings.ReplaceAll(reason, "\n", " "))
-	}
 
 	// 3. Enqueue daemon send_command.
 	payload, _ := json.Marshal(map[string]any{"cmd": cmd})

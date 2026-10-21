@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DatabaseBackup, Calendar, Plus, Download, Trash2, RefreshCw, Play, Pause, Clock } from 'lucide-vue-next'
+import { DatabaseBackup, Calendar, Plus, Download, Trash2, RefreshCw, Play, Pause, Clock } from '@lucide/vue'
 import { useBackupsStore } from '~/stores/backups'
 import { useServersStore } from '~/stores/servers'
 import { useAuthStore } from '~/stores/auth'

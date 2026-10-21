@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Globe, Trash2, RefreshCw, CheckCircle, Star, Info } from 'lucide-vue-next'
+import { Globe, Trash2, RefreshCw, CheckCircle, Star, Info } from '@lucide/vue'
 import { useWorldsStore } from '~/stores/worlds'
 import { useServersStore } from '~/stores/servers'
 

@@ -21,6 +21,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{watch, Mutex, RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
+use crate::api_client::GameSession;
 use crate::config::HytaleConfig;
 use super::{LogLine, ServerStatus};
 
@@ -47,6 +48,36 @@ pub struct ServerConfig {
     pub cpu_limit: f32,
     /// Maximum number of automatic crash-restarts before giving up.
     pub crash_limit: u32,
+    /// Per-server Hytale launch flags chosen in the panel. Only flags in
+    /// `ALLOWED_LAUNCH_FLAGS` are passed through; older APIs omit the field.
+    #[serde(default)]
+    pub launch_flags: Vec<String>,
+}
+
+/// Launch flags a panel user may enable per server. Value-less switches only:
+/// flags that take a path (e.g. --universe, --backup-dir) could point the
+/// server outside its data directory, so they stay node-config only.
+pub const ALLOWED_LAUNCH_FLAGS: &[&str] = &["--accept-early-plugins", "--allow-op", "--disable-sentry"];
+
+/// Returns the requested flags that are allowlisted, de-duplicated, in order.
+fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for flag in requested {
+        if let Some(ok) = ALLOWED_LAUNCH_FLAGS.iter().find(|f| **f == flag.as_str()) {
+            if !out.contains(ok) {
+                out.push(ok);
+            }
+        }
+    }
+    out
+}
+
+/// Daemon secrets and settings a game server must not inherit: any plugin
+/// can read its JVM's environment, and the node token would let it act as
+/// this node towards the panel.
+fn is_daemon_env(key: &str) -> bool {
+    key.starts_with("TALEDAEMON_")
+        || matches!(key, "CURSEFORGE_API_KEY" | "MARIADB_DSN" | "MARIADB_ROOT_PASSWORD")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,9 +123,6 @@ pub struct HytaleServerProcess {
     /// and replace it; `None` when the server is not running.
     stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
 
-    /// Crash counter — reset by the ProcessManager when a restart succeeds
-    /// within the cooldown window.
-    pub crash_count: Arc<AtomicU32>,
 
     /// Daemon-level Hytale configuration (jar path, java binary, timeouts).
     hytale_cfg: Arc<HytaleConfig>,
@@ -115,7 +143,6 @@ impl HytaleServerProcess {
             pid: Arc::new(AtomicU32::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             stdin: Arc::new(Mutex::new(None)),
-            crash_count: Arc::new(AtomicU32::new(0)),
             hytale_cfg,
         }
     }
@@ -165,8 +192,11 @@ impl HytaleServerProcess {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Spawn the Hytale server JAR and begin streaming its output.
-    #[instrument(skip(self), fields(server_id = %self.server_id))]
-    pub async fn start(&self) -> Result<()> {
+    ///
+    /// `session` (from the panel's linked Hytale account) makes the server
+    /// boot authenticated; without it the server starts unauthenticated.
+    #[instrument(skip(self, session), fields(server_id = %self.server_id))]
+    pub async fn start(&self, session: Option<&GameSession>) -> Result<()> {
         let current = self.get_status();
         if current != ServerStatus::Stopped && current != ServerStatus::Crashed {
             bail!(
@@ -231,8 +261,34 @@ impl HytaleServerProcess {
             for arg in &self.hytale_cfg.extra_server_args {
                 c.arg(arg);
             }
+
+            // Per-server flags from the panel (allowlisted, never free-form).
+            for flag in allowed_launch_flags(&self.config.launch_flags) {
+                if !self.hytale_cfg.extra_server_args.iter().any(|a| a == flag) {
+                    c.arg(flag);
+                }
+            }
+
+            // Tokens go in the environment, not argv, so they don't show up
+            // in process listings.
+            if let Some(gs) = session {
+                let (args, envs) = game_session_launch(gs);
+                c.args(args);
+                c.envs(envs);
+            }
             c
         };
+
+        // Hytale's built-in updater (0.6+) stages an update and exits with code
+        // 8, expecting the official start.sh wrapper to swap files and restart.
+        // We launch the JAR directly and own updates via the downloader, so
+        // turn it off rather than have servers drop into Crashed.
+        cmd.env("HYTALE_DISABLE_UPDATES", "1");
+        for (key, _) in std::env::vars_os() {
+            if key.to_str().is_some_and(is_daemon_env) {
+                cmd.env_remove(key);
+            }
+        }
 
         cmd.current_dir(&self.config.data_path)
             .stdin(std::process::Stdio::piped())
@@ -288,12 +344,11 @@ impl HytaleServerProcess {
                 debug!(server_id = %server_id_out, %line, "stdout");
 
                 // Detect server-ready signals in stdout
-                if *status_tx_out.borrow() == ServerStatus::Starting {
-                    if is_ready_signal(&line) {
+                if *status_tx_out.borrow() == ServerStatus::Starting
+                    && is_ready_signal(&line) {
                         info!(server_id = %server_id_out, "Server ready signal detected");
                         status_tx_out.send_replace(ServerStatus::Running);
                     }
-                }
 
                 let _ = log_tx_out.send(LogLine {
                     timestamp: chrono::Utc::now(),
@@ -387,12 +442,18 @@ impl HytaleServerProcess {
                 } else {
                     let code = exit_status.code().unwrap_or(-1);
                     error!(server_id = %server_id, exit_code = code, "Server exited unexpectedly");
+                    let message = match explain_exit_code(code) {
+                        Some(why) => format!(
+                            "Server process exited with code {code} — {why} Marking as crashed."
+                        ),
+                        None => format!(
+                            "Server process exited with code {code} — marking as crashed"
+                        ),
+                    };
                     let _ = log_tx.send(LogLine {
                         timestamp: chrono::Utc::now(),
                         level: "ERROR".to_string(),
-                        message: format!(
-                            "Server process exited with code {code} — marking as crashed"
-                        ),
+                        message,
                     });
                     status_tx.send_replace(ServerStatus::Crashed);
                 }
@@ -599,6 +660,38 @@ fn classify_level(line: &str) -> String {
     }
 }
 
+/// Launch args and environment for Hytale's token passthrough. The owner UUID
+/// is only passed if it parses, so a malformed value can't become a flag.
+fn game_session_launch(gs: &GameSession) -> (Vec<String>, Vec<(&'static str, String)>) {
+    let mut args = Vec::new();
+    if let Ok(owner) = uuid::Uuid::parse_str(&gs.owner_uuid) {
+        args.push("--owner-uuid".to_string());
+        args.push(owner.to_string());
+    }
+    let envs = vec![
+        ("HYTALE_SERVER_SESSION_TOKEN", gs.session_token.clone()),
+        ("HYTALE_SERVER_IDENTITY_TOKEN", gs.identity_token.clone()),
+    ];
+    (args, envs)
+}
+
+/// Explains the Hytale server's documented non-crash exit codes so the operator
+/// sees the cause in the console instead of a bare number.
+fn explain_exit_code(code: i32) -> Option<&'static str> {
+    match code {
+        8 => Some(
+            "Hytale staged a self-update and expected its start script to apply it. \
+             TalePanel manages updates itself; reinstall/update the server from the panel.",
+        ),
+        11 => Some(
+            "Hytale refused to boot because its working, universe, prefab-cache or backup \
+             directory is inside the Hytale launcher's install folder. Move the server data \
+             elsewhere, or add --allow-install-dir to the extra server args.",
+        ),
+        _ => None,
+    }
+}
+
 /// Returns `true` if the log line signals that the server is fully started
 /// and accepting player connections.
 ///
@@ -638,5 +731,97 @@ fn kill_pid(pid: u32) {
             .args(["/F", "/PID", &pid.to_string()])
             .output();
         info!(pid, "Sent TerminateProcess (taskkill /F) to Hytale server process");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explains_hytale_updater_and_install_dir_exit_codes() {
+        assert!(explain_exit_code(8).unwrap().contains("self-update"));
+        assert!(explain_exit_code(11).unwrap().contains("--allow-install-dir"));
+    }
+
+    #[test]
+    fn daemon_secrets_are_not_inherited() {
+        assert!(is_daemon_env("TALEDAEMON_NODE_TOKEN"));
+        assert!(is_daemon_env("TALEDAEMON_API_URL"));
+        assert!(is_daemon_env("CURSEFORGE_API_KEY"));
+        assert!(!is_daemon_env("HYTALE_SERVER_SESSION_TOKEN"));
+        assert!(!is_daemon_env("JAVA_HOME"));
+        assert!(!is_daemon_env("PATH"));
+    }
+
+    #[test]
+    fn launch_flags_pass_only_allowlisted_switches_once() {
+        let requested: Vec<String> = [
+            "--accept-early-plugins",
+            "--universe=/etc",
+            "--allow-op",
+            "--accept-early-plugins",
+            "--auth-mode",
+            "offline",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            allowed_launch_flags(&requested),
+            vec!["--accept-early-plugins", "--allow-op"]
+        );
+    }
+
+    #[test]
+    fn game_session_goes_into_env_and_owner_uuid_into_args() {
+        let gs = GameSession {
+            session_token: "sess".into(),
+            identity_token: "ident".into(),
+            owner_uuid: "123e4567-e89b-12d3-a456-426614174000".into(),
+        };
+        let (args, envs) = game_session_launch(&gs);
+        assert_eq!(args, vec!["--owner-uuid", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert!(envs.contains(&("HYTALE_SERVER_SESSION_TOKEN", "sess".to_string())));
+        assert!(envs.contains(&("HYTALE_SERVER_IDENTITY_TOKEN", "ident".to_string())));
+        assert!(!args.iter().any(|a| a.contains("sess") || a.contains("ident")), "tokens must not be in argv");
+    }
+
+    #[test]
+    fn malformed_owner_uuid_is_not_passed() {
+        let gs = GameSession {
+            session_token: "s".into(),
+            identity_token: "i".into(),
+            owner_uuid: "--universe=/etc".into(),
+        };
+        assert!(game_session_launch(&gs).0.is_empty());
+    }
+
+    #[test]
+    fn game_session_debug_output_hides_tokens() {
+        let gs = GameSession {
+            session_token: "secret-session".into(),
+            identity_token: "secret-identity".into(),
+            owner_uuid: "u".into(),
+        };
+        let dbg = format!("{gs:?}");
+        assert!(!dbg.contains("secret"), "{dbg}");
+    }
+
+    #[test]
+    fn server_config_without_launch_flags_still_parses() {
+        let cfg: ServerConfig = serde_json::from_str(
+            r#"{"server_id":"s","name":"n","data_path":"/d","port":5520,
+                "ram_limit_mb":4096,"cpu_limit":0,"crash_limit":3}"#,
+        )
+        .unwrap();
+        assert!(cfg.launch_flags.is_empty());
+    }
+
+    #[test]
+    fn ordinary_exit_codes_get_no_explanation() {
+        assert_eq!(explain_exit_code(1), None);
+        assert_eq!(explain_exit_code(-1), None);
+        assert_eq!(explain_exit_code(137), None);
     }
 }

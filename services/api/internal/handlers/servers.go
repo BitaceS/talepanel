@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,92 @@ type ServerHandler struct {
 	serversBaseDir string // base dir on daemon nodes, e.g. /srv/taledaemon/servers
 	log            *zap.Logger
 	alertSvc       *services.AlertService
+	hytaleAuth     *services.HytaleAuthService // optional; nil = servers start unauthenticated
+
+	sessionMu    sync.Mutex
+	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
+}
+
+// gameSessionInterval is the minimum gap between game-session mints for one
+// server. A start needs one; a leaked node token must not be able to mint
+// sessions for the panel's Hytale account in a loop.
+const gameSessionInterval = 10 * time.Second
+
+// allowGameSession records a mint for serverID unless one happened within
+// gameSessionInterval.
+func (h *ServerHandler) allowGameSession(serverID uuid.UUID) bool {
+	h.sessionMu.Lock()
+	defer h.sessionMu.Unlock()
+	now := time.Now()
+	if h.lastSessions == nil {
+		h.lastSessions = make(map[uuid.UUID]time.Time)
+	}
+	if last, ok := h.lastSessions[serverID]; ok && now.Sub(last) < gameSessionInterval {
+		return false
+	}
+	for id, t := range h.lastSessions {
+		if now.Sub(t) >= gameSessionInterval {
+			delete(h.lastSessions, id)
+		}
+	}
+	h.lastSessions[serverID] = now
+	return true
+}
+
+// SetHytaleAuth enables minting Hytale game sessions for daemon server starts.
+func (h *ServerHandler) SetHytaleAuth(auth *services.HytaleAuthService) {
+	h.hytaleAuth = auth
+}
+
+// DaemonGameSession hands a daemon a fresh Hytale game session for a server
+// it is about to start, so the server boots authenticated. 204 when no Hytale
+// account is linked or an admin has not enabled it for this server (the
+// server then starts unauthenticated, as before).
+// POST /api/v1/servers/:id/daemon/game-session
+func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	if !h.daemonOwnsServer(c, serverID) {
+		return
+	}
+	if h.hytaleAuth == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	use, err := h.svc.UsesHytaleAccount(c.Request.Context(), serverID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "loading server settings failed"})
+		return
+	}
+	if !use {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	nodeID, _ := middleware.GetDaemonNodeID(c)
+	if !h.allowGameSession(serverID) {
+		h.log.Warn("game session request throttled",
+			zap.String("server_id", serverID.String()), zap.String("node_id", nodeID))
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "game session requested too often"})
+		return
+	}
+
+	session, err := h.hytaleAuth.NewGameSession(c.Request.Context())
+	if errors.Is(err, services.ErrHytaleNotLinked) {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		h.log.Warn("could not mint Hytale game session; server will start unauthenticated",
+			zap.String("server_id", serverID.String()), zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	h.log.Info("minted Hytale game session for server start",
+		zap.String("server_id", serverID.String()), zap.String("node_id", nodeID))
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, session)
 }
 
 // NewServerHandler constructs a ServerHandler.
@@ -389,7 +476,8 @@ provisioned:
 		Port:       uint16(server.Port),
 		RAMLimitMB: ramLimit,
 		CPULimit:   0,
-		CrashLimit: uint32(server.CrashLimit),
+		CrashLimit:  uint32(server.CrashLimit),
+		LaunchFlags: server.LaunchFlags,
 	}
 
 	if err := client.StartServer(startCtx, cfg); err != nil {
@@ -1239,6 +1327,8 @@ func serverError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 	case errors.Is(err, services.ErrServerForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+	case errors.Is(err, services.ErrInvalidServerSettings):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 	}

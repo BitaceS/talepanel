@@ -299,16 +299,14 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     for i in 0..archive.len() {
         let entry = archive.by_index(i)?;
         let name = entry.name().to_string();
-        if name.ends_with(".yml")
+        if (name.ends_with(".yml")
             || name.ends_with(".yaml")
             || name.ends_with(".toml")
             || name.ends_with(".json")
-            || name.ends_with(".properties")
-        {
-            if !name.contains('/') || name.starts_with("config") {
+            || name.ends_with(".properties"))
+            && (!name.contains('/') || name.starts_with("config")) {
                 config_files.push(name);
             }
-        }
     }
 
     // Try plugin.yml (Bukkit/Spigot/Paper).

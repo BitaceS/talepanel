@@ -8,9 +8,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The parsed mods/talepanel-network/config.json written by the panel (Slice 1a).
+ * The parsed talepanel/network.json written by the panel (Slice 1a).
  * Secrets arrive hex-encoded and are decoded to raw bytes; ids arrive as UUID
  * strings. A missing "gamemodes" key (a gamemode server) yields an empty list.
+ * Since version 2 every server has its own key, and each hub gamemode entry
+ * carries the key that gamemode verifies tickets with.
  */
 public final class NetworkConfig {
 
@@ -25,6 +27,8 @@ public final class NetworkConfig {
         public UUID serverId;
         public String name;
         public String address;
+        /** The gamemode's ticket key (version 2+), or null. */
+        public byte[] secret;
     }
 
     private NetworkConfig() {}
@@ -52,6 +56,7 @@ public final class NetworkConfig {
                 gm.serverId = requireUuid(g.serverId, "gamemodes[].server_id");
                 gm.name = g.name;
                 gm.address = g.address;
+                gm.secret = g.secret == null || g.secret.isEmpty() ? null : hexToBytes(g.secret);
                 cfg.gamemodes.add(gm);
             }
         }
@@ -96,5 +101,6 @@ public final class NetworkConfig {
         @SerializedName("server_id") String serverId;
         String name;
         String address;
+        String secret;
     }
 }

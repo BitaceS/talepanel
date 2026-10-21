@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Package, Trash2, Download, ExternalLink } from 'lucide-vue-next'
+import { Search, Package, Trash2, Download, ExternalLink } from '@lucide/vue'
 import { useModsStore } from '~/stores/mods'
 import { useServersStore } from '~/stores/servers'
 import type { CFMod, CFModFile } from '~/types'
@@ -19,8 +19,9 @@ onMounted(async () => {
   if (serversStore.servers.length === 0) {
     await serversStore.fetchServers()
   }
-  if (!selectedServerId.value && serversStore.servers.length > 0) {
-    selectedServerId.value = serversStore.servers[0].id
+  const first = serversStore.servers[0]
+  if (!selectedServerId.value && first) {
+    selectedServerId.value = first.id
   }
 })
 
@@ -61,7 +62,7 @@ function showToast(msg: string, type: 'success' | 'error' = 'success') {
 function pickFile(mod: CFMod): CFModFile | null {
   if (!mod.latestFiles || mod.latestFiles.length === 0) return null
   // Use the last file (most recent)
-  return mod.latestFiles[mod.latestFiles.length - 1]
+  return mod.latestFiles.at(-1) ?? null
 }
 
 async function installMod(mod: CFMod) {
@@ -426,8 +427,8 @@ const isInstalled = (filename: string) =>
             </p>
 
             <!-- Latest file info -->
-            <p v-if="mod.latestFiles?.[mod.latestFiles.length - 1]" class="text-tp-outline text-xs font-mono">
-              Latest: {{ mod.latestFiles[mod.latestFiles.length - 1].displayName }}
+            <p v-if="mod.latestFiles?.at(-1)" class="text-tp-outline text-xs font-mono">
+              Latest: {{ mod.latestFiles?.at(-1)?.displayName }}
             </p>
 
             <!-- Actions -->

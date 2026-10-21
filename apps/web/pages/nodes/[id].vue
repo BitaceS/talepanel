@@ -69,10 +69,12 @@ async function fetchAll() {
 onMounted(fetchAll)
 
 const chartPoints = computed(() => {
-  if (metrics.value.length < 2) return ''
+  const first = metrics.value[0]
+  const last = metrics.value.at(-1)
+  if (metrics.value.length < 2 || !first || !last) return ''
   const pts = metrics.value
-  const minTime = new Date(pts[0].sampled_at).getTime()
-  const maxTime = new Date(pts[pts.length - 1].sampled_at).getTime()
+  const minTime = new Date(first.sampled_at).getTime()
+  const maxTime = new Date(last.sampled_at).getTime()
   const timeRange = maxTime - minTime || 1
   return pts.map(p => {
     const x = 40 + ((new Date(p.sampled_at).getTime() - minTime) / timeRange) * 740
