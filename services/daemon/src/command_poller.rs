@@ -31,10 +31,13 @@ pub async fn run_command_poller(
         "Command poller started"
     );
 
+    // Same layout the process manager provisions servers into.
+    let servers_dir = format!("{}/servers", config.daemon.data_root.trim_end_matches('/'));
+
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                poll_and_dispatch(&api_client, &process_manager, &config.daemon.data_root).await;
+                poll_and_dispatch(&api_client, &process_manager, &servers_dir).await;
             }
 
             _ = shutdown.recv() => {
@@ -49,7 +52,7 @@ pub async fn run_command_poller(
 async fn poll_and_dispatch(
     api_client: &Arc<ApiClient>,
     process_manager: &Arc<ProcessManager>,
-    data_root: &str,
+    servers_dir: &str,
 ) {
     let commands = match api_client.get_pending_commands().await {
         Ok(cmds) => cmds,
@@ -71,13 +74,14 @@ async fn poll_and_dispatch(
         // /universe/worlds/<name>. The API derives data_path server-side today,
         // so this is defence in depth, not a live hole; it is also the only
         // place the daemon accepts a path from the outside, which is exactly
-        // where the next mistake would land.
+        // where the next mistake would land. So it must be exactly the
+        // directory of the server the command is for: {servers_dir}/{server_id}.
         if let Some(dp) = command.payload.get("data_path").and_then(|v| v.as_str()) {
-            if !is_within_data_root(dp, data_root) {
+            if !is_server_data_path(dp, servers_dir, &server_id) {
                 warn!(%server_id, %command_type, data_path = %dp,
-                    "Rejected command: data_path is outside the daemon data root");
+                    "Rejected command: data_path is not this server's directory");
                 let result = CommandResult::err(format!(
-                    "{command_type}: data_path {dp} is outside the daemon data root"
+                    "{command_type}: data_path {dp} is not {servers_dir}/{server_id}"
                 ));
                 if let Err(err) = api_client.ack_command(&command_id, result).await {
                     warn!(%command_id, %err, "Failed to ack rejected command");
@@ -596,27 +600,32 @@ const DEFAULT_MOD_DIR: &str = "mods";
 /// rejected — the daemon never takes a caller-supplied directory verbatim.
 const ALLOWED_MOD_DIRS: [&str; 2] = ["mods", "plugins"];
 
-/// Reject any path component that could escape its parent directory. Only a
-/// bare basename is permitted — no path separators, parent refs, or NUL bytes.
-/// True if `data_path` resolves to somewhere inside the daemon's data root.
+/// True if `data_path` is exactly `{servers_dir}/{server_id}` and `server_id`
+/// is a canonical UUID: the only directory a command for that server may touch.
 ///
-/// Compares lexically after normalising separators and rejecting `..`, because
-/// the directory may not exist yet (install_mod creates it) and canonicalize
-/// would fail there.  A `..`-free absolute path under the root cannot escape it.
-fn is_within_data_root(data_path: &str, data_root: &str) -> bool {
-    if data_path.is_empty() || data_root.is_empty() {
+/// Compares lexically (a trailing slash is tolerated) because the directory
+/// may not exist yet (install_mod creates it) and canonicalize would fail
+/// there. Requiring the exact shape rules out the data root itself, other
+/// servers' directories, siblings like backups/ and hytale-bin/, nested
+/// paths, and any `..` or separator trickery.
+fn is_server_data_path(data_path: &str, servers_dir: &str, server_id: &str) -> bool {
+    let servers_dir = servers_dir.trim_end_matches('/');
+    if servers_dir.is_empty() || data_path.contains('\0') || data_path.contains('\\') {
         return false;
     }
-    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
-    let path = norm(data_path);
-    let root = norm(data_root);
-
-    if path.split('/').any(|c| c == "..") || path.contains('\0') {
+    let Ok(id) = uuid::Uuid::parse_str(server_id) else {
+        return false;
+    };
+    // Only the canonical hyphenated form: parse_str also accepts braced, urn:
+    // and simple forms, none of which the API ever produces.
+    if server_id != id.hyphenated().to_string() {
         return false;
     }
-    path == root || path.starts_with(&format!("{root}/"))
+    data_path.trim_end_matches('/') == format!("{servers_dir}/{server_id}")
 }
 
+/// Reject any path component that could escape its parent directory. Only a
+/// bare basename is permitted — no path separators, parent refs, or NUL bytes.
 fn is_safe_path_component(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -749,8 +758,8 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
 /// treats every folder there as an asset pack ("Skipping pack ... missing
 /// manifest.json"). Atomic via temp file + rename so a crash mid-write cannot
 /// leave a half-written config the mod would fail to parse. The path is fixed
-/// (no caller-supplied filename); data_path was already checked against the
-/// data root at the top of the poll loop.
+/// (no caller-supplied filename); data_path was already checked to be this
+/// server's directory at the top of the poll loop.
 async fn write_mod_config_file(data_path: &str, config: &serde_json::Value) -> anyhow::Result<()> {
     let root = std::path::Path::new(data_path);
     tokio::fs::create_dir_all(root).await?;
@@ -848,21 +857,53 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     /// delete_world hands data_path to remove_dir_all. If the API is ever
-    /// compromised, this check is what stops `data_path = "/"`.
+    /// compromised, this check is what stops `data_path = "/"`, or another
+    /// tenant's server directory.
     #[test]
-    fn data_path_must_stay_inside_the_data_root() {
-        let root = "/srv/taledaemon/servers";
+    fn data_path_must_be_exactly_this_servers_directory() {
+        let dir = "/srv/taledaemon/servers";
+        let id = "0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d";
+        let own = format!("{dir}/{id}");
 
-        assert!(is_within_data_root("/srv/taledaemon/servers/abc-123", root));
-        assert!(is_within_data_root("/srv/taledaemon/servers", root));
-        assert!(is_within_data_root("/srv/taledaemon/servers/abc/", root));
+        assert!(is_server_data_path(&own, dir, id));
+        assert!(is_server_data_path(&format!("{own}/"), dir, id));
+        assert!(is_server_data_path(&own, "/srv/taledaemon/servers/", id));
 
-        assert!(!is_within_data_root("/", root));
-        assert!(!is_within_data_root("/etc", root));
-        assert!(!is_within_data_root("/srv/taledaemon/servers/../../..", root));
-        assert!(!is_within_data_root("/srv/taledaemon/servers-evil", root));
-        assert!(!is_within_data_root("", root));
-        assert!(!is_within_data_root("/srv/taledaemon/servers/a\0b", root));
+        for bad in [
+            "",
+            "/",
+            "/etc",
+            "/srv/taledaemon",
+            "/srv/taledaemon/servers",
+            "/srv/taledaemon/servers/",
+            "/srv/taledaemon/backups",
+            "/srv/taledaemon/hytale-bin",
+            "/srv/taledaemon/servers-evil/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
+            "/srv/taledaemon/servers/11111111-2222-4333-8444-555555555555",
+            "/srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d/mods",
+            "/srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d/..",
+            "/srv/taledaemon/servers/../servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
+            "/srv/taledaemon/servers//0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
+            "/srv/taledaemon/servers\\0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
+            "/srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d\0",
+            "srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
+        ] {
+            assert!(!is_server_data_path(bad, dir, id), "{bad:?} must be rejected");
+        }
+
+        // The id must be a canonical UUID, not something path-shaped.
+        for bad_id in [
+            "",
+            "..",
+            "abc",
+            "../x",
+            "0B7C5A3E-9F1D-4C2A-8E6B-1D2F3A4B5C6D",
+            "0b7c5a3e9f1d4c2a8e6b1d2f3a4b5c6d",
+        ] {
+            assert!(!is_server_data_path(&format!("{dir}/{bad_id}"), dir, bad_id), "{bad_id:?}");
+        }
+        assert!(!is_server_data_path(&own, "", id));
+        assert!(!is_server_data_path(&format!("/{id}"), "/", id));
     }
 
     // ── SSRF address filter ───────────────────────────────────────────────────
