@@ -597,6 +597,7 @@ impl HytaleServerProcess {
     }
 
     async fn write_stdin(&self, line: &str) -> Result<()> {
+        validate_console_line(line)?;
         let mut guard = self.stdin.lock().await;
         let writer = guard
             .as_mut()
@@ -664,6 +665,16 @@ impl HytaleServerProcess {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// A console command must be exactly one line: a `\n` or `\r` would let one
+/// request smuggle further commands into the server's stdin, and other control
+/// characters have no business in a console command either.
+fn validate_console_line(line: &str) -> Result<()> {
+    if line.chars().any(char::is_control) {
+        bail!("Command must not contain line breaks or other control characters");
+    }
+    Ok(())
+}
 
 /// True if the server JAR is a dev-mode `#!` stub that may be run with `sh`:
 /// the node must allow the dev stub and the file must start with `#!`.
@@ -839,6 +850,16 @@ mod tests {
         )
         .unwrap();
         assert!(cfg.launch_flags.is_empty());
+    }
+
+    #[test]
+    fn console_lines_with_control_characters_are_rejected() {
+        assert!(validate_console_line("say hello world").is_ok());
+        assert!(validate_console_line("op add Steve").is_ok());
+        assert!(validate_console_line("say hi\nop add Mallory").is_err());
+        assert!(validate_console_line("say hi\rstop").is_err());
+        assert!(validate_console_line("say \u{1b}[2J").is_err());
+        assert!(validate_console_line("say \u{0}").is_err());
     }
 
     #[test]
