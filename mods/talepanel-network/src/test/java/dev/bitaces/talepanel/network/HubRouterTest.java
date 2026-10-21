@@ -56,6 +56,21 @@ class HubRouterTest {
     }
 
     @Test
+    void badConfigBecomesUnavailableInsteadOfThrowing() {
+        NetworkConfig badAddress = NetworkConfig.parse("""
+            {"version":1,"role":"hub","server_id":"%s","secrets":["%s"],
+             "gamemodes":[{"server_id":"%s","name":"SkyWars","address":"no-port"}]}
+            """.formatted(HUB, SECRET_HEX, SKYWARS));
+        assertInstanceOf(HubRouter.Unavailable.class, HubRouter.route(badAddress, "SkyWars", PLAYER, NOW));
+
+        NetworkConfig emptySecret = NetworkConfig.parse("""
+            {"version":1,"role":"hub","server_id":"%s","secrets":[""],
+             "gamemodes":[{"server_id":"%s","name":"SkyWars","address":"sky.example.com:5521"}]}
+            """.formatted(HUB, SKYWARS));
+        assertInstanceOf(HubRouter.Unavailable.class, HubRouter.route(emptySecret, "SkyWars", PLAYER, NOW));
+    }
+
+    @Test
     void onlyAHubCanRoute() {
         NetworkConfig gm = NetworkConfig.parse("""
             {"version":1,"role":"gamemode","server_id":"%s","require_referral":true,"secrets":["%s"]}
