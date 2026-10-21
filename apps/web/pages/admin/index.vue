@@ -71,6 +71,11 @@ interface HytaleDeviceLogin { user_code: string; verification_uri: string; verif
 
 const hyAuth = ref<HytaleAuthStatus>({ linked: false, login_pending: false })
 const hyLogin = ref<HytaleDeviceLogin | null>(null)
+// The link is relayed from Hytale's OAuth server; only ever render an https URL.
+const hyLoginHref = computed(() => {
+  const url = hyLogin.value?.verification_uri_complete ?? ''
+  return url.startsWith('https://') ? url : undefined
+})
 const hyBusy = ref(false)
 let hyPollTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -825,7 +830,7 @@ async function submitCreateUser() {
         <div v-if="hyLogin" class="bg-tp-surface2 rounded-xl p-4 space-y-2">
           <p class="text-tp-text text-sm">
             Open
-            <a :href="hyLogin.verification_uri_complete" target="_blank" rel="noopener"
+            <a :href="hyLoginHref" target="_blank" rel="noopener noreferrer"
               class="text-tp-primary hover:underline inline-flex items-center gap-1">
               {{ hyLogin.verification_uri }} <ExternalLink class="w-3 h-3" />
             </a>
