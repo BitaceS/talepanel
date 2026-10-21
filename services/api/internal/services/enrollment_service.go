@@ -41,8 +41,9 @@ type CreateEnrollmentRequest struct {
 	TotalRAMMB  int
 	TotalDiskMB int
 	MaxServers  int
-	CreatedBy   uuid.UUID
-	TTL         time.Duration
+	// CreatedBy is uuid.Nil for tokens minted by tale-cli, which has no user.
+	CreatedBy uuid.UUID
+	TTL       time.Duration
 }
 
 // Enrollment mirrors a node_enrollments row.
@@ -54,7 +55,7 @@ type Enrollment struct {
 	TotalRAMMB  *int
 	TotalDiskMB *int
 	MaxServers  int
-	CreatedBy   uuid.UUID
+	CreatedBy   *uuid.UUID
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	UsedAt      *time.Time
@@ -95,9 +96,12 @@ func (s *EnrollmentService) Create(ctx context.Context, req CreateEnrollmentRequ
 		TokenHash:  tokenHash,
 		NodeName:   req.NodeName,
 		MaxServers: req.MaxServers,
-		CreatedBy:  req.CreatedBy,
 		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  time.Now().UTC().Add(req.TTL),
+	}
+	if req.CreatedBy != uuid.Nil {
+		by := req.CreatedBy
+		enr.CreatedBy = &by
 	}
 
 	_, err := s.db.Exec(ctx, `

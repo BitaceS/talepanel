@@ -76,3 +76,25 @@ func TestEnrollmentExpiresBeforeRedeem(t *testing.T) {
 		t.Fatal("expected redeem to fail on expired enrollment")
 	}
 }
+
+// tale-cli mints the quick-setup node token before any user exists.
+func TestEnrollmentWithoutCreatorRedeems(t *testing.T) {
+	pool := openEmptyTestDB(t)
+	svc := NewEnrollmentService(pool)
+	ctx := context.Background()
+
+	enr, plain, err := svc.Create(ctx, CreateEnrollmentRequest{NodeName: "local", MaxServers: 10})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if enr.CreatedBy != nil {
+		t.Fatal("expected no creator")
+	}
+	node, token, err := svc.Redeem(ctx, plain, RedeemPayload{FQDN: "10.0.0.2", Port: 8444})
+	if err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if node.Name != "local" || token == "" {
+		t.Fatalf("unexpected node %+v", node)
+	}
+}
