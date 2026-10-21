@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
@@ -23,6 +24,10 @@ var (
 	// ErrInvalidServerSettings wraps a rejected field value in UpdateServer;
 	// handlers report its message as a 400.
 	ErrInvalidServerSettings = errors.New("invalid server settings")
+
+	// ErrInvalidConsoleCommand: a console command with a line break or other
+	// control character (it would be split into several stdin lines).
+	ErrInvalidConsoleCommand = errors.New("console command must not contain line breaks or control characters")
 
 	// ErrMigrationTarget wraps why a migration target node was rejected.
 	ErrMigrationTarget = errors.New("invalid migration target")
@@ -571,7 +576,14 @@ func (s *ServerService) DeleteServer(ctx context.Context, serverID, userID uuid.
 // ─── Console ──────────────────────────────────────────────────────────────────
 
 // SendConsoleCommand enqueues a send_command daemon command for the server.
+//
+// The daemon writes the command to the server's stdin as one line, so a
+// command with a line break or other control character would run additional,
+// unaudited console commands; such input is rejected.
 func (s *ServerService) SendConsoleCommand(ctx context.Context, serverID uuid.UUID, cmd string) error {
+	if strings.IndexFunc(cmd, unicode.IsControl) >= 0 {
+		return ErrInvalidConsoleCommand
+	}
 	var nodeID uuid.UUID
 	err := s.db.QueryRow(ctx, `SELECT node_id FROM servers WHERE id = $1`, serverID).Scan(&nodeID)
 	if err != nil {

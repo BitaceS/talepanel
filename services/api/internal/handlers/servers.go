@@ -1342,7 +1342,8 @@ func serverError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 	case errors.Is(err, services.ErrServerForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
-	case errors.Is(err, services.ErrInvalidServerSettings):
+	case errors.Is(err, services.ErrInvalidServerSettings),
+		errors.Is(err, services.ErrInvalidConsoleCommand):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
