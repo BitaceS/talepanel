@@ -11,6 +11,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use crate::http_server::safe_fs;
+
 const DOWNLOADER_URL: &str = "https://downloader.hytale.com/hytale-downloader.zip";
 
 /// Represents the result of a completed download operation.
@@ -77,8 +79,9 @@ pub async fn fetch_downloader_cli(download_dir: &Path) -> Result<PathBuf> {
             .context("Failed to open downloader zip")?;
         let mut archive = zip::ZipArchive::new(file)
             .context("Failed to parse downloader zip")?;
-        archive
-            .extract(&download_dir_owned)
+        // Not ZipArchive::extract: that one recreates symlink entries.
+        safe_fs::extract_zip(&mut archive, &download_dir_owned, safe_fs::ExtractLimits::default())
+            .map_err(anyhow::Error::msg)
             .context("Failed to extract downloader zip")?;
         Ok(())
     })
@@ -267,31 +270,18 @@ pub async fn download_server_files(
 
     // The downloader treats `-download-path` as a FILE path and appends `.zip`.
     // So for `-download-path /srv/.../abc`, the output is `/srv/.../abc.zip`.
-    // We check that location first, then fall back to scanning inside the dir.
-    let sibling_zip = {
-        let mut p = server_data_path.as_os_str().to_owned();
-        p.push(".zip");
-        PathBuf::from(p)
-    };
+    // That is the only archive extracted. The server directory itself is
+    // tenant-writable, so any *.zip found in there is tenant data, never
+    // downloader output.
+    let sibling_zip = downloader_output_zip(server_data_path);
 
-    let mut game_zip: Option<PathBuf> = None;
-
-    if sibling_zip.exists() {
-        info!(zip = %sibling_zip.display(), "Found downloaded zip at sibling path");
-        game_zip = Some(sibling_zip.clone());
-    } else {
-        // Fallback: look inside the directory
-        if let Ok(mut entries) = tokio::fs::read_dir(server_data_path).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.ends_with(".zip") && name_str != "Assets.zip" {
-                    game_zip = Some(entry.path());
-                    break;
-                }
-            }
+    let game_zip = match std::fs::symlink_metadata(&sibling_zip) {
+        Ok(md) if md.is_file() => {
+            info!(zip = %sibling_zip.display(), "Found downloaded zip at sibling path");
+            Some(sibling_zip.clone())
         }
-    }
+        _ => None,
+    };
 
     if let Some(zip_path) = &game_zip {
         info!(zip = %zip_path.display(), "Extracting downloaded game zip into {}", server_data_path.display());
@@ -301,12 +291,14 @@ pub async fn download_server_files(
         let zip_owned = zip_path.clone();
         let extract_dir = server_data_path.to_path_buf();
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let file = std::fs::File::open(&zip_owned)
+            let file = safe_fs::open_nofollow(&zip_owned)
                 .context("Failed to open downloaded game zip")?;
             let mut archive = zip::ZipArchive::new(file)
                 .context("Failed to parse downloaded game zip")?;
-            archive
-                .extract(&extract_dir)
+            // Extracts into the tenant's directory: skip symlink entries,
+            // never follow planted links, and cap the decompressed size.
+            safe_fs::extract_zip(&mut archive, &extract_dir, safe_fs::ExtractLimits::default())
+                .map_err(anyhow::Error::msg)
                 .context("Failed to extract downloaded game zip")?;
             Ok(())
         })
@@ -321,7 +313,7 @@ pub async fn download_server_files(
 
         info!("Game zip extracted successfully");
     } else {
-        warn!("No game zip found after download — expected at {} or inside {}", sibling_zip.display(), server_data_path.display());
+        warn!("No game zip found after download — expected at {}", sibling_zip.display());
         if let Some(tx) = &log_tx {
             let _ = tx.send("WARNING: No game zip found after download".into());
         }
@@ -376,6 +368,13 @@ pub async fn download_server_files(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Where the downloader writes its archive for `-download-path {data_path}`:
+/// the sibling `{data_path}.zip`, outside the tenant-writable directory.
+fn downloader_output_zip(server_data_path: &Path) -> PathBuf {
+    let mut p = server_data_path.as_os_str().to_owned();
+    p.push(".zip");
+    PathBuf::from(p)
+}
 
 // The Hytale Downloader CLI updates its progress bar in place using \r,
 // which our line-based reader collects into one giant line that looks like
@@ -462,5 +461,18 @@ fn find_binary_recursive(dir: &Path, name: &str) -> Result<Option<PathBuf>> {
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_sibling_zip_is_downloader_output() {
+        let out = downloader_output_zip(Path::new("/srv/taledaemon/servers/abc"));
+        assert_eq!(out, PathBuf::from("/srv/taledaemon/servers/abc.zip"));
+        // Never a path inside the (tenant-writable) server directory.
+        assert!(!out.starts_with("/srv/taledaemon/servers/abc/"));
+    }
 }
 
