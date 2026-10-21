@@ -4,10 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"github.com/BitaceS/talepanel/api/internal/alerting"
 	"github.com/BitaceS/talepanel/api/internal/config"
 	"github.com/BitaceS/talepanel/api/internal/daemon"
@@ -15,6 +11,10 @@ import (
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -162,7 +162,7 @@ func SetupRouter(
 			authProtected.PATCH("/password", authH.ChangePassword)
 
 			// 2FA (TOTP) self-service
-			authProtected.POST("/totp/setup",   authH.SetupTOTP)
+			authProtected.POST("/totp/setup", authH.SetupTOTP)
 			authProtected.POST("/totp/confirm", authH.ConfirmTOTP)
 			authProtected.POST("/totp/disable", authH.DisableTOTP)
 
@@ -214,7 +214,9 @@ func SetupRouter(
 		serverGroup.GET("/:id/metrics", rsp("server.view"), serverH.GetMetrics)
 		serverGroup.GET("/:id/logs", rsp("server.view"), serverH.GetLogs)
 		serverGroup.POST("/:id/console", rsp("server.console"), serverH.SendConsoleCommand)
-		serverGroup.POST("/:id/migrate", rsp("server.manage"), serverH.MigrateServer)
+		// Migration places a server on another node, spending that node's
+		// capacity — an operator action, not something a server owner decides.
+		serverGroup.POST("/:id/migrate", middleware.RequireRole(models.RoleAdmin), rsp("server.manage"), serverH.MigrateServer)
 
 		// File browser
 		serverGroup.GET("/:id/files", rsp("server.files"), serverH.ListFiles)

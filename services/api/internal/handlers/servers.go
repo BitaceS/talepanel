@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/BitaceS/talepanel/api/internal/daemon"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -473,12 +473,12 @@ provisioned:
 	ramLimit := uint32(server.RAMLimitMB)
 
 	cfg := daemon.ServerConfig{
-		ServerID:   server.ID.String(),
-		Name:       server.Name,
-		DataPath:   server.DataPath,
-		Port:       uint16(server.Port),
-		RAMLimitMB: ramLimit,
-		CPULimit:   0,
+		ServerID:    server.ID.String(),
+		Name:        server.Name,
+		DataPath:    server.DataPath,
+		Port:        uint16(server.Port),
+		RAMLimitMB:  ramLimit,
+		CPULimit:    0,
 		CrashLimit:  uint32(server.CrashLimit),
 		LaunchFlags: server.LaunchFlags,
 	}
@@ -563,7 +563,6 @@ func (h *ServerHandler) dispatchProvision(server *models.Server) {
 	// Daemon reports final status (stopped = ready) via its api_client after
 	// files are downloaded and the process is ready to start.
 }
-
 
 // ─── Console ──────────────────────────────────────────────────────────────────
 
@@ -1241,13 +1240,22 @@ func (h *ServerHandler) MigrateServer(c *gin.Context) {
 		return
 	}
 
-	sourceNodeID, err := h.svc.MigratePreflight(c.Request.Context(), serverID, req)
+	caller, _ := middleware.GetUserFromCtx(c)
+	if caller == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	sourceNodeID, err := h.svc.MigratePreflight(c.Request.Context(), caller.Role, serverID, req)
 	if err != nil {
 		switch {
+		case errors.Is(err, services.ErrServerForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "only administrators can migrate servers"})
 		case errors.Is(err, services.ErrServerNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		case errors.Is(err, services.ErrNodeNotFound):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "target node not found"})
+		case errors.Is(err, services.ErrMigrationTarget):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}

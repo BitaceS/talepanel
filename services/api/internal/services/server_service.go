@@ -9,20 +9,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 var (
-	ErrServerNotFound   = errors.New("server not found")
-	ErrServerForbidden  = errors.New("access denied")
-	ErrNoAvailableNode  = errors.New("no available node to host the server")
+	ErrServerNotFound  = errors.New("server not found")
+	ErrServerForbidden = errors.New("access denied")
+	ErrNoAvailableNode = errors.New("no available node to host the server")
 
 	// ErrInvalidServerSettings wraps a rejected field value in UpdateServer;
 	// handlers report its message as a 400.
 	ErrInvalidServerSettings = errors.New("invalid server settings")
+
+	// ErrMigrationTarget wraps why a migration target node was rejected.
+	ErrMigrationTarget = errors.New("invalid migration target")
 )
 
 // CreateServerRequest carries the user-supplied fields for a new server.
@@ -603,10 +606,19 @@ type MigrateServerRequest struct {
 // (source) node. It does NOT move data or re-point the server — the handler
 // orchestrates the actual cross-node transfer and calls CompleteMigration only
 // once the target node holds the data, so a failed transfer never loses data.
-func (s *ServerService) MigratePreflight(ctx context.Context, serverID uuid.UUID, req MigrateServerRequest) (uuid.UUID, error) {
+//
+// Placing a server on a node is an operator decision (it spends that node's
+// capacity), so only admin+ may migrate, and the target must be online with
+// room for the server.
+func (s *ServerService) MigratePreflight(ctx context.Context, callerRole string, serverID uuid.UUID, req MigrateServerRequest) (uuid.UUID, error) {
+	if models.RoleWeight(callerRole) < models.RoleWeight(models.RoleAdmin) {
+		return uuid.Nil, ErrServerForbidden
+	}
 	var nodeID uuid.UUID
 	var status string
-	err := s.db.QueryRow(ctx, `SELECT node_id, status FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &status)
+	var ramMB, diskMB int
+	err := s.db.QueryRow(ctx, `SELECT node_id, status, ram_limit_mb, disk_limit_mb FROM servers WHERE id = $1`,
+		serverID).Scan(&nodeID, &status, &ramMB, &diskMB)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, ErrServerNotFound
@@ -620,13 +632,27 @@ func (s *ServerService) MigratePreflight(ctx context.Context, serverID uuid.UUID
 		return uuid.Nil, fmt.Errorf("server is already on the target node")
 	}
 
-	var exists bool
-	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)`, req.TargetNodeID).Scan(&exists)
+	var nodeStatus string
+	var totalRAM, totalDisk, maxServers, hosted int
+	err = s.db.QueryRow(ctx, `
+		SELECT n.status, n.total_ram_mb, n.total_disk_mb, n.max_servers,
+		       (SELECT COUNT(*) FROM servers s WHERE s.node_id = n.id)
+		FROM nodes n WHERE n.id = $1
+	`, req.TargetNodeID).Scan(&nodeStatus, &totalRAM, &totalDisk, &maxServers, &hosted)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, ErrNodeNotFound
+		}
 		return uuid.Nil, fmt.Errorf("checking target node: %w", err)
 	}
-	if !exists {
-		return uuid.Nil, ErrNodeNotFound
+	if nodeStatus != "online" {
+		return uuid.Nil, fmt.Errorf("%w: target node is not online", ErrMigrationTarget)
+	}
+	if hosted >= maxServers {
+		return uuid.Nil, fmt.Errorf("%w: target node is at its server limit (%d)", ErrMigrationTarget, maxServers)
+	}
+	if ramMB > totalRAM || diskMB > totalDisk {
+		return uuid.Nil, fmt.Errorf("%w: server limits exceed the target node's capacity", ErrMigrationTarget)
 	}
 
 	return nodeID, nil
