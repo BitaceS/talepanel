@@ -560,6 +560,13 @@ pub(crate) mod safe_fs {
         Ok(value)
     }
 
+    /// Copy `src` to `dst` via temp + rename. `src` must be daemon-controlled
+    /// (it is opened normally); `dst` may sit in a tenant directory.
+    pub fn copy_atomic(src: &Path, dst: &Path) -> io::Result<u64> {
+        let mut input = File::open(src)?;
+        write_atomic(dst, |out| io::copy(&mut input, out))
+    }
+
     /// Async counterpart of the temp-file half of [`write_atomic`], for
     /// streaming writers. Finish with [`commit_async`].
     pub async fn create_temp_async(target: &Path) -> io::Result<(PathBuf, tokio::fs::File)> {

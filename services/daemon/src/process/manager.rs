@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument, warn};
@@ -9,6 +9,7 @@ use tracing::{error, info, instrument, warn};
 use crate::api_client::ApiClient;
 use crate::config::Config;
 use crate::downloader;
+use crate::http_server::safe_fs;
 
 use super::hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
 use super::LogLine;
@@ -220,39 +221,20 @@ impl ProcessManager {
             // Local-bin fallback: before hitting the Hytale CDN, check whether
             // the operator pre-placed a JAR + Assets.zip at
             // {data_root}/hytale-bin/.  This is the supported "offline /
-            // air-gapped install" path and also the fastest — hardlinking
-            // avoids copying multi-gigabyte assets per server.
+            // air-gapped install" path.
             let local_bin = PathBuf::from(&data_root).join("hytale-bin");
             let local_jar = local_bin.join("HytaleServer.jar");
             let local_assets = local_bin.join("Assets.zip");
             if local_jar.exists() && local_assets.exists() {
                 push_log(format!("Using local Hytale binaries from {}", local_bin.display()), "INFO").await;
-                let server_dir = target.join("Server");
-                if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
-                    push_log(format!("Failed to create Server/: {e}"), "ERROR").await;
+                let (bin, dst) = (local_bin.clone(), target.clone());
+                let placed = tokio::task::spawn_blocking(move || place_local_binaries(&bin, &dst))
+                    .await
+                    .unwrap_or_else(|e| Err(format!("copy task failed: {e}")));
+                if let Err(e) = placed {
+                    push_log(e, "ERROR").await;
                     let _ = api_client.report_server_status(&server_id, "crashed").await;
                     return;
-                }
-                // Hardlink (same filesystem).  Fall back to copy if hardlink
-                // fails (e.g. cross-mount with restrictive perms).
-                for (src, dst) in [
-                    (local_jar.clone(), server_dir.join("HytaleServer.jar")),
-                    (local_bin.join("HytaleServer.aot"), server_dir.join("HytaleServer.aot")),
-                    (local_assets.clone(), target.join("Assets.zip")),
-                ] {
-                    if !src.exists() { continue; }
-                    if tokio::fs::hard_link(&src, &dst).await.is_err() {
-                        if let Err(e) = tokio::fs::copy(&src, &dst).await {
-                            push_log(format!("Failed to place {}: {e}", dst.display()), "ERROR").await;
-                            let _ = api_client.report_server_status(&server_id, "crashed").await;
-                            return;
-                        }
-                    }
-                }
-                // Licenses dir is optional — cp -r equivalent.
-                let licenses_src = local_bin.join("Licenses");
-                if licenses_src.is_dir() {
-                    let _ = copy_dir(&licenses_src, &server_dir.join("Licenses")).await;
                 }
                 push_log("Provisioning complete via local hytale-bin".into(), "INFO").await;
                 let _ = api_client.report_server_status(&server_id, "stopped").await;
@@ -339,7 +321,7 @@ impl ProcessManager {
                 .await;
 
                 let server_dir = target.join("Server");
-                if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
+                if let Err(e) = ensure_server_subdir(&target).await {
                     let msg = format!("Failed to create server directory: {e}");
                     error!(%server_id, error = %e, "Failed to create server directory");
                     push_log(msg, "ERROR").await;
@@ -361,7 +343,7 @@ while IFS= read -r line; do
     esac
 done
 "#;
-                if let Err(e) = tokio::fs::write(&stub_script, stub_content).await {
+                if let Err(e) = write_atomic_async(&stub_script, stub_content.as_bytes().to_vec()).await {
                     error!(%server_id, error = %e, "Failed to write dev stub");
                     push_log(format!("Failed to write dev stub: {e}"), "ERROR").await;
                     let _ = api_client.report_server_status(&server_id, "crashed").await;
@@ -380,16 +362,16 @@ done
                 }
 
                 // Create an empty Assets.zip placeholder
-                let _ = tokio::fs::write(target.join("Assets.zip"), b"").await;
+                let _ = write_atomic_async(&target.join("Assets.zip"), Vec::new()).await;
 
                 // Create a default server.json config
                 let server_json = serde_json::json!({
                     "dev_mode": true,
                     "note": "This is a dev-mode stub. Replace with real Hytale server files for production."
                 });
-                let _ = tokio::fs::write(
-                    target.join("server.json"),
-                    serde_json::to_string_pretty(&server_json).unwrap_or_default(),
+                let _ = write_atomic_async(
+                    &target.join("server.json"),
+                    serde_json::to_string_pretty(&server_json).unwrap_or_default().into_bytes(),
                 ).await;
 
                 info!(%server_id, "Dev-mode server stub created");
@@ -653,26 +635,89 @@ done
 // Type conversion helper
 // ---------------------------------------------------------------------------
 
-/// Convert internal `LogLine` types to the API wire format.
-// copy_dir recursively copies src into dst, creating dst if needed.
-// Used by the local-bin fallback in provision.  Kept minimal — if more
-// features are needed we can switch to the `fs_extra` crate later.
-async fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    tokio::fs::create_dir_all(dst).await?;
-    let mut entries = tokio::fs::read_dir(src).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let ty = entry.file_type().await?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
+/// Place the operator's offline binaries from `local_bin` (`{data_root}/hytale-bin`)
+/// into the server directory `target`. Blocking; call under spawn_blocking.
+///
+/// Every file is a private COPY written via temp + rename. Never a hardlink:
+/// the server directory is tenant-writable, and a hardlinked JAR or Assets.zip
+/// would let one tenant rewrite the inode shared with the operator's master
+/// copy and every other server on the node. The copy also replaces (never
+/// follows) a symlink the tenant planted at the destination.
+fn place_local_binaries(local_bin: &Path, target: &Path) -> std::result::Result<(), String> {
+    std::fs::create_dir_all(target).map_err(|e| format!("Failed to create {}: {e}", target.display()))?;
+    let server_dir = safe_fs::ensure_dir_chain(target, Path::new("Server"), &mut Vec::new())
+        .map_err(|e| format!("Failed to create Server/: {e}"))?
+        .ok_or_else(|| "Failed to create Server/: it is a symlink or a file".to_string())?;
+
+    for (src, dst) in [
+        (local_bin.join("HytaleServer.jar"), server_dir.join("HytaleServer.jar")),
+        (local_bin.join("HytaleServer.aot"), server_dir.join("HytaleServer.aot")),
+        (local_bin.join("Assets.zip"), target.join("Assets.zip")),
+    ] {
+        if !src.exists() {
+            continue;
+        }
+        safe_fs::copy_atomic(&src, &dst)
+            .map_err(|e| format!("Failed to place {}: {e}", dst.display()))?;
+    }
+
+    // Licenses dir is optional — cp -r equivalent, best effort.
+    let licenses_src = local_bin.join("Licenses");
+    if licenses_src.is_dir() {
+        let _ = copy_dir(&licenses_src, &server_dir, Path::new("Licenses"));
+    }
+    Ok(())
+}
+
+/// Recursively copy `src` to `base/rel`. Destination directories are created
+/// without following symlinks, files are copied via temp + rename, and
+/// symlinks inside `src` are skipped.
+fn copy_dir(src: &Path, base: &Path, rel: &Path) -> std::io::Result<()> {
+    let dst = match safe_fs::ensure_dir_chain(base, rel, &mut Vec::new())? {
+        Some(d) => d,
+        None => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{} is a symlink or a file", base.join(rel).display()),
+            ));
+        }
+    };
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
         if ty.is_dir() {
-            Box::pin(copy_dir(&from, &to)).await?;
-        } else {
-            tokio::fs::copy(&from, &to).await?;
+            copy_dir(&entry.path(), &dst, Path::new(&entry.file_name()))?;
+        } else if ty.is_file() {
+            safe_fs::copy_atomic(&entry.path(), &dst.join(entry.file_name()))?;
         }
     }
     Ok(())
 }
 
+/// Create `{target}/Server` without following a symlink planted there.
+async fn ensure_server_subdir(target: &Path) -> std::io::Result<PathBuf> {
+    let target = target.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&target)?;
+        safe_fs::ensure_dir_chain(&target, Path::new("Server"), &mut Vec::new())?.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Server/ is a symlink or a file")
+        })
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+/// Write `data` to `path` via temp + rename (see `safe_fs::write_atomic`).
+async fn write_atomic_async(path: &Path, data: Vec<u8>) -> std::io::Result<()> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        safe_fs::write_atomic(&path, |f| std::io::Write::write_all(f, &data))
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+/// Convert internal `LogLine` types to the API wire format.
 fn to_wire_log_lines(lines: Vec<LogLine>) -> Vec<crate::api_client::LogLine> {
     lines
         .into_iter()
@@ -820,5 +865,78 @@ mod tests {
     #[test]
     fn ignores_an_ordinary_log_line() {
         assert!(parse_player_event("[Server] Done (4.21s)! For help, type 'help'").is_none());
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tp-manager-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    /// A tenant rewriting its server's JAR in place (as a plain truncating
+    /// write would) must not reach the operator's master copy.
+    #[test]
+    fn local_binaries_are_copied_not_hardlinked() {
+        let root = scratch_dir("place");
+        let bin = root.join("hytale-bin");
+        std::fs::create_dir_all(bin.join("Licenses")).unwrap();
+        std::fs::write(bin.join("HytaleServer.jar"), b"jar").unwrap();
+        std::fs::write(bin.join("Assets.zip"), b"assets").unwrap();
+        std::fs::write(bin.join("Licenses").join("LICENSE"), b"l").unwrap();
+        let server = root.join("servers").join("s1");
+
+        place_local_binaries(&bin, &server).unwrap();
+
+        let jar = server.join("Server").join("HytaleServer.jar");
+        assert_eq!(std::fs::read(&jar).unwrap(), b"jar");
+        assert_eq!(std::fs::read(server.join("Server/Licenses/LICENSE")).unwrap(), b"l");
+        // Truncating in-place writes, as a tenant would do.
+        std::fs::write(&jar, b"evil").unwrap();
+        std::fs::write(server.join("Assets.zip"), b"evil").unwrap();
+        assert_eq!(std::fs::read(bin.join("HytaleServer.jar")).unwrap(), b"jar");
+        assert_eq!(std::fs::read(bin.join("Assets.zip")).unwrap(), b"assets");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Reinstall over a server that still has hardlinks from an older daemon:
+    /// the placement must replace them, not write through the shared inode.
+    #[test]
+    fn placement_replaces_an_existing_hardlink() {
+        let root = scratch_dir("relink");
+        let bin = root.join("hytale-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("HytaleServer.jar"), b"jar").unwrap();
+        std::fs::write(bin.join("Assets.zip"), b"assets").unwrap();
+        let other = root.join("other.jar");
+        std::fs::write(&other, b"other").unwrap();
+        let server = root.join("s2");
+        std::fs::create_dir_all(server.join("Server")).unwrap();
+        std::fs::hard_link(&other, server.join("Server/HytaleServer.jar")).unwrap();
+
+        place_local_binaries(&bin, &server).unwrap();
+
+        assert_eq!(std::fs::read(&other).unwrap(), b"other");
+        assert_eq!(std::fs::read(server.join("Server/HytaleServer.jar")).unwrap(), b"jar");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn placement_refuses_a_symlinked_server_dir() {
+        let root = scratch_dir("symdir");
+        let bin = root.join("hytale-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("HytaleServer.jar"), b"jar").unwrap();
+        std::fs::write(bin.join("Assets.zip"), b"assets").unwrap();
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let server = root.join("s3");
+        std::fs::create_dir_all(&server).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, server.join("Server")).unwrap();
+
+        assert!(place_local_binaries(&bin, &server).is_err());
+        assert!(!elsewhere.join("HytaleServer.jar").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
