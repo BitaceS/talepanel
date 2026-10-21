@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/png"
@@ -14,21 +15,21 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/BitaceS/talepanel/api/internal/config"
+	tpcrypto "github.com/BitaceS/talepanel/api/internal/crypto"
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
-	"github.com/BitaceS/talepanel/api/internal/config"
-	tpcrypto "github.com/BitaceS/talepanel/api/internal/crypto"
-	"github.com/BitaceS/talepanel/api/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	bcryptCost          = 12
-	accessTokenDuration = 15 * time.Minute
+	bcryptCost           = 12
+	accessTokenDuration  = 15 * time.Minute
 	refreshTokenDuration = 7 * 24 * time.Hour
 
 	// dummyBcryptHash is a valid cost-12 bcrypt hash used only to equalize
@@ -42,11 +43,11 @@ var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,20}$`)
 
-	ErrEmailTaken    = errors.New("email already in use")
-	ErrUsernameTaken = errors.New("username already in use")
-	ErrInvalidCreds  = errors.New("invalid email or password")
-	ErrUserInactive  = errors.New("account is disabled")
-	ErrTOTPInvalid   = errors.New("invalid TOTP code")
+	ErrEmailTaken     = errors.New("email already in use")
+	ErrUsernameTaken  = errors.New("username already in use")
+	ErrInvalidCreds   = errors.New("invalid email or password")
+	ErrUserInactive   = errors.New("account is disabled")
+	ErrTOTPInvalid    = errors.New("invalid TOTP code")
 	ErrSessionExpired = errors.New("session expired or revoked")
 
 	// ErrWeakPasswordForRole is returned when a privileged role is given a
@@ -251,20 +252,75 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken, ip, userAg
 		return nil, fmt.Errorf("fetching session: %w", err)
 	}
 
-	if session.Revoked || time.Now().After(session.ExpiresAt) {
+	if time.Now().After(session.ExpiresAt) {
 		return nil, ErrSessionExpired
+	}
+	if session.Revoked {
+		return s.rotatedResult(ctx, tokenHash)
 	}
 
 	if !user.IsActive {
 		return nil, ErrUserInactive
 	}
 
-	// Revoke old session atomically before issuing a new one.
-	if err := s.revokeSessionByID(ctx, session.ID); err != nil {
+	// Claim the rotation atomically: of two concurrent refreshes with the same
+	// token, only one issues new tokens; the other gets that one's result.
+	ct, err := s.db.Exec(ctx, `UPDATE sessions SET revoked = true WHERE id = $1 AND NOT revoked`, session.ID)
+	if err != nil {
 		return nil, fmt.Errorf("revoking old session: %w", err)
 	}
+	if ct.RowsAffected() == 0 {
+		return s.rotatedResult(ctx, tokenHash)
+	}
+	// Tells a racing refresh that the result is on its way and worth waiting for.
+	_ = s.rdb.Set(ctx, refreshRotatingKey(tokenHash), "1", 5*time.Second).Err()
 
-	return s.issueFullTokens(ctx, &user, ip, userAgent)
+	result, err := s.issueFullTokens(ctx, &user, ip, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	if body, err := json.Marshal(result); err == nil {
+		// Best effort: without it a racing refresh just fails as before.
+		_ = s.rdb.Set(ctx, refreshGraceKey(tokenHash), body, refreshGracePeriod).Err()
+	}
+	return result, nil
+}
+
+// refreshGracePeriod is how long a just-rotated refresh token still yields the
+// tokens it was rotated into. Without it, a second tab refreshing at the same
+// moment, or a reload that aborts a refresh after the server rotated it, would
+// present a revoked token and log the user out.
+const refreshGracePeriod = 30 * time.Second
+
+func refreshGraceKey(tokenHash string) string    { return "refresh_grace:" + tokenHash }
+func refreshRotatingKey(tokenHash string) string { return "refresh_rotating:" + tokenHash }
+
+// rotatedResult returns the tokens a just-rotated refresh token was exchanged
+// for, waiting briefly while a concurrent rotation is still publishing them.
+// A token revoked any other way (logout, expired grace) fails at once.
+func (s *AuthService) rotatedResult(ctx context.Context, tokenHash string) (*LoginResult, error) {
+	for attempt := 0; attempt < 20; attempt++ {
+		body, err := s.rdb.Get(ctx, refreshGraceKey(tokenHash)).Bytes()
+		if err == nil {
+			var result LoginResult
+			if err := json.Unmarshal(body, &result); err != nil {
+				return nil, ErrSessionExpired
+			}
+			return &result, nil
+		}
+		if !errors.Is(err, redis.Nil) {
+			return nil, ErrSessionExpired
+		}
+		if n, err := s.rdb.Exists(ctx, refreshRotatingKey(tokenHash)).Result(); err != nil || n == 0 {
+			return nil, ErrSessionExpired
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ErrSessionExpired
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return nil, ErrSessionExpired
 }
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
@@ -298,9 +354,9 @@ func (s *AuthService) Logout(ctx context.Context, jti, refreshToken string, rema
 // TOTPSetupResult is returned by SetupTOTP and carries everything the frontend
 // needs to render a QR code and walk the user through confirmation.
 type TOTPSetupResult struct {
-	Secret      string `json:"secret"`        // base32 secret for manual entry
-	OtpauthURI  string `json:"otpauth_uri"`   // otpauth:// URI for QR
-	QRCodePNG   []byte `json:"qr_code_png"`   // PNG bytes, handler sends as base64
+	Secret     string `json:"secret"`      // base32 secret for manual entry
+	OtpauthURI string `json:"otpauth_uri"` // otpauth:// URI for QR
+	QRCodePNG  []byte `json:"qr_code_png"` // PNG bytes, handler sends as base64
 }
 
 // SetupTOTP generates a new TOTP secret for the user, encrypts it, and stores
@@ -777,13 +833,6 @@ func (s *AuthService) issuePartialToken(userID uuid.UUID) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	// Signed with refresh secret so it cannot be used as an access token.
 	return token.SignedString([]byte(s.config.JWTRefreshSecret))
-}
-
-func (s *AuthService) revokeSessionByID(ctx context.Context, id uuid.UUID) error {
-	_, err := s.db.Exec(ctx,
-		`UPDATE sessions SET revoked = true WHERE id = $1`, id,
-	)
-	return err
 }
 
 func (s *AuthService) findUserByEmail(ctx context.Context, email string) (*models.User, error) {
