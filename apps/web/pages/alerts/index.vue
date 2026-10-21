@@ -2,11 +2,13 @@
 import { AlertTriangle, CheckCircle, Info } from '@lucide/vue'
 import { useAlertsStore } from '~/stores/alerts'
 import { useServersStore } from '~/stores/servers'
+import { useAuthStore } from '~/stores/auth'
 
 definePageMeta({ title: 'Alerts', middleware: 'auth' })
 
 const alertsStore = useAlertsStore()
 const serversStore = useServersStore()
+const authStore = useAuthStore()
 
 const activeTab = ref<'events' | 'rules'>('events')
 
@@ -25,14 +27,23 @@ const showCreateModal = ref(false)
 const ruleForm = reactive({ server_id: '', type: 'server_crashed', threshold: 90, channels: ['email'] as string[], webhook_url: '' })
 const creating = ref(false)
 
-const ruleTypes = [
-  { value: 'server_crashed', label: 'Server Crash' },
-  { value: 'cpu_high', label: 'High CPU Usage' },
-  { value: 'ram_high', label: 'High RAM Usage' },
-  { value: 'disk_high', label: 'High Disk Usage' },
-  { value: 'node_offline', label: 'Node Offline' },
-  { value: 'ddos', label: 'DDoS Detected' },
+// Node-level rules and global (all servers) rules are admin-only in the API.
+const allRuleTypes = [
+  { value: 'server_crashed', label: 'Server Crash', adminOnly: false },
+  { value: 'cpu_high', label: 'High CPU Usage', adminOnly: true },
+  { value: 'ram_high', label: 'High RAM Usage', adminOnly: true },
+  { value: 'disk_high', label: 'High Disk Usage', adminOnly: true },
+  { value: 'node_offline', label: 'Node Offline', adminOnly: true },
+  { value: 'ddos', label: 'DDoS Detected', adminOnly: true },
 ]
+const ruleTypes = computed(() => allRuleTypes.filter(t => authStore.isAdmin || !t.adminOnly))
+
+function openCreateModal() {
+  if (!authStore.isAdmin && !ruleForm.server_id) {
+    ruleForm.server_id = serversStore.servers[0]?.id ?? ''
+  }
+  showCreateModal.value = true
+}
 
 // Threshold only applies to percentage-metric rule types.
 const thresholdTypes = ['cpu_high', 'ram_high', 'disk_high']
@@ -180,7 +191,7 @@ onMounted(() => {
     <!-- Rules tab -->
     <div v-if="activeTab === 'rules'">
       <div class="flex items-center justify-end mb-4">
-        <UiButton variant="primary" size="sm" @click="showCreateModal = true">
+        <UiButton variant="primary" size="sm" @click="openCreateModal">
           <Plus class="w-3.5 h-3.5" /> New Rule
         </UiButton>
       </div>
@@ -223,7 +234,7 @@ onMounted(() => {
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Server (optional — leave empty for global)</label>
           <select v-model="ruleForm.server_id" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="">Global (all servers)</option>
+            <option v-if="authStore.isAdmin" value="">Global (all servers)</option>
             <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </div>
