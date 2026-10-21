@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/BitaceS/talepanel/api/internal/daemon"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -104,9 +104,12 @@ func (h *ModHandler) InstallMod(c *gin.Context) {
 		return
 	}
 
-	mod, err := h.modSvc.InstallMod(c.Request.Context(), serverID, req)
+	caller := mustUser(c)
+	mod, err := h.modSvc.InstallMod(c.Request.Context(), caller.Role, serverID, req)
 	if err != nil {
 		switch {
+		case errors.Is(err, services.ErrModURLNotAllowed):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrServerNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		default:
@@ -199,7 +202,12 @@ func (h *ModHandler) SwitchModVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file_url required"})
 		return
 	}
-	if err := h.modSvc.SwitchModVersion(c.Request.Context(), serverID, filename, req); err != nil {
+	caller := mustUser(c)
+	if err := h.modSvc.SwitchModVersion(c.Request.Context(), caller.Role, serverID, filename, req); err != nil {
+		if errors.Is(err, services.ErrModURLNotAllowed) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		h.log.Error("switch mod version failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "switch failed"})
 		return

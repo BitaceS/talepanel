@@ -5,15 +5,50 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
-var ErrModNotFound = errors.New("mod not found")
+var (
+	ErrModNotFound = errors.New("mod not found")
+	// ErrModURLNotAllowed: a mod download URL the caller may not use.
+	ErrModURLNotAllowed = errors.New("mod download URL not allowed")
+)
+
+// curseForgeCDNHosts are the hosts CurseForge's API returns as a file's
+// downloadUrl (and the CDN redirects among). Non-admins may only install from
+// these, so a server owner cannot make the node fetch arbitrary URLs.
+var curseForgeCDNHosts = map[string]bool{
+	"edge.forgecdn.net":       true,
+	"mediafilez.forgecdn.net": true,
+	"media.forgecdn.net":      true,
+}
+
+// ValidateModDownloadURL checks a mod download URL for a caller with
+// callerRole: always https without credentials; for non-admins additionally
+// one of the CurseForge CDN hosts. Admins may install from any https URL.
+func ValidateModDownloadURL(raw, callerRole string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%w: must be an https URL", ErrModURLNotAllowed)
+	}
+	if models.RoleWeight(callerRole) >= models.RoleWeight(models.RoleAdmin) {
+		return nil
+	}
+	if p := u.Port(); p != "" && p != "443" {
+		return fmt.Errorf("%w: only CurseForge downloads are allowed", ErrModURLNotAllowed)
+	}
+	if !curseForgeCDNHosts[strings.ToLower(u.Hostname())] {
+		return fmt.Errorf("%w: only CurseForge downloads (forgecdn.net) are allowed", ErrModURLNotAllowed)
+	}
+	return nil
+}
 
 // DetectedPlugin is reported by the daemon's plugin scanner.
 type DetectedPlugin struct {
@@ -99,7 +134,10 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 }
 
 // InstallMod records a mod installation and enqueues the download command to the daemon.
-func (s *ModService) InstallMod(ctx context.Context, serverID uuid.UUID, req InstallModRequest) (*models.ServerMod, error) {
+func (s *ModService) InstallMod(ctx context.Context, callerRole string, serverID uuid.UUID, req InstallModRequest) (*models.ServerMod, error) {
+	if err := ValidateModDownloadURL(req.DownloadURL, callerRole); err != nil {
+		return nil, err
+	}
 	// Fetch server to get node_id and data_path.
 	var nodeID uuid.UUID
 	var dataPath string
@@ -258,7 +296,10 @@ type ModVersionSwitchRequest struct {
 }
 
 // SwitchModVersion replaces the current mod version with a new CurseForge file atomically.
-func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
+func (s *ModService) SwitchModVersion(ctx context.Context, callerRole string, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
+	if err := ValidateModDownloadURL(req.FileURL, callerRole); err != nil {
+		return err
+	}
 	var nodeID uuid.UUID
 	var dataPath string
 	err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath)
@@ -288,9 +329,10 @@ func (s *ModService) SwitchModVersion(ctx context.Context, serverID uuid.UUID, o
 		return fmt.Errorf("switch mod version: enqueue remove: %w", err)
 	}
 
-	// Derive new filename from URL.
-	parts := strings.Split(req.FileURL, "/")
-	newFilename := parts[len(parts)-1]
+	// Derive new filename from the URL path (not the raw string, which may
+	// carry a query or fragment).
+	fileURL, _ := url.Parse(req.FileURL) // validated above
+	newFilename := path.Base(fileURL.Path)
 
 	// Insert new mod row.
 	_, err = tx.Exec(ctx, `
