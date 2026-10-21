@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -108,7 +109,9 @@ fn scan_server_worlds(server_dir: &Path) -> (Vec<crate::api_client::ScannedWorld
     if let Ok(entries) = std::fs::read_dir(&worlds_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if !p.is_dir() {
+            // file_type does not follow symlinks: a linked "world" (e.g. to /)
+            // would otherwise be walked by dir_size.
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
             if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
@@ -125,8 +128,17 @@ fn scan_server_worlds(server_dir: &Path) -> (Vec<crate::api_client::ScannedWorld
 /// Read the active world name from a server's `config.json` (`Defaults.World`).
 fn read_active_world(server_dir: &Path) -> String {
     let cfg_path = server_dir.join("config.json");
-    if let Ok(contents) = std::fs::read_to_string(&cfg_path) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&contents) {
+    // Bounded read of a regular file only: the file is tenant-controlled and
+    // could be a symlink to /dev/zero or something huge.
+    let is_file = std::fs::symlink_metadata(&cfg_path).map(|m| m.is_file()).unwrap_or(false);
+    let mut contents = Vec::new();
+    let read_ok = is_file
+        && std::fs::File::open(&cfg_path)
+            .and_then(|f| f.take(MAX_SERVER_CONFIG_BYTES + 1).read_to_end(&mut contents))
+            .is_ok()
+        && contents.len() as u64 <= MAX_SERVER_CONFIG_BYTES;
+    if read_ok {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&contents) {
             if let Some(w) = v
                 .get("Defaults")
                 .and_then(|d| d.get("World"))
@@ -238,6 +250,12 @@ fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
         for entry in entries.flatten() {
             let path = entry.path();
 
+            // Only regular files: a tenant symlink (e.g. to /dev/zero or a
+            // file outside the server) must not be opened and hashed.
+            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                continue;
+            }
+
             let raw_name = match path.file_name().and_then(|n| n.to_str()) {
                 Some(n) => n,
                 None => continue,
@@ -288,6 +306,33 @@ fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
     plugins
 }
 
+/// Largest metadata file (plugin.yml, *.mod.json) parsed from a jar. Jars are
+/// tenant-supplied: an unbounded read would let a crafted entry (a deflate
+/// bomb, or a deeply nested YAML document) exhaust the daemon's memory.
+const MAX_META_BYTES: u64 = 64 * 1024;
+/// Archive entries inspected per jar when listing config files.
+const MAX_SCAN_ENTRIES: usize = 10_000;
+/// Config file names reported per jar.
+const MAX_CONFIG_FILES: usize = 256;
+/// Largest server `config.json` read for the active world.
+const MAX_SERVER_CONFIG_BYTES: u64 = 1024 * 1024;
+
+/// Read a small metadata entry, or `None` if it is missing or larger than
+/// `MAX_META_BYTES` (checked on the declared size and on the bytes read).
+fn read_meta_entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) -> Option<Vec<u8>> {
+    let entry = archive.by_name(name).ok()?;
+    if entry.size() > MAX_META_BYTES {
+        debug!(entry = name, size = entry.size(), "Plugin metadata too large, skipped");
+        return None;
+    }
+    let mut buf = Vec::new();
+    entry.take(MAX_META_BYTES + 1).read_to_end(&mut buf).ok()?;
+    if buf.len() as u64 > MAX_META_BYTES {
+        return None;
+    }
+    Some(buf)
+}
+
 fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)?;
@@ -296,7 +341,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     let mut config_files = Vec::new();
 
     // Collect config file names.
-    for i in 0..archive.len() {
+    for i in 0..archive.len().min(MAX_SCAN_ENTRIES) {
+        if config_files.len() >= MAX_CONFIG_FILES {
+            break;
+        }
         let entry = archive.by_index(i)?;
         let name = entry.name().to_string();
         if (name.ends_with(".yml")
@@ -310,8 +358,8 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     }
 
     // Try plugin.yml (Bukkit/Spigot/Paper).
-    if let Ok(entry) = archive.by_name("plugin.yml") {
-        let meta: PluginYml = serde_yaml::from_reader(entry).unwrap_or_default();
+    if let Some(bytes) = read_meta_entry(&mut archive, "plugin.yml") {
+        let meta: PluginYml = serde_yaml::from_slice(&bytes).unwrap_or_default();
         let commands = extract_yaml_commands(&meta.commands);
 
         return Ok(Some(DetectedPlugin {
@@ -331,8 +379,8 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     }
 
     // Try fabric.mod.json.
-    if let Ok(entry) = archive.by_name("fabric.mod.json") {
-        let meta: FabricModJson = serde_json::from_reader(entry).unwrap_or_default();
+    if let Some(bytes) = read_meta_entry(&mut archive, "fabric.mod.json") {
+        let meta: FabricModJson = serde_json::from_slice(&bytes).unwrap_or_default();
         let author = meta
             .authors
             .and_then(|a| {
@@ -365,8 +413,8 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
     }
 
     // Try mod.json (generic).
-    if let Ok(entry) = archive.by_name("mod.json") {
-        let meta: ModJson = serde_json::from_reader(entry).unwrap_or_default();
+    if let Some(bytes) = read_meta_entry(&mut archive, "mod.json") {
+        let meta: ModJson = serde_json::from_slice(&bytes).unwrap_or_default();
         return Ok(Some(DetectedPlugin {
             filename: String::new(),
             plugin_name: meta.name.unwrap_or_default(),
@@ -394,9 +442,10 @@ fn extract_yaml_commands(commands: &Option<serde_yaml::Value>) -> Vec<String> {
 }
 
 fn file_sha256(path: &Path) -> Result<String> {
-    let data = std::fs::read(path)?;
+    // Streamed: mod archives can be large, no need to hold one in memory.
+    let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    hasher.update(&data);
+    std::io::copy(&mut file, &mut hasher)?;
     Ok(format!("{:x}", hasher.finalize()))
 }
 
@@ -456,6 +505,51 @@ mod tests {
         assert!(!beta.enabled, "a .disabled file must report enabled=false");
         assert_eq!(beta.source_dir, "plugins");
 
+        let _ = std::fs::remove_dir_all(&server_dir);
+    }
+
+    fn jar_with(path: &Path, name: &str, body: &[u8]) {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        w.start_file(name, opts).unwrap();
+        w.write_all(body).unwrap();
+        w.finish().unwrap();
+    }
+
+    #[test]
+    fn small_plugin_yml_is_parsed() {
+        let dir = scratch_dir("meta-ok");
+        let jar = dir.join("ok.jar");
+        jar_with(&jar, "plugin.yml", b"name: Cool\nversion: 1.2\n");
+        let p = scan_archive(&jar).unwrap().expect("metadata parsed");
+        assert_eq!(p.plugin_name, "Cool");
+        assert_eq!(p.version, "1.2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn oversized_plugin_yml_is_not_parsed() {
+        let dir = scratch_dir("meta-big");
+        let jar = dir.join("big.jar");
+        // Compresses to almost nothing, inflates past the cap.
+        let mut body = b"name: Big\n".to_vec();
+        body.extend(std::iter::repeat_n(b'#', (MAX_META_BYTES as usize) + 10));
+        jar_with(&jar, "plugin.yml", &body);
+        assert!(scan_archive(&jar).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_archives_are_not_scanned() {
+        let server_dir = scratch_dir("symlink");
+        std::fs::create_dir_all(server_dir.join("mods")).unwrap();
+        let outside = server_dir.join("outside.jar");
+        std::fs::write(&outside, EMPTY_ZIP).unwrap();
+        std::os::unix::fs::symlink(&outside, server_dir.join("mods").join("link.jar")).unwrap();
+        assert!(scan_server_plugins(&server_dir).is_empty());
         let _ = std::fs::remove_dir_all(&server_dir);
     }
 }
