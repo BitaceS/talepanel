@@ -79,3 +79,7 @@ certs/
 srv/
 .worktrees/
 
+
+# talepanel.com marketing site: kept locally, not part of the self-hosted product
+website/
+docs/website/
