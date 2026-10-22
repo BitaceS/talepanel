@@ -1,7 +1,8 @@
 # TalePanel — open-source Hytale server panel
 
 **The control panel that actually understands Hytale.**
-Built by [BitaceS](https://talepanel.com) · AGPL-3.0 · free, forever
+**[Website](https://talepanel.com) · [Docs](https://talepanel.com/docs/) · [Install guide](https://talepanel.com/docs/start/install/) · [Discord](https://discord.gg/6N8WNrW5WJ)**
+Built by [BitaceS](https://github.com/BitaceS) · AGPL-3.0 · free, forever
 
 ---
 
@@ -9,7 +10,7 @@ Built by [BitaceS](https://talepanel.com) · AGPL-3.0 · free, forever
 
 TalePanel is a free, open-source, self-hosted **Hytale server panel**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
 
-Think of it as a Pterodactyl alternative built only for Hytale. Worlds, mods and players are real objects in the UI, not files in a generic file manager.
+Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
 **Status:** actively developed, public beta. Latest release: [v0.10.1-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.10.1-beta) (2026-10-22), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
