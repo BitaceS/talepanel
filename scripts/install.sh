@@ -629,11 +629,14 @@ wait_for_api() {
 }
 
 # wait_for_https polls the panel's public URL with certificate verification
-# until Caddy has obtained a certificate.  Usage: wait_for_https URL TRIES
+# until Caddy has obtained a certificate.  With --insecure-tls the panel
+# serves a self-signed cert that never verifies, so skip verification.
+# Usage: wait_for_https URL TRIES
 wait_for_https() {
-  local url="$1" tries="$2" i
+  local url="$1" tries="$2" i k=""
+  [ "$INSECURE_TLS" -eq 1 ] && k="-k"
   for i in $(seq 1 "$tries"); do
-    if curl -fsS --max-time 5 -o /dev/null "$url/api/v1/health" 2>/dev/null; then
+    if curl -fsS $k --max-time 5 -o /dev/null "$url/api/v1/health" 2>/dev/null; then
       return 0
     fi
     [ "$i" -lt "$tries" ] && sleep 5
