@@ -238,6 +238,20 @@ func (h *PlayerHandler) SetOp(c *gin.Context) {
 		return
 	}
 
+	// The route only requires player.ban, which moderators have. Granting
+	// op is admin-level on the console and in the quick commands, so it is
+	// here too.
+	user := mustUser(c)
+	server, err := h.serverSvc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if !models.CanRunConsoleCommand(models.ConsoleRole(user, server.OwnerID), "op") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "changing op status needs the admin role"})
+		return
+	}
+
 	if err := h.playerSvc.SetOp(c.Request.Context(), serverID, playerID, req.Op); err != nil {
 		if errors.Is(err, services.ErrPlayerNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})

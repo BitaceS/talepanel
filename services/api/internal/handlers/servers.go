@@ -574,7 +574,8 @@ func (h *ServerHandler) SendConsoleCommand(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
+	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
 		serverError(c, err)
 		return
 	}
@@ -584,6 +585,16 @@ func (h *ServerHandler) SendConsoleCommand(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// server.console only grants the console itself. Which commands a user
+	// may type follows the same roles as the quick commands, so a user with
+	// console access cannot stop the server or op players by typing it.
+	if role := models.ConsoleRole(user, server.OwnerID); !models.CanRunConsoleCommand(role, req.Cmd) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "this command needs the " + models.ConsoleCommandMinRole(req.Cmd) + " role",
+		})
 		return
 	}
 

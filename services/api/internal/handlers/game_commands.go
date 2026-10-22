@@ -88,13 +88,20 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
 		return
 	}
-	// Enforce the command's minimum role.
+	// Enforce the command's minimum role. The server's own owner acts as
+	// admin on it, the same as on the raw console.
 	user, userOk := middleware.GetUserFromCtx(c)
 	if !userOk {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
-	if models.RoleWeight(user.Role) < models.RoleWeight(cmd.MinRole) {
+	server, err := h.serverSvc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	role := models.ConsoleRole(user, server.OwnerID)
+	if models.RoleWeight(role) < models.RoleWeight(cmd.MinRole) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this command"})
 		return
 	}
@@ -117,6 +124,13 @@ func (h *GameCommandHandler) ExecuteGameCommand(c *gin.Context) {
 
 	if resolved == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "resolved command is empty"})
+		return
+	}
+	// The stored min_role is not enough on its own: custom commands created
+	// before min_role was clamped may carry a role below what the command
+	// itself needs.
+	if !models.CanRunConsoleCommand(role, resolved) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this command"})
 		return
 	}
 
@@ -150,6 +164,12 @@ func (h *GameCommandHandler) CreateGameCommand(c *gin.Context) {
 
 	cmd.ServerID = &serverID
 	cmd.IsDefault = false
+	// A custom command may not be runnable by a lower role than the console
+	// command it wraps; otherwise anyone with server.console could save
+	// "op add {player}" as a user-level command and bypass the console roles.
+	if need := models.ConsoleCommandMinRole(cmd.CommandTemplate); models.RoleWeight(cmd.MinRole) < models.RoleWeight(need) {
+		cmd.MinRole = need
+	}
 
 	if err := h.svc.CreateCommand(c.Request.Context(), &cmd); err != nil {
 		h.log.Error("create game command failed", zap.Error(err))
