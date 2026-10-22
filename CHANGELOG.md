@@ -4,6 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+- The installer failed while pulling images: MinIO removed `minio/minio` and `minio/mc` from Docker Hub. MinIO was never used (backups stay on the node), so the panel stack no longer includes it. Upgrades remove the old MinIO containers; the `minio_data` volume is kept.
+
 ## [0.10.0-beta] — 2026-10-21
 
 Hytale 0.6 (Update 6) compatibility (verified against HytaleServer 0.6.8), Hytale account link, the network mod, and a full injection-hardening pass across API, daemon, web and installer.

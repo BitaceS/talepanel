@@ -264,7 +264,6 @@ EOF
     set_env_var "$env_file" DOMAIN              "$DOMAIN"
     set_env_var "$env_file" POSTGRES_PASSWORD   "$(gen_secret)"
     set_env_var "$env_file" REDIS_PASSWORD      "$(gen_secret)"
-    set_env_var "$env_file" MINIO_ROOT_PASSWORD "$(gen_secret)"
     set_env_var "$env_file" JWT_SECRET          "$(gen_secret)"
     set_env_var "$env_file" JWT_REFRESH_SECRET  "$(gen_secret)"
     set_env_var "$env_file" TOTP_ENC_KEY        "$(gen_secret)"
@@ -278,10 +277,10 @@ EOF
 
   cd "$PANEL_DIR/deploy/panel"
   log "pulling base images..."
-  docker compose pull --quiet postgres redis minio minio-init caddy
+  docker compose pull --quiet postgres redis caddy
 
-  log "starting infrastructure (postgres, redis, minio)..."
-  docker compose up -d postgres redis minio minio-init
+  log "starting infrastructure (postgres, redis)..."
+  docker compose up -d postgres redis
 
   log "waiting for postgres..."
   for _ in $(seq 1 60); do
@@ -475,9 +474,10 @@ upgrade_stack() {
     log "upgrading panel..."
     git -C "$PANEL_DIR" pull --quiet
     cd "$PANEL_DIR/deploy/panel"
-    docker compose pull --quiet postgres redis minio minio-init caddy
+    docker compose pull --quiet postgres redis caddy
     docker compose build api web
-    docker compose up -d
+    # --remove-orphans drops the old MinIO containers; their volume stays.
+    docker compose up -d --remove-orphans
     success "panel upgraded"
   fi
   if [ -d "$DAEMON_DIR/.git" ]; then
