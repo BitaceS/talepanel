@@ -47,7 +47,13 @@ Things that behave differently afterwards:
 
 ---
 
-## v0.10.0-beta → v1.0.0 (planned)
+## v0.10.0-beta → v0.10.1-beta
+
+Run the installer's **Upgrade** mode. It removes the unused MinIO containers; the `minio_data` volume stays and can be deleted with `docker volume rm panel_minio_data` once you are sure nothing else uses it.
+
+---
+
+## v0.10.1-beta → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

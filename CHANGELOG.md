@@ -4,6 +4,10 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.1-beta] — 2026-10-22
+
+Installer hotfix.
+
 ### Fixed
 - The installer failed while pulling images: MinIO removed `minio/minio` and `minio/mc` from Docker Hub. MinIO was never used (backups stay on the node), so the panel stack no longer includes it. Upgrades remove the old MinIO containers; the `minio_data` volume is kept.
 

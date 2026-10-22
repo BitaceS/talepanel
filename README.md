@@ -11,7 +11,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel**. You use i
 
 Think of it as a Pterodactyl alternative built only for Hytale. Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed, public beta. Latest release: [v0.10.0-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.10.0-beta) (2026-10-21), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed, public beta. Latest release: [v0.10.1-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.10.1-beta) (2026-10-22), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ---
 
