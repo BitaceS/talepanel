@@ -9,6 +9,8 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 - Custom quick commands can no longer be saved with a lower `min_role` than the console command they run, and running one checks the resolved command as well, which also covers commands saved before this fix.
 - Granting or removing op on the Players page needs admin. The route only required `player.ban`, which moderators have.
 - Off-site backup destination credentials are AES-256-GCM encrypted with `TOTP_ENC_KEY`, never returned to the browser, and redacted from the audit log. Only a per-provider allowlist of rclone options is accepted; the daemon additionally refuses options that run commands or read local files. rclone gets its credentials from a per-operation 0600 config file, never from its command line.
+- Accepting a server invitation ignored the invited role: the member fell back to their global role, so an invited viewer could start the server and use the console. Accepting now grants the role's per-server permissions (viewer: view; moderator: power, console, mods, players, backup.create, database.view; admin: everything but delete), capped to what the inviter holds. Creating an invitation for a role with more rights than the inviter has returns 403. Revoking an invitation is limited to the server in the URL.
+- The CurseForge `api_key` was written to the audit log in plain text; it is redacted now.
 
 ### Added
 - Quick setup for beginners: `install.sh --quick` (also the first menu entry, and the default when the script runs without a terminal) installs panel and game server on one machine with an `sslip.io` hostname and asks no questions. It prints a `https://<host>/setup` link and a one-time setup code; the first admin account is created in the browser. Only the code's SHA-256 is stored (`SETUP_CODE_HASH` in the panel `.env`).
@@ -18,16 +20,25 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 - Off-site backups: admins add destinations under Backups → Destinations — OneDrive, Google Drive, Dropbox, S3-compatible (AWS, Wasabi, Cloudflare R2, other), Backblaze B2, SFTP and WebDAV/Nextcloud. The node uploads each backup with rclone to `<folder>/<server id>/<backup id>.zip`. Per destination: keep a local copy or not, and keep the newest N uploads per server. For OneDrive/Google Drive/Dropbox the panel shows the `rclone authorize` command to run on your own computer and takes the pasted token; the OneDrive drive is looked up automatically. Refreshed OAuth tokens are saved back.
 - Backups and schedules can target a destination. The backup list shows where each backup is stored and its upload status (waiting, uploading, uploaded, upload failed with rclone's error); failed uploads can be retried. Restore and download fetch a backup from the destination when the node has no copy. Deleting a backup deletes its off-site copy.
 - "Test connection" for a destination writes and deletes a probe file and shows rclone's error text.
-- Daemon routes `POST /servers/:id/backup/upload`, `/backup/remote-delete`, `POST /backup/download` and `POST /rclone/test`; admin API `/admin/backup-destinations` (CRUD, `/providers`, `/:id/test`), `GET /backup-destinations` for the picker, `POST /backups/:id/upload` to retry. Migration 037.
+- Daemon routes `POST /servers/:id/backup/upload`, `/backup/remote-delete`, `POST /backup/download` and `POST /rclone/test`; admin API `/admin/backup-destinations` (CRUD, `/providers`, `/:id/test`), `GET /backup-destinations` for the picker, `POST /backups/:id/upload` to retry. Migration 039.
 - The daemon image installs rclone 1.75.2 from downloads.rclone.org, checked against its SHA-256.
+- Email (SMTP) for alerts can be set up under Admin → Integrations, with a test-email button. Settings are stored encrypted and take effect without a restart; the `SMTP_*` env vars stay as fallback. New optional `SMTP_TLS_MODE` (`starttls`, `tls`, `none`).
+- Auto restart: a crashed server is started again after 5 s, 10 s, 20 s, up to 60 s; after 3 crashes in 10 minutes the daemon gives up. No restart after a stop from the panel, exit code 0, or Hytale exit codes 8 and 11.
+- CPU limit (% of one core, 0 = unlimited) is enforced with cgroup v2 where the daemon can write its cgroup. In the default Docker install it cannot; the daemon then logs a warning and writes a notice to the server console. Migration 038 resets the old default of 4 to 0.
+- A server that exited with Hytale exit code 8 or 11 shows a notice with a Reinstall button (`POST /servers/:id/reinstall`, needs `server.manage`). Migration 037 stores the last exit code.
+- The server's network role (none, hub, gamemode) can be set in the server's Settings tab.
 
 ### Changed
+- MinIO is gone from the dev compose file, `setup-dev.sh` and `.env.example`.
+- A server that exits with code 0 without a stop from the panel (e.g. `stop` typed in the console) is marked stopped instead of crashed.
 - The "Storage" field of the backup and schedule forms (with its fake "S3 (MinIO)" option) is gone; `storage` in the API is accepted for compatibility and always stored as `local`. Use `destination_id`.
 - Backup downloads are streamed by the daemon instead of being read into memory first.
 - The Backups page no longer offers "All Servers" (the API only lists one server's backups) and preselects the first server.
 
 ### Fixed
-- Backups were never marked completed on a fresh database: the `backup_status` enum had `complete`, the code writes `completed`. Migration 037 adds the value.
+- Email alerts on port 465 never sent (the notifier always tried STARTTLS), relays without a login failed because PLAIN auth was forced, and a send had no overall timeout.
+- An empty CPU field was stored as 4, which as a percentage would have throttled the server to 4% of a core.
+- Backups were never marked completed on a fresh database: the `backup_status` enum had `complete`, the code writes `completed`. Migration 039 adds the value.
 
 ## [0.10.1-beta] — 2026-10-22
 
