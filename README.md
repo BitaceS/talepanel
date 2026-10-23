@@ -55,7 +55,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Servers** — create, start, stop, restart, kill, resource limits, per-server member roles.
 - **Live console + logs** — command input and log tail. Implemented as short-interval polling (logs ~1s, metrics ~5s, status 2–15s), not a socket. It feels live; it is honest about how.
 - **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
-- **Worlds** — list, create, switch, delete worlds as real objects.
+- **Worlds** — list, switch and delete the worlds the Hytale server created. TalePanel does not generate worlds itself.
 - **Files** — browse, edit, upload, download inside the server directory.
 - **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
 - **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
@@ -428,13 +428,14 @@ Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are b
 | Servers, console + logs (polling), files, worlds, players | Shipped |
 | Multi-node with enrollment tokens | Shipped |
 | Upload-based mod installer | Shipped |
+| CurseForge mod browser | Shipped (needs an API key in Admin → Integrations) |
 | Node-local backups (create / restore / download) | Shipped |
+| Alerts via Discord, webhook and email | Shipped |
 | WebSocket/SSE streaming instead of polling | Next |
 | Off-site backups (S3-compatible object storage) | Next |
 | mTLS panel ↔ daemon, per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
-| CurseForge mod browser | Experimental, disabled — blocked on Hytale having a CurseForge game ID |
-| Server templates, webhooks, alert channels | Planned |
+| Server templates | Planned |
 
 ---
 

@@ -43,10 +43,11 @@
 #
 # Deployment profile:
 #   --profile solo               Single-host hobbyist setup (default).
-#                                Hides multi-node + monitoring modules.
 #   --profile hoster             Multi-tenant hosting provider setup.
-#                                Shows nodes + monitoring by default.
-#                                Operators can flip this in Settings → Modules.
+#                                The profile is only a label shown in the
+#                                panel; all modules start visible either way.
+#                                Settings → Modules applies a profile preset
+#                                or toggles single modules.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -253,12 +254,10 @@ ${BOLD}Deployment profile${NC}
   Who is this panel for?
 
     [1] Solo / Friends-server   — single host, you manage your own servers.
-                                  Hides multi-node and monitoring features.
     [2] Hosting provider        — multi-tenant, multiple nodes, reseller use.
-                                  Shows nodes + monitoring by default.
 
-  This only seeds defaults — you can toggle individual modules later under
-  Settings → Modules.
+  All modules start visible either way. You can hide modules you don't need
+  later under Settings → Modules.
 
 EOF
     read -rp "Select [1-2] (default 1): " profile_choice
