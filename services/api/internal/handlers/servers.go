@@ -504,14 +504,16 @@ provisioned:
 	ramLimit := uint32(server.RAMLimitMB)
 
 	cfg := daemon.ServerConfig{
-		ServerID:    server.ID.String(),
-		Name:        server.Name,
-		DataPath:    server.DataPath,
-		Port:        uint16(server.Port),
-		RAMLimitMB:  ramLimit,
-		CPULimit:    0,
-		CrashLimit:  uint32(server.CrashLimit),
-		LaunchFlags: server.LaunchFlags,
+		ServerID:     server.ID.String(),
+		Name:         server.Name,
+		DataPath:     server.DataPath,
+		Port:         uint16(server.Port),
+		RAMLimitMB:   ramLimit,
+		CPULimit:     float32(max(server.CPULimit, 0)),
+		AutoRestart:  server.AutoRestart,
+		CrashLimit:   uint32(max(server.CrashLimit, 0)),
+		CrashWindowS: uint32(max(server.CrashWindowS, 0)),
+		LaunchFlags:  server.LaunchFlags,
 	}
 
 	if err := client.StartServer(startCtx, cfg); err != nil {

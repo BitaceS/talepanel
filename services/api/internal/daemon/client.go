@@ -33,8 +33,14 @@ type ServerConfig struct {
 	DataPath   string  `json:"data_path"`
 	Port       uint16  `json:"port"`
 	RAMLimitMB uint32  `json:"ram_limit_mb"`
-	CPULimit   float32 `json:"cpu_limit"`
-	CrashLimit uint32  `json:"crash_limit"`
+	// CPU limit in percent of one core (100 = one full core, 250 = two and a
+	// half cores). 0 = unlimited. Enforced by the daemon via cgroup v2 cpu.max.
+	CPULimit float32 `json:"cpu_limit"`
+	// Auto restart on unexpected exits: at most CrashLimit restarts within
+	// CrashWindowS seconds, then the daemon gives up and leaves it crashed.
+	AutoRestart  bool   `json:"auto_restart"`
+	CrashLimit   uint32 `json:"crash_limit"`
+	CrashWindowS uint32 `json:"crash_window_s"`
 	// Allowlisted per-server Hytale launch flags; the daemon re-checks them.
 	LaunchFlags []string `json:"launch_flags"`
 }

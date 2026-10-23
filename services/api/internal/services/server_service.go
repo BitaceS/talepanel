@@ -210,8 +210,9 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 	if req.RAMLimitMB <= 0 {
 		req.RAMLimitMB = 2048
 	}
-	if req.CPULimit <= 0 {
-		req.CPULimit = 4
+	// CPU limit is a percentage of one core (100 = one core); 0 = unlimited.
+	if req.CPULimit < 0 {
+		req.CPULimit = 0
 	}
 	if req.DiskLimitMB <= 0 {
 		req.DiskLimitMB = 10240
