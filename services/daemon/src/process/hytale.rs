@@ -23,6 +23,8 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::api_client::GameSession;
 use crate::config::HytaleConfig;
+use super::cgroup::{self, CpuLimit};
+use super::restart::ProcessExit;
 use super::{LogLine, ServerStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,10 +46,21 @@ pub struct ServerConfig {
     /// Maximum heap size in MB passed as `-Xmx{n}M` to the JVM.
     /// 0 = no limit (not recommended).
     pub ram_limit_mb: u32,
-    /// Fractional CPU limit (informational; enforced by cgroups, not JVM).
+    /// CPU limit in percent of one core (100 = one core, 250 = 2.5 cores).
+    /// 0 = unlimited. Enforced with cgroup v2 `cpu.max` (see `cgroup.rs`).
+    #[serde(default)]
     pub cpu_limit: f32,
-    /// Maximum number of automatic crash-restarts before giving up.
+    /// Restart the server after a crash (see `restart.rs`). Older APIs omit
+    /// the field, which keeps the old behaviour: no restart.
+    #[serde(default)]
+    pub auto_restart: bool,
+    /// Automatic restarts allowed within `crash_window_s` before giving up.
+    /// 0 = daemon default.
+    #[serde(default)]
     pub crash_limit: u32,
+    /// Window in seconds over which crashes are counted. 0 = daemon default.
+    #[serde(default)]
+    pub crash_window_s: u32,
     /// Per-server Hytale launch flags chosen in the panel. Only flags in
     /// `ALLOWED_LAUNCH_FLAGS` are passed through; older APIs omit the field.
     #[serde(default)]
@@ -118,6 +131,11 @@ pub struct HytaleServerProcess {
     /// the termination was intentional and should not report a crash.
     stop_requested: Arc<AtomicBool>,
 
+    /// How the last process run ended; set by the exit watcher before it
+    /// publishes the terminal status. `None` while running, or when the exit
+    /// could not be observed.
+    last_exit: Arc<std::sync::Mutex<Option<ProcessExit>>>,
+
     /// Stdin writer shared between `start()` and `send_command()`.
     /// Wrapped in `Option` so `start()` can take ownership of the real stdin
     /// and replace it; `None` when the server is not running.
@@ -146,7 +164,8 @@ impl HytaleServerProcess {
             start_time: Arc::new(RwLock::new(None)),
             pid: Arc::new(AtomicU32::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
-            stdin: Arc::new(Mutex::new(None)),
+            last_exit: Arc::new(std::sync::Mutex::new(None)),
+            stdin:Arc::new(Mutex::new(None)),
             hytale_cfg,
             dev_stub_allowed,
         }
@@ -158,6 +177,11 @@ impl HytaleServerProcess {
 
     pub fn get_status(&self) -> ServerStatus {
         *self.status_rx.borrow()
+    }
+
+    /// How the last run ended (see `last_exit` field).
+    pub fn last_exit(&self) -> Option<ProcessExit> {
+        *self.last_exit.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Wait until the server reaches `target` status or `timeout` elapses.
@@ -211,6 +235,7 @@ impl HytaleServerProcess {
         }
 
         self.stop_requested.store(false, Ordering::SeqCst);
+        *self.last_exit.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.set_status(ServerStatus::Starting);
         *self.start_time.write().await = Some(Instant::now());
 
@@ -321,6 +346,33 @@ impl HytaleServerProcess {
         self.pid.store(pid, Ordering::SeqCst);
         info!(server_id = %self.server_id, pid, "Hytale server process spawned");
 
+        // ── CPU limit (cgroup v2) ─────────────────────────────────────────────
+        // Applied right after spawn; the JVM is still starting up, and moving
+        // a process via cgroup.procs takes all of its threads along.
+        let cpu_cgroup = match cgroup::apply_cpu_limit(&self.server_id, self.config.cpu_limit, pid) {
+            CpuLimit::Unlimited => None,
+            CpuLimit::Applied(dir) => {
+                info!(server_id = %self.server_id, cgroup = %dir.display(), cpu_limit = self.config.cpu_limit, "CPU limit applied");
+                let _ = self.log_tx.send(LogLine {
+                    timestamp: chrono::Utc::now(),
+                    level: "INFO".to_string(),
+                    message: format!("CPU limit: {}% of one core", self.config.cpu_limit),
+                });
+                Some(dir)
+            }
+            CpuLimit::NotEnforced(why) => {
+                let _ = self.log_tx.send(LogLine {
+                    timestamp: chrono::Utc::now(),
+                    level: "WARN".to_string(),
+                    message: format!(
+                        "CPU limit of {}% is not enforced on this node: {why}. Starting without it.",
+                        self.config.cpu_limit
+                    ),
+                });
+                None
+            }
+        };
+
         // ── Extract I/O handles ───────────────────────────────────────────────
         let stdin = child
             .stdin
@@ -345,6 +397,7 @@ impl HytaleServerProcess {
         let log_tx_exit = self.log_tx.clone();
         let server_id = self.server_id.clone();
         let stop_requested = Arc::clone(&self.stop_requested);
+        let last_exit = Arc::clone(&self.last_exit);
         let start_time = Arc::clone(&self.start_time);
         let stdin_arc = Arc::clone(&self.stdin);
         let startup_timeout = self.hytale_cfg.startup_timeout_s;
@@ -424,8 +477,10 @@ impl HytaleServerProcess {
                 status_tx_exit,
                 log_tx_exit,
                 stop_requested,
+                last_exit,
                 start_time,
                 stdin_arc,
+                cpu_cgroup,
             )
             .await;
         });
@@ -440,42 +495,67 @@ impl HytaleServerProcess {
         status_tx: Arc<watch::Sender<ServerStatus>>,
         log_tx: tokio::sync::broadcast::Sender<LogLine>,
         stop_requested: Arc<AtomicBool>,
+        last_exit: Arc<std::sync::Mutex<Option<ProcessExit>>>,
         start_time: Arc<RwLock<Option<Instant>>>,
         stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
+        cpu_cgroup: Option<std::path::PathBuf>,
     ) {
-        match child.wait().await {
+        let waited = child.wait().await;
+
+        // The process is reaped, so its cgroup is empty. Remove it before the
+        // terminal status goes out: a restart right after may recreate it.
+        if let Some(dir) = cpu_cgroup {
+            cgroup::remove_server_cgroup(&dir);
+        }
+        let record = |exit: ProcessExit| {
+            *last_exit.lock().unwrap_or_else(|e| e.into_inner()) = Some(exit);
+        };
+
+        match waited {
             Ok(exit_status) => {
                 // Drop stdin so the process can exit cleanly
                 drop(stdin.lock().await.take());
 
+                let code = exit_status.code();
                 if stop_requested.load(Ordering::SeqCst) {
                     info!(server_id = %server_id, "Server exited after stop request");
+                    record(ProcessExit::Requested);
                     status_tx.send_replace(ServerStatus::Stopped);
                     let _ = log_tx.send(LogLine {
                         timestamp: chrono::Utc::now(),
                         level: "INFO".to_string(),
                         message: "Server stopped gracefully".to_string(),
                     });
+                } else if code == Some(0) {
+                    // A normal shutdown nobody asked the panel for, e.g. `stop`
+                    // typed into the console. Not a crash.
+                    info!(server_id = %server_id, "Server exited on its own with code 0");
+                    record(ProcessExit::Exited(code));
+                    let _ = log_tx.send(LogLine {
+                        timestamp: chrono::Utc::now(),
+                        level: "INFO".to_string(),
+                        message: "Server process exited normally (code 0) — marking as stopped".to_string(),
+                    });
+                    status_tx.send_replace(ServerStatus::Stopped);
                 } else {
-                    let code = exit_status.code().unwrap_or(-1);
-                    error!(server_id = %server_id, exit_code = code, "Server exited unexpectedly");
-                    let message = match explain_exit_code(code) {
-                        Some(why) => format!(
-                            "Server process exited with code {code} — {why} Marking as crashed."
-                        ),
-                        None => format!(
-                            "Server process exited with code {code} — marking as crashed"
-                        ),
+                    error!(server_id = %server_id, exit_code = ?code, "Server exited unexpectedly");
+                    let how = describe_exit(&exit_status);
+                    let message = match code.and_then(explain_exit_code) {
+                        Some(why) => format!("Server process {how} — {why} Marking as crashed."),
+                        None => format!("Server process {how} — marking as crashed"),
                     };
                     let _ = log_tx.send(LogLine {
                         timestamp: chrono::Utc::now(),
                         level: "ERROR".to_string(),
                         message,
                     });
+                    record(ProcessExit::Exited(code));
                     status_tx.send_replace(ServerStatus::Crashed);
                 }
             }
             Err(e) => {
+                // Exit not observed: last_exit stays None, so no auto restart
+                // (the process might still be alive).
                 error!(server_id = %server_id, error = %e, "Error waiting for server process");
                 status_tx.send_replace(ServerStatus::Crashed);
             }
@@ -724,6 +804,21 @@ fn explain_exit_code(code: i32) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+
+/// "exited with code N" or "was killed by signal N" for the crash log line.
+fn describe_exit(status: &std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exited with code {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return format!("was killed by signal {sig}");
+        }
+    }
+    "exited with an unknown status".to_string()
 }
 
 /// Returns `true` if the log line signals that the server is fully started

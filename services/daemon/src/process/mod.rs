@@ -1,5 +1,7 @@
+pub mod cgroup;
 pub mod hytale;
 pub mod manager;
+pub mod restart;
 
 // NOTE: the former `mock` module was removed. It was gated behind #[cfg(test)],
 // referenced by nothing, and imported `rand` — a crate that is not in
