@@ -145,6 +145,53 @@ watch(server, (s) => {
   launchForm.use_hytale_account = !!s.use_hytale_account
 }, { immediate: true })
 
+// ── Network routing (hub / gamemode role for the bundled network mod) ──────
+// Needs the global network.manage permission (admins and owners).
+const NETWORK_ROLE_OPTIONS = [
+  { value: 'none', label: 'Not in the network', hint: 'The network mod ignores this server.' },
+  { value: 'hub', label: 'Hub', hint: 'Players land here and use /play <gamemode> to switch. The hub holds every gamemode\'s ticket key, so only use a server you trust.' },
+  { value: 'gamemode', label: 'Gamemode', hint: 'Listed on every hub as a /play target.' },
+] as const
+type NetworkRoleOption = typeof NETWORK_ROLE_OPTIONS[number]['value']
+const networkRole = ref<NetworkRoleOption>('none')
+const networkSaving = ref(false)
+const networkDistributing = ref(false)
+
+watch(server, (s) => {
+  if (!s) return
+  networkRole.value = s.network_role ?? 'none'
+}, { immediate: true })
+
+const networkRoleChanged = computed(() => networkRole.value !== (server.value?.network_role ?? 'none'))
+
+async function saveNetworkRole() {
+  if (!server.value) return
+  networkSaving.value = true
+  try {
+    await api.post(`/network/servers/${serverId.value}/role`, { role: networkRole.value })
+    await serversStore.fetchServer(serverId.value)
+    showToast('Network role saved and config sent to all networked servers')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save the network role', 'error')
+  } finally {
+    networkSaving.value = false
+  }
+}
+
+async function redistributeNetworkConfig() {
+  networkDistributing.value = true
+  try {
+    await api.post('/network/distribute')
+    showToast('Network config sent to all networked servers')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to distribute the network config', 'error')
+  } finally {
+    networkDistributing.value = false
+  }
+}
+
 async function saveLaunchSettings() {
   if (!server.value) return
   launchSaving.value = true
@@ -2220,6 +2267,41 @@ const sidebarMods = computed(() => {
             </label>
             <div class="flex justify-end">
               <UiButton type="submit" :loading="launchSaving">Save</UiButton>
+            </div>
+          </div>
+        </form>
+        <!-- Network routing: admins edit, everyone sees the role once set -->
+        <form v-if="isAdmin || server?.network_role" class="bg-tp-surface rounded-xl overflow-hidden"
+          @submit.prevent="saveNetworkRole">
+          <div class="px-5 py-3 border-b border-tp-border">
+            <h3 class="text-tp-text font-display font-semibold text-sm">Network</h3>
+            <p class="text-tp-muted text-xs mt-0.5">
+              Role of this server for the bundled network mod. Changes are sent to every networked server.
+            </p>
+          </div>
+          <div class="px-5 py-4 space-y-4">
+            <fieldset class="space-y-2" :disabled="!isAdmin">
+              <legend class="sr-only">Network role</legend>
+              <label v-for="opt in NETWORK_ROLE_OPTIONS" :key="opt.value" class="flex items-start gap-3"
+                :class="isAdmin ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'">
+                <input v-model="networkRole" type="radio" name="network-role" :value="opt.value" class="mt-1 accent-tp-primary">
+                <span>
+                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
+                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                </span>
+              </label>
+            </fieldset>
+            <div v-if="server?.network_role" class="flex items-center justify-between text-sm">
+              <span class="text-tp-outline">Joins require a hub referral</span>
+              <span :class="['font-medium', server.require_referral ? 'text-tp-success' : 'text-tp-muted']">
+                {{ server.require_referral ? 'Yes' : 'No' }}
+              </span>
+            </div>
+            <div v-if="isAdmin" class="flex flex-wrap justify-end gap-2">
+              <UiButton type="button" variant="secondary" :loading="networkDistributing" @click="redistributeNetworkConfig">
+                Resend config
+              </UiButton>
+              <UiButton type="submit" :loading="networkSaving" :disabled="!networkRoleChanged">Save</UiButton>
             </div>
           </div>
         </form>
