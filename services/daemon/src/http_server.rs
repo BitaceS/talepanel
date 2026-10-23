@@ -1862,7 +1862,7 @@ async fn restore_backup(
     } else if let Some(remote) = req.remote.as_ref() {
         match fetch_remote_archive(&state, &server_id, &req.backup_id, remote).await {
             Ok(tmp) => Some(tmp),
-            Err(resp) => return resp,
+            Err(resp) => return *resp,
         }
     } else {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
@@ -1926,7 +1926,7 @@ async fn download_backup_from(
             let path = tmp.path.clone();
             stream_archive(&path, &req.backup_id, Some(tmp)).await
         }
-        Err(resp) => resp,
+        Err(resp) => *resp,
     }
 }
 
@@ -2041,13 +2041,13 @@ async fn fetch_remote_archive(
     server_id: &str,
     backup_id: &str,
     remote: &crate::rclone::RemoteSpec,
-) -> Result<TempArchive, axum::response::Response> {
+) -> Result<TempArchive, Box<axum::response::Response>> {
     let dir = PathBuf::from(&state.backups_base_dir).join(server_id);
     if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-        return Err(remote_response::<()>(
+        return Err(Box::new(remote_response::<()>(
             crate::rclone::Outcome { result: Err(format!("create backup dir: {e}")), config_updates: Default::default() },
             |_| None,
-        ));
+        )));
     }
     let tmp = TempArchive { path: dir.join(format!(".fetch-{}-{}.zip", backup_id, uuid::Uuid::new_v4())) };
     let outcome = crate::rclone::fetch(&rclone_tmp_root(state), remote, server_id, &format!("{backup_id}.zip"), &tmp.path).await;
@@ -2056,7 +2056,7 @@ async fn fetch_remote_archive(
             result: Err::<(), String>(outcome.result.err().unwrap_or_else(|| "rclone did not produce the archive".into())),
             config_updates: outcome.config_updates,
         };
-        return Err(remote_response(outcome, |_| None));
+        return Err(Box::new(remote_response(outcome, |_| None)));
     }
     Ok(tmp)
 }

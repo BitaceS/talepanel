@@ -10,7 +10,7 @@
 ///       HytaleServer.jar   ← main server JAR (or custom jar_name in config)
 ///     Assets.zip           ← required by the runtime
 ///     server.json          ← Hytale server config (managed by TalePanel)
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -131,9 +131,6 @@ pub struct HytaleServerProcess {
     /// the termination was intentional and should not report a crash.
     stop_requested: Arc<AtomicBool>,
 
-    /// Exit code of the last unexpected exit (`NO_EXIT_CODE` = none). Set
-    /// before the status flips to Crashed so the status watcher can report it.
-    last_exit_code: Arc<AtomicI32>,
     /// How the last process run ended; set by the exit watcher before it
     /// publishes the terminal status. `None` while running, or when the exit
     /// could not be observed.
@@ -153,6 +150,18 @@ pub struct HytaleServerProcess {
     dev_stub_allowed: bool,
 }
 
+/// Shared state the exit-watcher task needs from its `HytaleServerProcess`.
+struct ExitWatch {
+    server_id: String,
+    status_tx: Arc<watch::Sender<ServerStatus>>,
+    log_tx: tokio::sync::broadcast::Sender<LogLine>,
+    stop_requested: Arc<AtomicBool>,
+    last_exit: Arc<std::sync::Mutex<Option<ProcessExit>>>,
+    start_time: Arc<RwLock<Option<Instant>>>,
+    stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
+    cpu_cgroup: Option<std::path::PathBuf>,
+}
+
 impl HytaleServerProcess {
     pub fn new(config: ServerConfig, hytale_cfg: Arc<HytaleConfig>, dev_stub_allowed: bool) -> Self {
         let (log_tx, _) = tokio::sync::broadcast::channel(2048);
@@ -167,7 +176,6 @@ impl HytaleServerProcess {
             start_time: Arc::new(RwLock::new(None)),
             pid: Arc::new(AtomicU32::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
-            last_exit_code: Arc::new(AtomicI32::new(NO_EXIT_CODE)),
             last_exit: Arc::new(std::sync::Mutex::new(None)),
             stdin: Arc::new(Mutex::new(None)),
             hytale_cfg,
@@ -179,11 +187,11 @@ impl HytaleServerProcess {
     // Status helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Exit code of the last unexpected exit, if the process crashed with one.
+    /// Exit code of the last run, if it ended on its own with one.
     pub fn last_exit_code(&self) -> Option<i32> {
-        match self.last_exit_code.load(Ordering::SeqCst) {
-            NO_EXIT_CODE => None,
-            code => Some(code),
+        match self.last_exit() {
+            Some(ProcessExit::Exited(code)) => code,
+            _ => None,
         }
     }
 
@@ -247,7 +255,6 @@ impl HytaleServerProcess {
         }
 
         self.stop_requested.store(false, Ordering::SeqCst);
-        self.last_exit_code.store(NO_EXIT_CODE, Ordering::SeqCst);
         *self.last_exit.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.set_status(ServerStatus::Starting);
         *self.start_time.write().await = Some(Instant::now());
@@ -410,7 +417,6 @@ impl HytaleServerProcess {
         let log_tx_exit = self.log_tx.clone();
         let server_id = self.server_id.clone();
         let stop_requested = Arc::clone(&self.stop_requested);
-        let last_exit_code = Arc::clone(&self.last_exit_code);
         let last_exit = Arc::clone(&self.last_exit);
         let start_time = Arc::clone(&self.start_time);
         let stdin_arc = Arc::clone(&self.stdin);
@@ -487,15 +493,16 @@ impl HytaleServerProcess {
             // child is moved here and we await its natural exit
             Self::watch_exit(
                 child,
-                server_id_exit,
-                status_tx_exit,
-                log_tx_exit,
-                stop_requested,
-                last_exit_code,
-                last_exit,
-                start_time,
-                stdin_arc,
-                cpu_cgroup,
+                ExitWatch {
+                    server_id: server_id_exit,
+                    status_tx: status_tx_exit,
+                    log_tx: log_tx_exit,
+                    stop_requested,
+                    last_exit,
+                    start_time,
+                    stdin: stdin_arc,
+                    cpu_cgroup,
+                },
             )
             .await;
         });
@@ -504,18 +511,17 @@ impl HytaleServerProcess {
     }
 
     /// Awaits child process exit and updates status accordingly.
-    async fn watch_exit(
-        mut child: Child,
-        server_id: String,
-        status_tx: Arc<watch::Sender<ServerStatus>>,
-        log_tx: tokio::sync::broadcast::Sender<LogLine>,
-        stop_requested: Arc<AtomicBool>,
-        last_exit_code: Arc<AtomicI32>,
-        last_exit: Arc<std::sync::Mutex<Option<ProcessExit>>>,
-        start_time: Arc<RwLock<Option<Instant>>>,
-        stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
-        cpu_cgroup: Option<std::path::PathBuf>,
-    ) {
+    async fn watch_exit(mut child: Child, w: ExitWatch) {
+        let ExitWatch {
+            server_id,
+            status_tx,
+            log_tx,
+            stop_requested,
+            last_exit,
+            start_time,
+            stdin,
+            cpu_cgroup,
+        } = w;
         let waited = child.wait().await;
 
         // The process is reaped, so its cgroup is empty. Remove it before the
@@ -565,10 +571,6 @@ impl HytaleServerProcess {
                         level: "ERROR".to_string(),
                         message,
                     });
-                    // Before the status flip: the watcher reads it on Crashed.
-                    if let Some(c) = code {
-                        last_exit_code.store(c, Ordering::SeqCst);
-                    }
                     record(ProcessExit::Exited(code));
                     status_tx.send_replace(ServerStatus::Crashed);
                 }
@@ -808,9 +810,6 @@ fn game_session_launch(gs: &GameSession) -> (Vec<String>, Vec<(&'static str, Str
     ];
     (args, envs)
 }
-
-/// Sentinel for "no exit code recorded" in `HytaleServerProcess::last_exit_code`.
-const NO_EXIT_CODE: i32 = i32::MIN;
 
 /// Explains the Hytale server's documented non-crash exit codes so the operator
 /// sees the cause in the console instead of a bare number.

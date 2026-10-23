@@ -551,7 +551,7 @@ impl Session {
             }
         }
         let after = self.read_config();
-        if after.get("drive_id").map_or(true, |v| v.is_empty()) || after.get("drive_type").map_or(true, |v| v.is_empty()) {
+        if after.get("drive_id").is_none_or(|v| v.is_empty()) || after.get("drive_type").is_none_or(|v| v.is_empty()) {
             return Err("rclone did not store the OneDrive drive id".into());
         }
         Ok(())
