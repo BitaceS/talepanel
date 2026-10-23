@@ -174,6 +174,9 @@ struct CommandRequest {
 struct ProvisionRequest {
     version: String,
     data_path: String,
+    /// Replace the server binaries even if they already exist (Reinstall).
+    #[serde(default)]
+    reinstall: bool,
 }
 
 #[derive(Serialize)]
@@ -291,7 +294,7 @@ async fn provision_server(
 ) -> impl IntoResponse {
     match state
         .process_manager
-        .provision_server(server_id.clone(), req.version, req.data_path)
+        .provision_server(server_id.clone(), req.version, req.data_path, req.reinstall)
         .await
     {
         Ok(_) => ActionResponse::ok(format!(

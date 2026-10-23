@@ -10,7 +10,7 @@
 ///       HytaleServer.jar   ← main server JAR (or custom jar_name in config)
 ///     Assets.zip           ← required by the runtime
 ///     server.json          ← Hytale server config (managed by TalePanel)
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -118,6 +118,10 @@ pub struct HytaleServerProcess {
     /// the termination was intentional and should not report a crash.
     stop_requested: Arc<AtomicBool>,
 
+    /// Exit code of the last unexpected exit (`NO_EXIT_CODE` = none). Set
+    /// before the status flips to Crashed so the status watcher can report it.
+    last_exit_code: Arc<AtomicI32>,
+
     /// Stdin writer shared between `start()` and `send_command()`.
     /// Wrapped in `Option` so `start()` can take ownership of the real stdin
     /// and replace it; `None` when the server is not running.
@@ -146,6 +150,7 @@ impl HytaleServerProcess {
             start_time: Arc::new(RwLock::new(None)),
             pid: Arc::new(AtomicU32::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
+            last_exit_code: Arc::new(AtomicI32::new(NO_EXIT_CODE)),
             stdin: Arc::new(Mutex::new(None)),
             hytale_cfg,
             dev_stub_allowed,
@@ -155,6 +160,14 @@ impl HytaleServerProcess {
     // ─────────────────────────────────────────────────────────────────────────
     // Status helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// Exit code of the last unexpected exit, if the process crashed with one.
+    pub fn last_exit_code(&self) -> Option<i32> {
+        match self.last_exit_code.load(Ordering::SeqCst) {
+            NO_EXIT_CODE => None,
+            code => Some(code),
+        }
+    }
 
     pub fn get_status(&self) -> ServerStatus {
         *self.status_rx.borrow()
@@ -211,6 +224,7 @@ impl HytaleServerProcess {
         }
 
         self.stop_requested.store(false, Ordering::SeqCst);
+        self.last_exit_code.store(NO_EXIT_CODE, Ordering::SeqCst);
         self.set_status(ServerStatus::Starting);
         *self.start_time.write().await = Some(Instant::now());
 
@@ -345,6 +359,7 @@ impl HytaleServerProcess {
         let log_tx_exit = self.log_tx.clone();
         let server_id = self.server_id.clone();
         let stop_requested = Arc::clone(&self.stop_requested);
+        let last_exit_code = Arc::clone(&self.last_exit_code);
         let start_time = Arc::clone(&self.start_time);
         let stdin_arc = Arc::clone(&self.stdin);
         let startup_timeout = self.hytale_cfg.startup_timeout_s;
@@ -424,6 +439,7 @@ impl HytaleServerProcess {
                 status_tx_exit,
                 log_tx_exit,
                 stop_requested,
+                last_exit_code,
                 start_time,
                 stdin_arc,
             )
@@ -440,6 +456,7 @@ impl HytaleServerProcess {
         status_tx: Arc<watch::Sender<ServerStatus>>,
         log_tx: tokio::sync::broadcast::Sender<LogLine>,
         stop_requested: Arc<AtomicBool>,
+        last_exit_code: Arc<AtomicI32>,
         start_time: Arc<RwLock<Option<Instant>>>,
         stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
     ) {
@@ -472,6 +489,10 @@ impl HytaleServerProcess {
                         level: "ERROR".to_string(),
                         message,
                     });
+                    // Before the status flip: the watcher reads it on Crashed.
+                    if exit_status.code().is_some() {
+                        last_exit_code.store(code, Ordering::SeqCst);
+                    }
                     status_tx.send_replace(ServerStatus::Crashed);
                 }
             }
@@ -708,6 +729,9 @@ fn game_session_launch(gs: &GameSession) -> (Vec<String>, Vec<(&'static str, Str
     ];
     (args, envs)
 }
+
+/// Sentinel for "no exit code recorded" in `HytaleServerProcess::last_exit_code`.
+const NO_EXIT_CODE: i32 = i32::MIN;
 
 /// Explains the Hytale server's documented non-crash exit codes so the operator
 /// sees the cause in the console instead of a bare number.
