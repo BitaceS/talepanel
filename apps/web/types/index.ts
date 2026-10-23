@@ -31,6 +31,11 @@ export interface Server {
   node_fqdn?: string
   launch_flags?: string[]
   use_hytale_account?: boolean
+  // Exit code of the last crash (detail view only); 8/11 need a reinstall.
+  last_exit_code?: number | null
+  // Network routing role (detail view only); null = not in the network.
+  network_role?: 'hub' | 'gamemode' | null
+  require_referral?: boolean
 }
 
 export interface Node {

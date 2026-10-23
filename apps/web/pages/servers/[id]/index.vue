@@ -181,6 +181,31 @@ async function runAction(action: 'start' | 'stop' | 'restart' | 'kill') {
   }
 }
 
+// ── Reinstall (Hytale exit codes 8 / 11) ──────────────────────────────────────
+// 8: Hytale staged a self-update and expected its start script to apply it.
+// 11: Hytale refused to boot from inside the launcher's install directory.
+// Both need fresh server files; the API remembers the last crash's exit code.
+const reinstallExitCode = computed(() => {
+  const code = server.value?.last_exit_code
+  return code === 8 || code === 11 ? code : null
+})
+const reinstalling = ref(false)
+
+async function reinstallServer() {
+  if (!server.value) return
+  if (!confirmAction('Reinstall the Hytale server files? Worlds and configs are kept; the server binaries are downloaded again.')) return
+  reinstalling.value = true
+  try {
+    await serversStore.reinstallServer(serverId.value)
+    showToast('Reinstall started — follow the progress in the console')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? e.message ?? 'Failed to start the reinstall', 'error')
+  } finally {
+    reinstalling.value = false
+  }
+}
+
 const canStart   = computed(() => server.value?.status === 'stopped' || server.value?.status === 'crashed')
 const canStop    = computed(() => server.value?.status === 'running' || server.value?.status === 'starting')
 const canRestart = computed(() => server.value?.status === 'running')
@@ -1181,6 +1206,32 @@ const sidebarMods = computed(() => {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Reinstall notice: Hytale exit codes 8 / 11 -->
+      <div v-if="reinstallExitCode !== null"
+        class="bg-tp-error/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4" role="alert">
+        <span class="material-symbols-outlined text-tp-error text-2xl shrink-0">system_update</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-tp-text text-sm font-semibold">
+            The server exited with code {{ reinstallExitCode }} and needs a reinstall
+          </p>
+          <p v-if="reinstallExitCode === 8" class="text-tp-muted text-xs mt-0.5">
+            Hytale downloaded an update and expected its own start script to apply it.
+            TalePanel installs updates itself: reinstall to fetch the current server files.
+          </p>
+          <p v-else class="text-tp-muted text-xs mt-0.5">
+            Hytale refused to start because its files are inside the Hytale launcher's install folder.
+            Reinstall to fetch a clean copy of the server files. If it keeps happening, enable
+            <span class="font-mono">--allow-install-dir</span> in the node's extra server args.
+          </p>
+          <p class="text-tp-muted text-xs mt-0.5">Only the server binaries are replaced; worlds and configs are kept.</p>
+        </div>
+        <UiButton variant="primary" size="sm" class="shrink-0"
+          :disabled="!canStart || reinstalling" :loading="reinstalling || server.status === 'installing'"
+          @click="reinstallServer">
+          <RotateCcw class="w-3.5 h-3.5" /> {{ server.status === 'installing' ? 'Reinstalling' : 'Reinstall' }}
+        </UiButton>
       </div>
 
       <!-- Stat cards row -->

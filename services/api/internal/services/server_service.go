@@ -149,7 +149,8 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.auto_restart, s.crash_limit, s.crash_window_s, s.active_world,
 		       s.created_at, s.updated_at, s.metadata,
 		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, ''),
-		       s.launch_flags, s.use_hytale_account
+		       s.launch_flags, s.use_hytale_account,
+		       s.last_exit_code, s.network_role, s.require_referral
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1
@@ -163,6 +164,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.Metadata,
 		&server.NodeFQDN,
 		&server.LaunchFlags, &server.UseHytaleAccount,
+		&server.LastExitCode, &server.NetworkRole, &server.RequireReferral,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -425,6 +427,16 @@ func (s *ServerService) UpdateServerStatus(ctx context.Context, serverID uuid.UU
 			`player_id IN (SELECT id FROM players WHERE server_id = $1)`, serverID)
 	}
 	return nil
+}
+
+// SetLastExitCode records (or, with nil, clears) the exit code of the server's
+// last unexpected exit.
+func (s *ServerService) SetLastExitCode(ctx context.Context, serverID uuid.UUID, code *int) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE servers SET last_exit_code = $1 WHERE id = $2`,
+		code, serverID,
+	)
+	return err
 }
 
 // GetServerStatus returns the current status string for a server.

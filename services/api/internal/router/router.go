@@ -222,6 +222,9 @@ func SetupRouter(
 		serverGroup.POST("/:id/stop", rsp("server.stop"), serverH.StopServer)
 		serverGroup.POST("/:id/restart", rsp("server.start"), serverH.RestartServer)
 		serverGroup.POST("/:id/kill", rsp("server.stop"), serverH.KillServer)
+		// Re-fetch the Hytale server files (exit codes 8/11). Replaces the
+		// binaries, so it is a manage-level action, not a power action.
+		serverGroup.POST("/:id/reinstall", rsp("server.manage"), serverH.ReinstallServer)
 		serverGroup.GET("/:id/metrics", rsp("server.view"), serverH.GetMetrics)
 		serverGroup.GET("/:id/logs", rsp("server.view"), serverH.GetLogs)
 		serverGroup.POST("/:id/console", rsp("server.console"), serverH.SendConsoleCommand)

@@ -124,6 +124,24 @@ type Server struct {
 	// Start with a game session of the panel's linked Hytale account. Only
 	// admins can enable it: every plugin on the server can read that session.
 	UseHytaleAccount bool `json:"use_hytale_account"`
+
+	// Exit code of the last unexpected exit, reported by the daemon with a
+	// "crashed" status; nil once the server starts again or is reinstalled.
+	// Populated by GetServer.
+	LastExitCode *int `json:"last_exit_code"`
+
+	// Network routing role ("hub", "gamemode" or nil = not networked) and
+	// whether joins must carry a hub referral. Populated by GetServer.
+	NetworkRole     *string `json:"network_role"`
+	RequireReferral bool    `json:"require_referral"`
+}
+
+// ExitCodeNeedsReinstall reports whether a Hytale exit code means the server
+// files must be reinstalled: 8 = the server staged a self-update and expected
+// its start script to apply it; 11 = the server refused to boot from inside
+// the launcher's install directory.
+func ExitCodeNeedsReinstall(code int) bool {
+	return code == 8 || code == 11
 }
 
 // ServerLog is a single log line pushed by a TaleDaemon node.

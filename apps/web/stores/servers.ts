@@ -90,6 +90,14 @@ export const useServersStore = defineStore('servers', {
       await this._refreshServer(id)
     },
 
+    // Re-fetch the Hytale server files (after exit code 8/11). Worlds and
+    // configs are kept; the server must be stopped.
+    async reinstallServer(id: string): Promise<void> {
+      const api = useApi()
+      await api.post(`/servers/${id}/reinstall`)
+      await this._refreshServer(id)
+    },
+
     async deleteServer(id: string): Promise<void> {
       const api = useApi()
       await api.delete(`/servers/${id}`)
