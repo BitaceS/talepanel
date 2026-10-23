@@ -87,7 +87,7 @@ func SetupRouter(
 		}
 	}()
 	backupSvc := services.NewBackupService(db, daemonPool, log)
-	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
+	smtpNotifier := alerting.NewSMTPNotifier(envSMTPConfig(cfg), log)
 	webhookNotifier := alerting.NewWebhookNotifier(log)
 	discordNotifier := alerting.NewDiscordNotifier(log)
 	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, discordNotifier, log)
@@ -453,6 +453,19 @@ func SetupRouter(
 	}
 
 	return r
+}
+
+// envSMTPConfig is the SMTP configuration from SMTP_* env vars. It is the
+// initial value and the fallback when no settings are stored in the panel.
+func envSMTPConfig(cfg *config.Config) alerting.SMTPConfig {
+	return alerting.SMTPConfig{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUser,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+		TLSMode:  cfg.SMTPTLSMode,
+	}.Normalize()
 }
 
 // corsMiddleware builds a CORS handler from the application configuration.
