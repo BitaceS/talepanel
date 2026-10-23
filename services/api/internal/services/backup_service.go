@@ -655,6 +655,16 @@ func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID uuid.UUID
 // StartScheduler runs the backup schedule loop until ctx is cancelled. It ticks
 // once a minute, firing any due schedules and rescheduling their next_run.
 func (s *BackupService) StartScheduler(ctx context.Context) {
+	// Uploads run in API goroutines; a restart kills them. Mark them failed so
+	// the UI offers a retry instead of showing "uploading" forever.
+	if _, err := s.db.Exec(ctx, `
+		UPDATE backups SET upload_status = 'failed',
+		       upload_error = 'interrupted: the panel restarted during the upload — retry it'
+		 WHERE upload_status IN ('pending', 'uploading') AND status::text IN ('completed', 'failed')
+	`); err != nil {
+		s.log.Warn("could not reset interrupted backup uploads", zap.Error(err))
+	}
+
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	s.log.Info("backup scheduler started")
