@@ -116,6 +116,9 @@ struct HeartbeatBody<'a> {
 #[derive(Serialize)]
 struct ServerStatusBody<'a> {
     status: &'a str,
+    /// Process exit code on an unexpected exit (status "crashed").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -293,13 +296,24 @@ impl ApiClient {
     /// `"stopped"`, `"crashed"`.
     #[instrument(skip(self), fields(server_id, status))]
     pub async fn report_server_status(&self, server_id: &str, status: &str) -> Result<()> {
+        self.report_server_status_with_exit(server_id, status, None).await
+    }
+
+    /// Like `report_server_status`, plus the process exit code of a crash so
+    /// the panel can react to Hytale's meaningful exit codes (8, 11).
+    pub async fn report_server_status_with_exit(
+        &self,
+        server_id: &str,
+        status: &str,
+        exit_code: Option<i32>,
+    ) -> Result<()> {
         let url = format!(
             "{}/api/v1/servers/{}/daemon/status",
             self.base_url, server_id
         );
-        debug!(%url, %status, "Reporting server status");
+        debug!(%url, %status, ?exit_code, "Reporting server status");
 
-        let body = ServerStatusBody { status };
+        let body = ServerStatusBody { status, exit_code };
 
         let resp = self
             .http

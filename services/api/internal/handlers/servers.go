@@ -385,6 +385,37 @@ func (h *ServerHandler) KillServer(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"message": "kill dispatched", "status": models.StatusStopped})
 }
 
+// ReinstallServer handles POST /servers/:id/reinstall. It has the daemon fetch
+// the Hytale server files again, replacing the existing binaries; worlds and
+// configs stay. Needed after Hytale exit codes 8/11. The server must be down.
+func (h *ServerHandler) ReinstallServer(c *gin.Context) {
+	user := mustUser(c)
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+
+	if server.Status != models.StatusStopped && server.Status != models.StatusCrashed {
+		c.JSON(http.StatusConflict, gin.H{"error": "stop the server before reinstalling"})
+		return
+	}
+
+	if err := h.svc.UpdateServerStatus(c.Request.Context(), serverID, models.StatusInstalling); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
+		return
+	}
+
+	go h.dispatchReinstall(server)
+
+	c.JSON(http.StatusAccepted, gin.H{"message": "reinstall dispatched", "status": models.StatusInstalling})
+}
+
 // ─── Daemon dispatch helpers ──────────────────────────────────────────────────
 
 func (h *ServerHandler) daemonClient(nodeID string) (*daemon.Client, error) {
@@ -564,6 +595,30 @@ func (h *ServerHandler) dispatchProvision(server *models.Server) {
 	// files are downloaded and the process is ready to start.
 }
 
+func (h *ServerHandler) dispatchReinstall(server *models.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := h.daemonClient(server.NodeID.String())
+	if err != nil {
+		h.log.Error("reinstall: no daemon client for node",
+			zap.String("node_id", server.NodeID.String()),
+			zap.Error(err),
+		)
+		_ = h.svc.UpdateServerStatus(ctx, server.ID, models.StatusCrashed)
+		return
+	}
+
+	if err := client.ReinstallServer(ctx, server.ID.String(), server.HytaleVersion, server.DataPath); err != nil {
+		h.log.Error("reinstall: daemon call failed",
+			zap.String("server_id", server.ID.String()),
+			zap.Error(err),
+		)
+		_ = h.svc.UpdateServerStatus(ctx, server.ID, models.StatusCrashed)
+	}
+	// The daemon reports "stopped" (files replaced) or "crashed" when done.
+}
+
 // ─── Console ──────────────────────────────────────────────────────────────────
 
 // SendConsoleCommand handles POST /servers/:id/console.
@@ -720,6 +775,8 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 
 	var req struct {
 		Status string `json:"status" binding:"required"`
+		// Process exit code, sent with "crashed" on an unexpected exit.
+		ExitCode *int `json:"exit_code"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -743,6 +800,23 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
 		return
+	}
+
+	// Remember the crash's exit code (the panel offers a reinstall for
+	// Hytale's 8/11). A crash without a code (e.g. a failed reinstall) keeps
+	// it, so the notice stays up for a retry. A start, or a provisioning run
+	// that ends in "stopped" (reinstall done), forgets it.
+	switch req.Status {
+	case models.StatusCrashed:
+		if req.ExitCode != nil {
+			if err := h.svc.SetLastExitCode(c.Request.Context(), serverID, req.ExitCode); err != nil {
+				h.log.Warn("recording exit code failed", zap.String("server_id", serverID.String()), zap.Error(err))
+			}
+		}
+	case models.StatusStarting, models.StatusRunning, models.StatusStopped:
+		if err := h.svc.SetLastExitCode(c.Request.Context(), serverID, nil); err != nil {
+			h.log.Warn("clearing exit code failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		}
 	}
 
 	h.log.Info("daemon status update",

@@ -178,18 +178,46 @@ impl ProcessManager {
     /// Runs in the background; reports `stopped` (ready) or `crashed` status to
     /// the API when finished.  The caller receives an immediate `Ok(())` once the
     /// background task is spawned.
+    ///
+    /// With `reinstall`, the existing server binaries are set aside first so
+    /// they are fetched again (Hytale exit codes 8/11 ask for that). If no new
+    /// binaries arrive, the old ones are put back.
     #[instrument(skip(self), fields(server_id, version))]
     pub async fn provision_server(
         &self,
         server_id: String,
         version: String,
         data_path: String,
+        reinstall: bool,
     ) -> Result<()> {
+        if reinstall && self.processes.contains_key(&server_id) {
+            bail!("server {server_id} is running — stop it before reinstalling");
+        }
+
         let api_client = Arc::clone(&self.api_client);
         let data_root = self.config.daemon.data_root.clone();
         let dev_stub_allowed = self.config.dev_stub_allowed();
 
         tokio::spawn(async move {
+            let set_aside = if reinstall {
+                let target = PathBuf::from(&data_path);
+                tokio::task::spawn_blocking(move || set_aside_server_binaries(&target))
+                    .await
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            if reinstall {
+                let _ = api_client.push_log_lines(&server_id, vec![crate::api_client::LogLine {
+                    timestamp: chrono::Utc::now(),
+                    level: "INFO".to_string(),
+                    message: "Reinstall requested — fetching fresh Hytale server files".to_string(),
+                }]).await;
+            }
+
+            // Inner block so its early `return`s still reach the reinstall
+            // cleanup below.
+            async {
             info!(%server_id, %version, %data_path, "Starting server provisioning");
 
             // Helper to push a single log line to the panel console
@@ -380,6 +408,24 @@ done
             }
 
             let _ = api_client.report_server_status(&server_id, "stopped").await;
+            }
+            .await;
+
+            if reinstall {
+                let target = PathBuf::from(&data_path);
+                let restored = tokio::task::spawn_blocking(move || {
+                    finish_reinstall(&target, set_aside)
+                })
+                .await
+                .unwrap_or(false);
+                if restored {
+                    let _ = api_client.push_log_lines(&server_id, vec![crate::api_client::LogLine {
+                        timestamp: chrono::Utc::now(),
+                        level: "WARN".to_string(),
+                        message: "Reinstall did not produce new server files — the previous ones were restored".to_string(),
+                    }]).await;
+                }
+            }
         });
 
         Ok(())
@@ -573,6 +619,7 @@ done
         process: &Arc<HytaleServerProcess>,
     ) {
         let mut rx = process.subscribe_status();
+        let process = Arc::clone(process);
         let api_client = Arc::clone(&self.api_client);
         let key = server_id.to_string();
         let server_id = key.clone();
@@ -596,8 +643,17 @@ done
                         let new_status = *rx.borrow();
                         info!(%server_id, %new_status, "Server status changed");
 
+                        let exit_code = if new_status == super::ServerStatus::Crashed {
+                            process.last_exit_code()
+                        } else {
+                            None
+                        };
                         if let Err(err) = api_client
-                            .report_server_status(&server_id, &new_status.to_string())
+                            .report_server_status_with_exit(
+                                &server_id,
+                                &new_status.to_string(),
+                                exit_code,
+                            )
                             .await
                         {
                             warn!(%err, %server_id, %new_status,
@@ -668,6 +724,57 @@ fn place_local_binaries(local_bin: &Path, target: &Path) -> std::result::Result<
         let _ = copy_dir(&licenses_src, &server_dir, Path::new("Licenses"));
     }
     Ok(())
+}
+
+/// Server binaries a reinstall replaces, relative to `{data_path}/Server`.
+const REINSTALL_BINARIES: [&str; 2] = ["HytaleServer.jar", "HytaleServer.aot"];
+
+/// Renames the server binaries to `<name>.pre-reinstall` so provisioning
+/// fetches them again. Skips a `Server` that is a symlink (tenant-controlled)
+/// and anything that is not a regular file. Returns the (backup, original)
+/// pairs that were moved.
+fn set_aside_server_binaries(target: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let server_dir = target.join("Server");
+    match std::fs::symlink_metadata(&server_dir) {
+        Ok(meta) if meta.is_dir() => {}
+        _ => return Vec::new(),
+    }
+    let mut moved = Vec::new();
+    for name in REINSTALL_BINARIES {
+        let original = server_dir.join(name);
+        let is_file = std::fs::symlink_metadata(&original)
+            .map(|m| m.is_file())
+            .unwrap_or(false);
+        if !is_file {
+            continue;
+        }
+        let backup = server_dir.join(format!("{name}.pre-reinstall"));
+        let _ = std::fs::remove_file(&backup);
+        if std::fs::rename(&original, &backup).is_ok() {
+            moved.push((backup, original));
+        }
+    }
+    moved
+}
+
+/// Completes a reinstall: if a new server JAR is in place the set-aside files
+/// are deleted, otherwise they are moved back. Returns `true` if the previous
+/// files were restored.
+fn finish_reinstall(target: &Path, set_aside: Vec<(PathBuf, PathBuf)>) -> bool {
+    let new_jar = target.join("Server").join(REINSTALL_BINARIES[0]);
+    if new_jar.is_file() {
+        for (backup, _) in set_aside {
+            let _ = std::fs::remove_file(backup);
+        }
+        return false;
+    }
+    let restored = !set_aside.is_empty();
+    for (backup, original) in set_aside {
+        if !original.exists() {
+            let _ = std::fs::rename(&backup, &original);
+        }
+    }
+    restored
 }
 
 /// Recursively copy `src` to `base/rel`. Destination directories are created
@@ -919,6 +1026,38 @@ mod tests {
 
         assert_eq!(std::fs::read(&other).unwrap(), b"other");
         assert_eq!(std::fs::read(server.join("Server/HytaleServer.jar")).unwrap(), b"jar");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reinstall_sets_binaries_aside_and_drops_them_once_replaced() {
+        let root = scratch_dir("reinstall-ok");
+        std::fs::create_dir_all(root.join("Server")).unwrap();
+        std::fs::write(root.join("Server/HytaleServer.jar"), b"old").unwrap();
+
+        let moved = set_aside_server_binaries(&root);
+        assert_eq!(moved.len(), 1);
+        assert!(!root.join("Server/HytaleServer.jar").exists());
+
+        std::fs::write(root.join("Server/HytaleServer.jar"), b"new").unwrap();
+        assert!(!finish_reinstall(&root, moved));
+        assert_eq!(std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(), b"new");
+        assert!(!root.join("Server/HytaleServer.jar.pre-reinstall").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failed_reinstall_restores_previous_binaries() {
+        let root = scratch_dir("reinstall-fail");
+        std::fs::create_dir_all(root.join("Server")).unwrap();
+        std::fs::write(root.join("Server/HytaleServer.jar"), b"old").unwrap();
+        std::fs::write(root.join("Server/HytaleServer.aot"), b"aot").unwrap();
+
+        let moved = set_aside_server_binaries(&root);
+        assert_eq!(moved.len(), 2);
+        assert!(finish_reinstall(&root, moved));
+        assert_eq!(std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(), b"old");
+        assert_eq!(std::fs::read(root.join("Server/HytaleServer.aot")).unwrap(), b"aot");
         let _ = std::fs::remove_dir_all(&root);
     }
 

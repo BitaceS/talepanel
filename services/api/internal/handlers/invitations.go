@@ -33,10 +33,17 @@ func (h *InvitationHandler) CreateInvitation(c *gin.Context) {
 		return
 	}
 
-	inv, err := h.invSvc.CreateInvitation(c.Request.Context(), serverID, user.ID, req)
+	inv, err := h.invSvc.CreateInvitation(c.Request.Context(), serverID, user, req)
 	if err != nil {
-		h.log.Error("failed to create invitation", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, services.ErrInvalidMemberRole):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrInvitationExceedsInviter):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			h.log.Error("failed to create invitation", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create invitation"})
+		}
 		return
 	}
 
@@ -62,12 +69,16 @@ func (h *InvitationHandler) ListInvitations(c *gin.Context) {
 
 // RevokeInvitation handles DELETE /servers/:id/invitations/:invId.
 func (h *InvitationHandler) RevokeInvitation(c *gin.Context) {
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
 	invID, ok := parseUUID(c, "invId")
 	if !ok {
 		return
 	}
 
-	if err := h.invSvc.RevokeInvitation(c.Request.Context(), invID); err != nil {
+	if err := h.invSvc.RevokeInvitation(c.Request.Context(), serverID, invID); err != nil {
 		if errors.Is(err, services.ErrInvitationNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found"})
 			return

@@ -145,6 +145,53 @@ watch(server, (s) => {
   launchForm.use_hytale_account = !!s.use_hytale_account
 }, { immediate: true })
 
+// ── Network routing (hub / gamemode role for the bundled network mod) ──────
+// Needs the global network.manage permission (admins and owners).
+const NETWORK_ROLE_OPTIONS = [
+  { value: 'none', label: 'Not in the network', hint: 'The network mod ignores this server.' },
+  { value: 'hub', label: 'Hub', hint: 'Players land here and use /play <gamemode> to switch. The hub holds every gamemode\'s ticket key, so only use a server you trust.' },
+  { value: 'gamemode', label: 'Gamemode', hint: 'Listed on every hub as a /play target.' },
+] as const
+type NetworkRoleOption = typeof NETWORK_ROLE_OPTIONS[number]['value']
+const networkRole = ref<NetworkRoleOption>('none')
+const networkSaving = ref(false)
+const networkDistributing = ref(false)
+
+watch(server, (s) => {
+  if (!s) return
+  networkRole.value = s.network_role ?? 'none'
+}, { immediate: true })
+
+const networkRoleChanged = computed(() => networkRole.value !== (server.value?.network_role ?? 'none'))
+
+async function saveNetworkRole() {
+  if (!server.value) return
+  networkSaving.value = true
+  try {
+    await api.post(`/network/servers/${serverId.value}/role`, { role: networkRole.value })
+    await serversStore.fetchServer(serverId.value)
+    showToast('Network role saved and config sent to all networked servers')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save the network role', 'error')
+  } finally {
+    networkSaving.value = false
+  }
+}
+
+async function redistributeNetworkConfig() {
+  networkDistributing.value = true
+  try {
+    await api.post('/network/distribute')
+    showToast('Network config sent to all networked servers')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to distribute the network config', 'error')
+  } finally {
+    networkDistributing.value = false
+  }
+}
+
 async function saveLaunchSettings() {
   if (!server.value) return
   launchSaving.value = true
@@ -178,6 +225,31 @@ async function runAction(action: 'start' | 'stop' | 'restart' | 'kill') {
     showToast(e.data?.error ?? e.message ?? `Failed to ${action} server`, 'error')
   } finally {
     actionLoading[action] = false
+  }
+}
+
+// ── Reinstall (Hytale exit codes 8 / 11) ──────────────────────────────────────
+// 8: Hytale staged a self-update and expected its start script to apply it.
+// 11: Hytale refused to boot from inside the launcher's install directory.
+// Both need fresh server files; the API remembers the last crash's exit code.
+const reinstallExitCode = computed(() => {
+  const code = server.value?.last_exit_code
+  return code === 8 || code === 11 ? code : null
+})
+const reinstalling = ref(false)
+
+async function reinstallServer() {
+  if (!server.value) return
+  if (!confirmAction('Reinstall the Hytale server files? Worlds and configs are kept; the server binaries are downloaded again.')) return
+  reinstalling.value = true
+  try {
+    await serversStore.reinstallServer(serverId.value)
+    showToast('Reinstall started — follow the progress in the console')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? e.message ?? 'Failed to start the reinstall', 'error')
+  } finally {
+    reinstalling.value = false
   }
 }
 
@@ -1183,6 +1255,32 @@ const sidebarMods = computed(() => {
         </div>
       </div>
 
+      <!-- Reinstall notice: Hytale exit codes 8 / 11 -->
+      <div v-if="reinstallExitCode !== null"
+        class="bg-tp-error/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4" role="alert">
+        <span class="material-symbols-outlined text-tp-error text-2xl shrink-0">system_update</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-tp-text text-sm font-semibold">
+            The server exited with code {{ reinstallExitCode }} and needs a reinstall
+          </p>
+          <p v-if="reinstallExitCode === 8" class="text-tp-muted text-xs mt-0.5">
+            Hytale downloaded an update and expected its own start script to apply it.
+            TalePanel installs updates itself: reinstall to fetch the current server files.
+          </p>
+          <p v-else class="text-tp-muted text-xs mt-0.5">
+            Hytale refused to start because its files are inside the Hytale launcher's install folder.
+            Reinstall to fetch a clean copy of the server files. If it keeps happening, enable
+            <span class="font-mono">--allow-install-dir</span> in the node's extra server args.
+          </p>
+          <p class="text-tp-muted text-xs mt-0.5">Only the server binaries are replaced; worlds and configs are kept.</p>
+        </div>
+        <UiButton variant="primary" size="sm" class="shrink-0"
+          :disabled="!canStart || reinstalling" :loading="reinstalling || server.status === 'installing'"
+          @click="reinstallServer">
+          <RotateCcw class="w-3.5 h-3.5" /> {{ server.status === 'installing' ? 'Reinstalling' : 'Reinstall' }}
+        </UiButton>
+      </div>
+
       <!-- Stat cards row -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-tp-surface2 rounded-xl p-4">
@@ -2172,6 +2270,41 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </form>
+        <!-- Network routing: admins edit, everyone sees the role once set -->
+        <form v-if="isAdmin || server?.network_role" class="bg-tp-surface rounded-xl overflow-hidden"
+          @submit.prevent="saveNetworkRole">
+          <div class="px-5 py-3 border-b border-tp-border">
+            <h3 class="text-tp-text font-display font-semibold text-sm">Network</h3>
+            <p class="text-tp-muted text-xs mt-0.5">
+              Role of this server for the bundled network mod. Changes are sent to every networked server.
+            </p>
+          </div>
+          <div class="px-5 py-4 space-y-4">
+            <fieldset class="space-y-2" :disabled="!isAdmin">
+              <legend class="sr-only">Network role</legend>
+              <label v-for="opt in NETWORK_ROLE_OPTIONS" :key="opt.value" class="flex items-start gap-3"
+                :class="isAdmin ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'">
+                <input v-model="networkRole" type="radio" name="network-role" :value="opt.value" class="mt-1 accent-tp-primary">
+                <span>
+                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
+                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                </span>
+              </label>
+            </fieldset>
+            <div v-if="server?.network_role" class="flex items-center justify-between text-sm">
+              <span class="text-tp-outline">Joins require a hub referral</span>
+              <span :class="['font-medium', server.require_referral ? 'text-tp-success' : 'text-tp-muted']">
+                {{ server.require_referral ? 'Yes' : 'No' }}
+              </span>
+            </div>
+            <div v-if="isAdmin" class="flex flex-wrap justify-end gap-2">
+              <UiButton type="button" variant="secondary" :loading="networkDistributing" @click="redistributeNetworkConfig">
+                Resend config
+              </UiButton>
+              <UiButton type="submit" :loading="networkSaving" :disabled="!networkRoleChanged">Save</UiButton>
+            </div>
+          </div>
+        </form>
         <!-- Shared access / invitations -->
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
@@ -2214,6 +2347,10 @@ const sidebarMods = computed(() => {
                 {{ invitingEmail ? 'Sending…' : 'Invite' }}
               </button>
             </div>
+            <p class="text-tp-muted text-xs">
+              Viewer: read-only. Moderator: start/stop, console, players, mods, backups.
+              Admin: everything except deleting the server. You can only grant what you hold yourself.
+            </p>
 
             <div v-if="invitationsStore.serverInvitations.length === 0" class="text-tp-muted text-xs py-3 text-center">
               No pending invitations.

@@ -53,6 +53,8 @@ type CommandRequest struct {
 type ProvisionRequest struct {
 	Version  string `json:"version"`
 	DataPath string `json:"data_path"`
+	// Reinstall replaces the server binaries even if they already exist.
+	Reinstall bool `json:"reinstall,omitempty"`
 }
 
 // ActionResponse is the daemon's standard success/error envelope.
@@ -153,6 +155,17 @@ func (c *Client) ProvisionServer(ctx context.Context, serverID, version, dataPat
 	return c.postAction(ctx, fmt.Sprintf("/servers/%s/provision", serverID), ProvisionRequest{
 		Version:  version,
 		DataPath: dataPath,
+	})
+}
+
+// ReinstallServer instructs the daemon to fetch the Hytale server files again,
+// replacing the existing binaries (world data and configs are kept). Like
+// ProvisionServer it runs in the background and reports status when done.
+func (c *Client) ReinstallServer(ctx context.Context, serverID, version, dataPath string) error {
+	return c.postAction(ctx, fmt.Sprintf("/servers/%s/provision", serverID), ProvisionRequest{
+		Version:   version,
+		DataPath:  dataPath,
+		Reinstall: true,
 	})
 }
 
