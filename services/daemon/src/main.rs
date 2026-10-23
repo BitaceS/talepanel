@@ -8,6 +8,7 @@ mod machine_id;
 mod net_monitor;
 mod plugin_scanner;
 mod process;
+mod rclone;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
