@@ -67,10 +67,10 @@ async fn main() -> Result<()> {
         config.daemon.insecure_tls,
     ));
 
-    let process_manager = Arc::new(ProcessManager::new(
+    let process_manager = ProcessManager::new(
         Arc::clone(&api_client),
         Arc::clone(&config),
-    ));
+    );
 
     // ── 4. Register this node with the TalePanel API ────────────────────────
     //

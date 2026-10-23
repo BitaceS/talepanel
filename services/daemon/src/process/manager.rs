@@ -2,7 +2,8 @@ use anyhow::{bail, Result};
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument, warn};
 
@@ -12,7 +13,18 @@ use crate::downloader;
 use crate::http_server::safe_fs;
 
 use super::hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
+use super::restart::{CrashHistory, NoRestartReason, RestartDecision, RestartPolicy};
 use super::LogLine;
+
+/// How long the log relay of an exited server keeps running so its last lines
+/// (the exit message, the auto-restart notice) still reach the API.
+const RELAY_DRAIN: Duration = Duration::from_secs(3);
+
+/// An auto restart waiting out its backoff delay.
+struct PendingRestart {
+    config: ServerConfig,
+    handle: JoinHandle<()>,
+}
 
 /// Log lines pushed to the API in one request at most (the API caps at 5000).
 const MAX_LOG_BATCH: usize = 500;
@@ -30,28 +42,47 @@ pub struct ProcessManager {
     status_watcher_handles: Arc<DashMap<String, JoinHandle<()>>>,
     api_client: Arc<ApiClient>,
     config: Arc<Config>,
+    /// Recent crashes per server, for the auto-restart limit. Reset when a
+    /// user starts or restarts the server.
+    crash_history: DashMap<String, CrashHistory>,
+    /// Auto restarts waiting out their backoff, keyed by server_id.
+    pending_restarts: DashMap<String, PendingRestart>,
+    /// Lets background tasks (status watcher, restart timer) call back in.
+    weak_self: Weak<ProcessManager>,
 }
 
 impl ProcessManager {
-    pub fn new(api_client: Arc<ApiClient>, config: Arc<Config>) -> Self {
-        Self {
+    pub fn new(api_client: Arc<ApiClient>, config: Arc<Config>) -> Arc<Self> {
+        Arc::new_cyclic(|weak_self| Self {
             processes: Arc::new(DashMap::new()),
             log_relay_handles: Arc::new(DashMap::new()),
             status_watcher_handles: Arc::new(DashMap::new()),
             api_client,
             config,
-        }
+            crash_history: DashMap::new(),
+            pending_restarts: DashMap::new(),
+            weak_self: weak_self.clone(),
+        })
     }
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    /// Start a new Hytale server process for the given configuration.
+    /// Start a new Hytale server process for the given configuration, on
+    /// behalf of a user. Cancels a pending auto restart and resets the crash
+    /// count, so a server that hit its crash limit gets a fresh budget.
     ///
     /// Fails if a process for `config.server_id` is already registered.
     #[instrument(skip(self, config), fields(server_id = %config.server_id))]
     pub async fn start_server(&self, config: ServerConfig) -> Result<()> {
+        self.cancel_pending_restart(&config.server_id);
+        self.crash_history.remove(&config.server_id);
+        self.start_process(config).await
+    }
+
+    /// Spawn the process and its relay/watcher tasks (no restart bookkeeping).
+    async fn start_process(&self, config: ServerConfig) -> Result<()> {
         let server_id = config.server_id.clone();
 
         // Guard: refuse to start a duplicate.
@@ -107,11 +138,9 @@ impl ProcessManager {
     /// process from the registry once it reaches a terminal state.
     #[instrument(skip(self), fields(server_id))]
     pub async fn stop_server(&self, server_id: &str) -> Result<()> {
-        let process = self
-            .processes
-            .get(server_id)
-            .map(|p| Arc::clone(p.value()))
-            .ok_or_else(|| anyhow::anyhow!("Server {server_id} is not managed by this node"))?;
+        let Some(process) = self.processes.get(server_id).map(|p| Arc::clone(p.value())) else {
+            return self.stop_pending_restart(server_id).await;
+        };
 
         process.stop().await?;
 
@@ -122,6 +151,14 @@ impl ProcessManager {
     /// Restart a server: stop it then start it with the same configuration.
     #[instrument(skip(self), fields(server_id))]
     pub async fn restart_server(&self, server_id: &str) -> Result<()> {
+        // Crashed and waiting for an auto restart: restart now instead.
+        if !self.processes.contains_key(server_id) {
+            if let Some(config) = self.cancel_pending_restart(server_id) {
+                self.start_server(config).await?;
+                info!(%server_id, "Server restarted (pending auto restart replaced)");
+                return Ok(());
+            }
+        }
         let config = {
             let process = self
                 .processes
@@ -157,11 +194,9 @@ impl ProcessManager {
     /// process from the registry once it reaches a terminal state.
     #[instrument(skip(self), fields(server_id))]
     pub async fn kill_server(&self, server_id: &str) -> Result<()> {
-        let process = self
-            .processes
-            .get(server_id)
-            .map(|p| Arc::clone(p.value()))
-            .ok_or_else(|| anyhow::anyhow!("Server {server_id} is not managed by this node"))?;
+        let Some(process) = self.processes.get(server_id).map(|p| Arc::clone(p.value())) else {
+            return self.stop_pending_restart(server_id).await;
+        };
 
         process.kill().await?;
 
@@ -441,12 +476,121 @@ done
     /// Used during daemon shutdown.  Errors are logged but do not prevent
     /// subsequent servers from being stopped.
     pub async fn stop_all(&self) {
+        let pending: Vec<String> = self.pending_restarts.iter().map(|e| e.key().clone()).collect();
+        for server_id in pending {
+            self.cancel_pending_restart(&server_id);
+        }
+
         let server_ids: Vec<String> = self.list_servers();
         info!(count = server_ids.len(), "Stopping all managed servers");
 
         for server_id in server_ids {
             if let Err(err) = self.stop_server(&server_id).await {
                 error!(%err, %server_id, "Failed to stop server during shutdown");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto restart
+    // -----------------------------------------------------------------------
+
+    /// Abort a pending auto restart; returns its config if there was one.
+    fn cancel_pending_restart(&self, server_id: &str) -> Option<ServerConfig> {
+        self.pending_restarts.remove(server_id).map(|(_, p)| {
+            p.handle.abort();
+            info!(%server_id, "Pending auto restart cancelled");
+            p.config
+        })
+    }
+
+    /// Stop/kill for a server that has no process: if it is waiting for an
+    /// auto restart, cancel that and report it stopped.
+    async fn stop_pending_restart(&self, server_id: &str) -> Result<()> {
+        if self.cancel_pending_restart(server_id).is_none() {
+            bail!("Server {server_id} is not managed by this node");
+        }
+        push_log(&self.api_client, server_id, "INFO", "Pending auto restart cancelled".into()).await;
+        if let Err(err) = self.api_client.report_server_status(server_id, "stopped").await {
+            warn!(%err, %server_id, "Failed to report stopped status to API");
+        }
+        Ok(())
+    }
+
+    /// Called by the status watcher when a server went to Crashed: decide on
+    /// an auto restart and schedule it.
+    async fn handle_crash(&self, server_id: &str, process: &HytaleServerProcess) {
+        // No observed exit (startup timeout, wait error): the process may
+        // still be alive, so never start a second one next to it.
+        let Some(exit) = process.last_exit() else {
+            return;
+        };
+        let policy = RestartPolicy::from_config(&process.config);
+        let decision = self
+            .crash_history
+            .entry(server_id.to_string())
+            .or_default()
+            .decide(&policy, exit, Instant::now());
+
+        // These go through the process's own log stream so they land after
+        // its exit message (the relay drains for RELAY_DRAIN).
+        let log = |level: &str, message: String| {
+            let _ = process.log_tx.send(LogLine {
+                timestamp: chrono::Utc::now(),
+                level: level.to_string(),
+                message,
+            });
+        };
+
+        match decision {
+            RestartDecision::NoRestart(NoRestartReason::NeedsAttention(code)) if policy.enabled => {
+                log(
+                    "WARN",
+                    format!("Auto restart skipped: exit code {code} needs a reinstall/update or a config fix first."),
+                );
+            }
+            RestartDecision::NoRestart(_) => {}
+            RestartDecision::GiveUp { crashes } => {
+                warn!(%server_id, crashes, "Crash limit reached; auto restart gives up");
+                log(
+                    "ERROR",
+                    format!(
+                        "Auto restart gave up: the server crashed {crashes} times within {}s. \
+                         Fix the cause, then start it again.",
+                        policy.window.as_secs()
+                    ),
+                );
+            }
+            RestartDecision::Restart { attempt, delay } => {
+                info!(%server_id, attempt, delay_s = delay.as_secs(), "Scheduling auto restart");
+                log(
+                    "WARN",
+                    format!(
+                        "Auto restart {attempt}/{} in {}s",
+                        policy.max_restarts,
+                        delay.as_secs()
+                    ),
+                );
+                let config = process.config.clone();
+                let weak = self.weak_self.clone();
+                let sid = server_id.to_string();
+                let task_config = config.clone();
+                let handle = tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let Some(mgr) = weak.upgrade() else { return };
+                    // Cancelled meanwhile (user start/stop/kill/restart).
+                    if mgr.pending_restarts.remove(&sid).is_none() {
+                        return;
+                    }
+                    info!(server_id = %sid, attempt, "Auto restarting server");
+                    if let Err(err) = mgr.start_process(task_config).await {
+                        error!(server_id = %sid, %err, "Auto restart failed");
+                        push_log(&mgr.api_client, &sid, "ERROR", format!("Auto restart failed: {err:#}")).await;
+                    }
+                });
+                if let Some(old) = self.pending_restarts.insert(server_id.to_string(), PendingRestart { config, handle }) {
+                    old.handle.abort();
+                }
             }
         }
     }
@@ -579,6 +723,8 @@ done
         let processes = Arc::clone(&self.processes);
         let log_relay_handles = Arc::clone(&self.log_relay_handles);
         let status_watcher_handles = Arc::clone(&self.status_watcher_handles);
+        let process = Arc::clone(process);
+        let weak_self = self.weak_self.clone();
 
         let handle = tokio::spawn(async move {
             // Report the initial status (should be "starting")
@@ -611,11 +757,20 @@ done
                         {
                             processes.remove(&server_id);
                             if let Some((_, h)) = log_relay_handles.remove(&server_id) {
-                                h.abort();
+                                // Let it flush the last lines before it goes.
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(RELAY_DRAIN).await;
+                                    h.abort();
+                                });
                             }
                             status_watcher_handles.remove(&server_id);
                             info!(%server_id, %new_status,
                                 "Process removed from registry (terminal state)");
+                            if new_status == super::ServerStatus::Crashed {
+                                if let Some(mgr) = weak_self.upgrade() {
+                                    mgr.handle_crash(&server_id, &process).await;
+                                }
+                            }
                             break;
                         }
                     }
@@ -716,6 +871,18 @@ async fn write_atomic_async(path: &Path, data: Vec<u8>) -> std::io::Result<()> {
     })
     .await
     .map_err(std::io::Error::other)?
+}
+
+/// Push one line to the server's console log in the panel.
+async fn push_log(api: &ApiClient, server_id: &str, level: &str, message: String) {
+    let line = crate::api_client::LogLine {
+        timestamp: chrono::Utc::now(),
+        level: level.to_string(),
+        message,
+    };
+    if let Err(err) = api.push_log_lines(server_id, vec![line]).await {
+        warn!(%err, %server_id, "Failed to push log line to API");
+    }
 }
 
 /// Convert internal `LogLine` types to the API wire format.
