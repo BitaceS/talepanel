@@ -58,8 +58,8 @@ fi
 
 # ─── Start infrastructure ─────────────────────────────────────────────────
 
-log "Starting PostgreSQL, Redis, and MinIO..."
-docker compose up -d postgres redis minio minio-init
+log "Starting PostgreSQL and Redis..."
+docker compose up -d postgres redis
 
 log "Waiting for PostgreSQL to be ready..."
 until docker compose exec -T postgres pg_isready -U talepanel -d talepanel &>/dev/null; do
@@ -76,8 +76,6 @@ until docker compose exec -T redis redis-cli -a changeme ping &>/dev/null; do
 done
 echo ""
 success "Redis is ready"
-
-success "MinIO available at http://localhost:9001 (admin/changeme)"
 
 # ─── Install web panel dependencies ───────────────────────────────────────
 
@@ -114,8 +112,6 @@ echo "    cd services/daemon && cp config.example.toml config.toml && cargo run"
 echo ""
 echo "  Panel:   http://localhost:3000"
 echo "  API:     http://localhost:8080"
-echo "  MinIO:   http://localhost:9001"
 echo ""
-echo "  Default login: admin@talepanel.local / changeme"
-warn "Change the default password immediately!"
+echo "  First owner: docker compose run --rm api tale-cli admin create --email you@example.com --username you"
 echo ""

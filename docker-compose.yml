@@ -6,14 +6,13 @@ version: "3.9"
 # Services:
 #   postgres   — PostgreSQL 16 (primary database)
 #   redis      — Redis 7 (cache + queue)
-#   minio      — MinIO (S3-compatible object storage for backups)
 #   api        — Go backend (builds from source)
 #   web        — Nuxt 3 web panel (dev server)
 #   daemon     — Rust node daemon (builds from source)
 #
 # Usage:
 #   cp .env.example .env && editor .env
-#   docker compose up -d postgres redis minio
+#   docker compose up -d postgres redis
 #   docker compose up api web
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -24,7 +23,6 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
   mariadb_data:
 
 services:
@@ -81,30 +79,6 @@ services:
       retries: 5
 
   # ───────────────────────────────────────────
-  # MinIO (S3-compatible object storage)
-  # ───────────────────────────────────────────
-  minio:
-    image: minio/minio:latest
-    container_name: talepanel-minio
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-changeme}
-    volumes:
-      - minio_data:/data
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # MinIO Console UI
-    networks:
-      - talepanel
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ───────────────────────────────────────────
   # MariaDB 11 (per-server databases)
   # ───────────────────────────────────────────
   mariadb:
@@ -125,26 +99,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  # ───────────────────────────────────────────
-  # MinIO bucket initializer (runs once)
-  # ───────────────────────────────────────────
-  minio-init:
-    image: minio/mc:latest
-    container_name: talepanel-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    networks:
-      - talepanel
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-changeme};
-        mc mb --ignore-existing local/talepanel-backups;
-        mc anonymous set none local/talepanel-backups;
-        echo 'MinIO bucket initialized';
-      "
-    restart: "no"
 
   # ───────────────────────────────────────────
   # Go API Backend
@@ -171,11 +125,6 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?TOTP_ENC_KEY is required — generate with openssl rand -hex 32}
       CORS_ORIGINS: "http://localhost:3000"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-changeme}
-      MINIO_BUCKET: talepanel-backups
-      MINIO_USE_SSL: "false"
       DAEMON_SERVERS_DIR: /srv/taledaemon/servers
       CURSEFORGE_API_KEY: ${CURSEFORGE_API_KEY:-}
       CURSEFORGE_GAME_ID: "70216"

@@ -152,7 +152,6 @@ Content-Security-Policy: default-src 'self'
 
 ### Backup Storage
 - **Today:** backups are Zip archives written by the daemon to the same node as the server. They are served through the authenticated API (RBAC-checked); there is no public URL and no object-storage upload path in the code.
-- MinIO ships in the compose file and its credentials are read from env, but no backup is uploaded to it yet.
 - **Planned (S3/object storage):** private bucket ACL, presigned download URLs with short TTL, credentials from env only.
 
 ---

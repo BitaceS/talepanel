@@ -67,7 +67,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 **Not there yet (roadmap, tracked publicly):**
 
 - **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
-- **Off-site backups (S3 / object storage)** — MinIO is in the compose file, but no backup is uploaded to it today. Backups live on the node.
+- **Off-site backups (S3 / object storage)** — backups live on the node today.
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
 - **mTLS between panel and daemon, process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
@@ -202,10 +202,10 @@ JWT_SECRET=<generate: openssl rand -hex 32>
 JWT_REFRESH_SECRET=<generate: openssl rand -hex 32>
 ```
 
-### 2. Start infrastructure (PostgreSQL + Redis + MinIO)
+### 2. Start infrastructure (PostgreSQL + Redis)
 
 ```bash
-docker compose up -d postgres redis minio minio-init
+docker compose up -d postgres redis
 ```
 
 Wait ~10 seconds for Postgres to initialize (runs migrations automatically).
@@ -261,7 +261,7 @@ cargo run
 docker compose up --build
 
 # Just infrastructure + API
-docker compose up -d postgres redis minio minio-init api
+docker compose up -d postgres redis api
 
 # Watch API logs
 docker compose logs -f api
@@ -336,8 +336,6 @@ See `.env.example` for the full list with descriptions.
 | Web Panel | 3000 | Nuxt 3 dev server |
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache + queue |
-| MinIO S3 API | 9000 | Object storage — shipped in compose, **not yet used by backups** |
-| MinIO Console | 9001 | MinIO web UI |
 | TaleDaemon | 8444 | Node daemon local API |
 
 ---
@@ -394,7 +392,6 @@ automatically during a fresh panel install.
 | Node Daemon | Rust, tokio, axum, reqwest, serde |
 | Database | PostgreSQL 16 |
 | Cache / Queue | Redis 7 |
-| Object Storage | MinIO (S3-compatible) — infrastructure only; backups are node-local today |
 
 ---
 

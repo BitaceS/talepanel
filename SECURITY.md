@@ -28,7 +28,7 @@ Older minor versions do **not** receive backports unless the vulnerability is cr
 
 A fresh install via `scripts/install.sh --mode panel` guarantees:
 
-- All secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`, `TOTP_ENC_KEY`, DB/Redis/MinIO passwords) are generated with `openssl rand -hex 32`.
+- All secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`, `TOTP_ENC_KEY`, DB/Redis passwords) are generated with `openssl rand -hex 32`.
 - No seed admin account — the first user is created by `tale-cli admin create` during install.
 - Owner and admin passwords enforce a 12-character + digit + symbol policy.
 - TOTP secrets are encrypted at rest with AES-256-GCM (`TOTP_ENC_KEY`).
@@ -42,7 +42,7 @@ A fresh install via `scripts/install.sh --mode panel` guarantees:
 The installer cannot enforce what is outside its reach. As the operator, you are responsible for:
 
 - Keeping the panel host and daemon hosts patched (`apt-get upgrade`, reboot).
-- Firewalling Postgres, Redis, MinIO — they should **not** be exposed to the public internet. The installer binds them to the internal Docker network by default; do not publish their ports.
+- Firewalling Postgres and Redis — they should **not** be exposed to the public internet. The installer binds them to the internal Docker network by default; do not publish their ports.
 - Protecting the panel host's filesystem — `/opt/talepanel/deploy/panel/.env` is `chmod 600` owned by root, keep it that way.
 - Backing up the Postgres database off-site. TalePanel does not back up its own control plane.
 - Copying server backups off the node. TalePanel's backups are Zip archives stored on the same node as the server — they survive a bad update, not a dead disk. Off-site/S3 upload is on the roadmap.

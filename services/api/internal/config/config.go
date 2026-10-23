@@ -50,12 +50,6 @@ type Config struct {
 	// spoof its IP to evade rate limiting or poison audit logs.
 	TrustedProxies []string
 
-	// MinIO
-	MinIOEndpoint  string
-	MinIOAccessKey string
-	MinIOSecretKey string
-	MinioBucket    string
-
 	// Daemon
 	// DaemonServersDir is the base path on daemon nodes where server data lives.
 	// Each server gets a subdirectory: {DaemonServersDir}/{server_id}
@@ -207,12 +201,6 @@ func Load() (*Config, error) {
 			}
 		}
 	}
-
-	// MinIO — optional (features degrade gracefully when absent)
-	cfg.MinIOEndpoint = os.Getenv("MINIO_ENDPOINT")
-	cfg.MinIOAccessKey = os.Getenv("MINIO_ACCESS_KEY")
-	cfg.MinIOSecretKey = os.Getenv("MINIO_SECRET_KEY")
-	cfg.MinioBucket = os.Getenv("MINIO_BUCKET")
 
 	// DAEMON_SERVERS_DIR — base directory path used by daemon nodes for server data.
 	// The API appends /{server_id} to construct each server's data_path.

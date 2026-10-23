@@ -5,9 +5,8 @@
 - [ ] **TLS everywhere** — terminate at load balancer or Caddy/Nginx, no HTTP in production
 - [ ] **PostgreSQL SSL** — `sslmode=require` in DATABASE_URL
 - [ ] **Redis TLS** — `rediss://` scheme, require AUTH
-- [ ] **MinIO TLS** — HTTPS endpoint, set `MINIO_USE_SSL=true` (MinIO ships in compose but is not yet used by the backup path — only relevant if you run it)
 - [ ] **Daemon mTLS** — deploy with mutual TLS certificates issued by API CA
-- [ ] **Private network** — API, DB, Redis, MinIO should NOT be publicly exposed; only the web panel/API reverse proxy should be
+- [ ] **Private network** — API, DB and Redis should NOT be publicly exposed; only the web panel/API reverse proxy should be
 
 ## Secrets
 

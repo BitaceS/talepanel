@@ -79,7 +79,6 @@ Open TCP 80 and 443 to the internet (needed for Let's Encrypt HTTP-01 challenge 
 Do **not** expose:
 - Postgres (5432) — stays on the internal Docker network
 - Redis (6379) — same
-- MinIO (9000/9001) — same
 - API (8080) — proxied through Caddy, not directly reachable
 - Web (3000) — same
 
