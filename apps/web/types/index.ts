@@ -196,6 +196,57 @@ export interface Backup {
   completed_at: string | null
   expires_at: string | null
   error: string | null
+  // Off-site copy. upload_status is absent for local-only backups.
+  destination_id?: string | null
+  destination_name?: string | null
+  remote_path?: string | null
+  upload_status?: 'pending' | 'uploading' | 'done' | 'failed' | null
+  upload_error?: string | null
+  // false once the on-node archive was removed after a successful upload
+  local_present: boolean
+}
+
+export interface BackupDestinationField {
+  key: string
+  label: string
+  help?: string
+  placeholder?: string
+  secret: boolean
+  required: boolean
+  multiline?: boolean
+  choices?: string[]
+  default?: string
+  advanced?: boolean
+}
+
+export interface BackupDestinationProvider {
+  id: string
+  label: string
+  backend: string
+  authorize_command?: string
+  base_path_help: string
+  fields: BackupDestinationField[]
+}
+
+export interface BackupDestination {
+  id: string
+  name: string
+  provider: string
+  base_path: string
+  options: Record<string, string>
+  // which secrets are stored; their values are never sent to the browser
+  secrets_set: Record<string, boolean>
+  keep_local: boolean
+  retention_count: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BackupDestinationSummary {
+  id: string
+  name: string
+  provider: string
+  keep_local: boolean
 }
 
 export interface BackupSchedule {
@@ -210,6 +261,7 @@ export interface BackupSchedule {
   last_run: string | null
   next_run: string | null
   created_at: string
+  destination_id?: string | null
 }
 
 export interface AlertRule {

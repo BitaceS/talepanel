@@ -1984,7 +1984,7 @@ const sidebarMods = computed(() => {
               <DatabaseBackup class="w-5 h-5 text-tp-muted" />
               <div>
                 <p class="text-tp-text text-sm font-medium capitalize">{{ b.type }} backup</p>
-                <p class="text-tp-muted text-xs">{{ new Date(b.created_at).toLocaleString() }} — {{ b.status }}</p>
+                <p class="text-tp-muted text-xs">{{ new Date(b.created_at).toLocaleString() }} — {{ b.status }}<template v-if="b.upload_status"> · {{ b.destination_name ?? 'off-site' }}: {{ b.upload_status }}</template></p>
               </div>
             </div>
             <div class="flex items-center gap-1">
