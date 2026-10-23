@@ -53,7 +53,20 @@ Run the installer's **Upgrade** mode. It removes the unused MinIO containers; th
 
 ---
 
-## v0.10.1-beta → v1.0.0 (planned)
+## v0.10.1-beta → v0.11.0-beta
+
+Run the installer's **Upgrade** mode on the panel **and on every node**. The new features need the new daemon, and the daemon image now includes rclone. Migrations 037–039 run automatically when the API starts.
+
+- **Auto restart is now real.** The `auto_restart` setting always defaulted to on, but the daemon ignored it. After this upgrade, a crashed server is started again (5 s, 10 s, 20 s, up to 60 s; it gives up after 3 crashes in 10 minutes). Turn it off per server if you don't want that. Exit codes 8 and 11 and stops from the panel never trigger a restart.
+- **Exit code 0 means stopped.** A server that shuts down on its own with code 0 (e.g. `stop` typed in the console) is now shown as stopped, not crashed.
+- **CPU limit:** migration 038 resets the old default of 4 to 0 (unlimited). The limit was never enforced before, so nothing changes for running servers. In the default Docker install the daemon cannot write cgroups and only warns; see the [first server guide](https://talepanel.com/docs/start/first-server/).
+- **Invitations:** newly accepted invitations grant the invited role's permissions on that server. Members who joined earlier keep the old behaviour (their global role) until you re-invite them or set their permissions.
+- **Email alerts:** set up SMTP under Admin → Integrations. `SMTP_*` env vars still work as a fallback.
+- **Backups:** the "Storage" field is gone. Off-site copies go to destinations you add under Backups → Destinations.
+
+---
+
+## v0.11.0-beta → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

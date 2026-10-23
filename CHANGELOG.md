@@ -4,6 +4,10 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.11.0-beta] — 2026-10-24
+
+Off-site backups (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV), email setup in the panel, auto restart, CPU limits, and invitation roles that actually apply.
+
 ### Security
 - The raw console now enforces the same roles as the quick commands. Before, anyone with `server.console` could type `stop`, `op` or any other command. Users may send `help` and `world save`, moderators also `kick`, `ban`, `unban`, `whitelist`, `time`, `weather`, `teleport` and `say`; everything else needs an admin. The server's own owner counts as admin on it.
 - Custom quick commands can no longer be saved with a lower `min_role` than the console command they run, and running one checks the resolved command as well, which also covers commands saved before this fix.
