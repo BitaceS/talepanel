@@ -10,7 +10,6 @@ import (
 	neturl "net/url"
 	"time"
 
-	mail "github.com/wneessen/go-mail"
 	"go.uber.org/zap"
 )
 
@@ -57,57 +56,6 @@ func (m *MultiNotifier) Dispatch(ctx context.Context, payload NotificationPayloa
 				go m.discord.Post(ctx, payload, webhookURL)
 			}
 		}
-	}
-}
-
-// SMTPNotifier sends alert emails.
-type SMTPNotifier struct {
-	host     string
-	port     int
-	user     string
-	password string
-	from     string
-	log      *zap.Logger
-}
-
-func NewSMTPNotifier(host string, port int, user, password, from string, log *zap.Logger) *SMTPNotifier {
-	return &SMTPNotifier{host: host, port: port, user: user, password: password, from: from, log: log}
-}
-
-// Send delivers an alert email. Called as a goroutine — errors are logged, not returned.
-func (s *SMTPNotifier) Send(payload NotificationPayload, to string) {
-	if s.host == "" {
-		return // SMTP not configured
-	}
-	m := mail.NewMsg()
-	if err := m.From(s.from); err != nil {
-		s.log.Warn("alert smtp: invalid from address", zap.Error(err))
-		return
-	}
-	if err := m.To(to); err != nil {
-		s.log.Warn("alert smtp: invalid to address", zap.Error(err))
-		return
-	}
-	m.Subject(fmt.Sprintf("[TalePanel Alert] %s — %s", payload.Severity, payload.RuleType))
-	m.SetBodyString(mail.TypeTextPlain, fmt.Sprintf(
-		"Alert: %s\nSeverity: %s\nMessage: %s\nFired at: %s\nSubject: %s",
-		payload.RuleType, payload.Severity, payload.Message,
-		payload.FiredAt.Format(time.RFC3339), payload.SubjectID,
-	))
-
-	c, err := mail.NewClient(s.host,
-		mail.WithPort(s.port),
-		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(s.user),
-		mail.WithPassword(s.password),
-		mail.WithTLSPortPolicy(mail.TLSMandatory),
-	)
-	if err != nil {
-		s.log.Warn("alert smtp: client creation failed", zap.Error(err))
-		return
-	}
-	if err := c.DialAndSend(m); err != nil {
-		s.log.Warn("alert smtp: send failed", zap.Error(err))
 	}
 }
 

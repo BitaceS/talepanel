@@ -70,6 +70,9 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+	// SMTPTLSMode is "starttls", "tls" (implicit, port 465) or "none";
+	// empty picks by port.
+	SMTPTLSMode string
 }
 
 // Load reads configuration from environment variables, validates required fields,
@@ -240,6 +243,7 @@ func Load() (*Config, error) {
 	cfg.SMTPUser = os.Getenv("SMTP_USER")
 	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
 	cfg.SMTPFrom = os.Getenv("SMTP_FROM")
+	cfg.SMTPTLSMode = os.Getenv("SMTP_TLS_MODE")
 	if portStr := os.Getenv("SMTP_PORT"); portStr != "" {
 		port, err := strconv.Atoi(portStr)
 		if err != nil {

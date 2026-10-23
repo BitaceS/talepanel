@@ -87,7 +87,14 @@ func SetupRouter(
 		}
 	}()
 	backupSvc := services.NewBackupService(db, daemonPool, log)
-	smtpNotifier := alerting.NewSMTPNotifier(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom, log)
+	smtpEnv := envSMTPConfig(cfg)
+	smtpNotifier := alerting.NewSMTPNotifier(smtpEnv, log)
+	// Email settings saved in the panel win over the SMTP_* env vars.
+	if dbSMTP, err := appSettingsSvc.GetSMTP(ctx); err != nil {
+		log.Warn("could not load smtp settings from app_settings", zap.Error(err))
+	} else if dbSMTP != nil {
+		smtpNotifier.SetConfig(*dbSMTP)
+	}
 	webhookNotifier := alerting.NewWebhookNotifier(log)
 	discordNotifier := alerting.NewDiscordNotifier(log)
 	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, discordNotifier, log)
@@ -370,6 +377,12 @@ func SetupRouter(
 		adminGroup.GET("/integrations/curseforge", integrationsH.GetCurseForge)
 		adminGroup.PUT("/integrations/curseforge", integrationsH.UpdateCurseForge)
 
+		// Email (SMTP) for alert notifications.
+		smtpH := handlers.NewSMTPSettingsHandler(appSettingsSvc, smtpNotifier, smtpEnv)
+		adminGroup.GET("/integrations/smtp", smtpH.GetSMTP)
+		adminGroup.PUT("/integrations/smtp", smtpH.UpdateSMTP)
+		adminGroup.POST("/integrations/smtp/test", smtpH.TestSMTP)
+
 		// Hytale account link: servers start authenticated with a minted game session.
 		adminGroup.GET("/hytale-auth", hytaleH.AuthStatus)
 		adminGroup.POST("/hytale-auth/device", hytaleH.StartDeviceLogin)
@@ -453,6 +466,19 @@ func SetupRouter(
 	}
 
 	return r
+}
+
+// envSMTPConfig is the SMTP configuration from SMTP_* env vars. It is the
+// initial value and the fallback when no settings are stored in the panel.
+func envSMTPConfig(cfg *config.Config) alerting.SMTPConfig {
+	return alerting.SMTPConfig{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUser,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+		TLSMode:  cfg.SMTPTLSMode,
+	}.Normalize()
 }
 
 // corsMiddleware builds a CORS handler from the application configuration.

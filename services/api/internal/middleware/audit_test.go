@@ -22,6 +22,16 @@ func TestSanitizePayloadRedactsSetupCode(t *testing.T) {
 	}
 }
 
+func TestSanitizePayloadRedactsIntegrationSecrets(t *testing.T) {
+	out := string(sanitizePayload([]byte(`{"api_key":"cf-key-123","host":"smtp.example.com","password":"smtp-pass"}`)))
+	if strings.Contains(out, "cf-key-123") || strings.Contains(out, "smtp-pass") {
+		t.Fatalf("integration secret not redacted: %s", out)
+	}
+	if !strings.Contains(out, "smtp.example.com") {
+		t.Fatalf("non-secret field dropped: %s", out)
+	}
+}
+
 func TestSanitizePayloadStripsNULAndRedactsNested(t *testing.T) {
 	body := []byte(`{"name":"a\u0000b","nested":{"password":"x","list":["c\u0000d",{"token":"t"}]},"k\u0000ey":1}`)
 	out := string(sanitizePayload(body))
