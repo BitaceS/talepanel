@@ -8,12 +8,26 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 - The raw console now enforces the same roles as the quick commands. Before, anyone with `server.console` could type `stop`, `op` or any other command. Users may send `help` and `world save`, moderators also `kick`, `ban`, `unban`, `whitelist`, `time`, `weather`, `teleport` and `say`; everything else needs an admin. The server's own owner counts as admin on it.
 - Custom quick commands can no longer be saved with a lower `min_role` than the console command they run, and running one checks the resolved command as well, which also covers commands saved before this fix.
 - Granting or removing op on the Players page needs admin. The route only required `player.ban`, which moderators have.
+- Off-site backup destination credentials are AES-256-GCM encrypted with `TOTP_ENC_KEY`, never returned to the browser, and redacted from the audit log. Only a per-provider allowlist of rclone options is accepted; the daemon additionally refuses options that run commands or read local files. rclone gets its credentials from a per-operation 0600 config file, never from its command line.
 
 ### Added
 - Quick setup for beginners: `install.sh --quick` (also the first menu entry, and the default when the script runs without a terminal) installs panel and game server on one machine with an `sslip.io` hostname and asks no questions. It prints a `https://<host>/setup` link and a one-time setup code; the first admin account is created in the browser. Only the code's SHA-256 is stored (`SETUP_CODE_HASH` in the panel `.env`).
 - `POST /api/v1/setup/complete`: creates the first owner with the setup code and signs it in. Works only while no account exists; concurrent attempts create exactly one owner. `GET /health/setup` reports `setup_code_required`.
 - Setup wizard at `/setup`: setup code, admin account, first Hytale server (optional). The login page sends visitors of a fresh install there.
 - `tale-cli node enroll`: mints a node enrollment token without a user account. Migration 036 makes `node_enrollments.created_by` optional.
+- Off-site backups: admins add destinations under Backups → Destinations — OneDrive, Google Drive, Dropbox, S3-compatible (AWS, Wasabi, Cloudflare R2, other), Backblaze B2, SFTP and WebDAV/Nextcloud. The node uploads each backup with rclone to `<folder>/<server id>/<backup id>.zip`. Per destination: keep a local copy or not, and keep the newest N uploads per server. For OneDrive/Google Drive/Dropbox the panel shows the `rclone authorize` command to run on your own computer and takes the pasted token; the OneDrive drive is looked up automatically. Refreshed OAuth tokens are saved back.
+- Backups and schedules can target a destination. The backup list shows where each backup is stored and its upload status (waiting, uploading, uploaded, upload failed with rclone's error); failed uploads can be retried. Restore and download fetch a backup from the destination when the node has no copy. Deleting a backup deletes its off-site copy.
+- "Test connection" for a destination writes and deletes a probe file and shows rclone's error text.
+- Daemon routes `POST /servers/:id/backup/upload`, `/backup/remote-delete`, `POST /backup/download` and `POST /rclone/test`; admin API `/admin/backup-destinations` (CRUD, `/providers`, `/:id/test`), `GET /backup-destinations` for the picker, `POST /backups/:id/upload` to retry. Migration 037.
+- The daemon image installs rclone 1.75.2 from downloads.rclone.org, checked against its SHA-256.
+
+### Changed
+- The "Storage" field of the backup and schedule forms (with its fake "S3 (MinIO)" option) is gone; `storage` in the API is accepted for compatibility and always stored as `local`. Use `destination_id`.
+- Backup downloads are streamed by the daemon instead of being read into memory first.
+- The Backups page no longer offers "All Servers" (the API only lists one server's backups) and preselects the first server.
+
+### Fixed
+- Backups were never marked completed on a fresh database: the `backup_status` enum had `complete`, the code writes `completed`. Migration 037 adds the value.
 
 ## [0.10.1-beta] — 2026-10-22
 

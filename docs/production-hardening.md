@@ -70,11 +70,12 @@
 
 ## Backup
 
-> **Know what TalePanel does and does not do.** TalePanel creates Zip snapshots of a server **on the node that runs it**. That protects you against a bad mod update or a wiped world — not against a dead disk or a lost host. Off-site upload (S3/object storage) is on the roadmap; until it lands, the off-site half is your job.
+> **Know what TalePanel does and does not do.** TalePanel creates Zip snapshots of a server **on the node that runs it**. That alone protects you against a bad mod update or a wiped world — not against a dead disk or a lost host. Add an off-site destination (Backups → Destinations) and the node uploads every backup with rclone to OneDrive, Google Drive, Dropbox, S3/B2, SFTP or WebDAV.
 
-- [ ] **Test restore** — verify backup restore works before going live
-- [ ] **Off-site copy** — sync `/srv/taledaemon/backups` (rsync/restic/rclone to another provider) on a schedule
-- [ ] **Encrypt backups at rest** — if you sync them off the node, encrypt before upload
+- [ ] **Test restore** — verify backup restore works before going live, including one restore of a backup that only exists off-site
+- [ ] **Off-site copy** — add a backup destination, press *Test connection*, and point your backup schedules at it; check the upload status column after the first scheduled run
+- [ ] **Scoped credentials** — give the destination its own account, bucket or app password (Nextcloud app password, B2 key limited to one bucket, S3 IAM user limited to one bucket) instead of your main login
+- [ ] **Encrypt backups at rest** — archives are uploaded as plain Zip files; use a provider with encryption at rest, or sync `/srv/taledaemon/backups` with restic yourself if the provider must not see the data
 - [ ] **Backup the panel itself** — export PostgreSQL dump nightly; TalePanel does not back up its own control plane
 - [ ] **3-2-1 rule** — 3 copies, 2 different media, 1 off-site
 
