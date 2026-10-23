@@ -2116,7 +2116,7 @@ const sidebarMods = computed(() => {
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-tp-outline text-sm">CPU Limit</span>
-              <span class="text-tp-text text-sm">{{ server?.cpu_limit ?? '\u2014' }} cores</span>
+              <span class="text-tp-text text-sm">{{ server?.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited' }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-tp-outline text-sm">Auto-Restart</span>

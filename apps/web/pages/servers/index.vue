@@ -489,13 +489,13 @@ onMounted(() => {
 
         <div class="grid grid-cols-2 gap-3">
           <UiInput v-model="createForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="e.g. 2048" />
-          <UiInput v-model="createForm.cpu_limit" type="number" label="CPU Limit (%)" placeholder="e.g. 100" />
+          <UiInput v-model="createForm.cpu_limit" type="number" label="CPU Limit (%)" placeholder="100 = 1 core, empty = unlimited" />
         </div>
 
         <div class="flex items-center justify-between bg-tp-surface rounded-xl px-4 py-3">
           <div>
             <p class="text-tp-text text-sm font-medium">Auto Restart</p>
-            <p class="text-tp-muted text-xs mt-0.5">Automatically restart server on crash</p>
+            <p class="text-tp-muted text-xs mt-0.5">Restart after a crash; gives up after repeated crashes</p>
           </div>
           <button
             type="button"
