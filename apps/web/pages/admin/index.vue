@@ -2,7 +2,7 @@
 import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
-  Plug, Save, ExternalLink,
+  Plug, Save, ExternalLink, Mail, Send,
 } from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
@@ -53,6 +53,7 @@ function onTabChange(key: 'users' | 'nodes' | 'logs' | 'integrations') {
   activeTab.value = key
   if (key === 'integrations') {
     fetchCurseForgeStatus()
+    fetchSmtp()
     fetchHytaleAuth()
   }
 }
@@ -161,6 +162,111 @@ async function clearCurseForgeKey() {
     showToast(e.data?.error ?? 'Failed to clear key', 'error')
   } finally {
     cfSaving.value = false
+  }
+}
+
+// ── Email (SMTP) ─────────────────────────────────────────────────────────────
+type SmtpTlsMode = 'starttls' | 'tls' | 'none'
+interface SmtpStatus {
+  source: 'panel' | 'env' | 'none'
+  configured: boolean
+  host: string
+  port: number
+  username: string
+  password_set: boolean
+  from: string
+  tls_mode: SmtpTlsMode
+}
+const smtpStatus = ref<SmtpStatus | null>(null)
+const smtpForm = reactive({
+  host: '',
+  port: 587,
+  username: '',
+  password: '',
+  from: '',
+  tls_mode: 'starttls' as SmtpTlsMode,
+})
+const smtpSaving = ref(false)
+const smtpTesting = ref(false)
+const smtpLoading = ref(false)
+const smtpResult = ref<{ ok: boolean; text: string } | null>(null)
+
+function fillSmtpForm(s: SmtpStatus) {
+  smtpStatus.value = s
+  smtpForm.host = s.host
+  smtpForm.port = s.port || 587
+  smtpForm.username = s.username
+  smtpForm.password = ''
+  smtpForm.from = s.from
+  smtpForm.tls_mode = s.tls_mode || 'starttls'
+}
+
+async function fetchSmtp() {
+  smtpLoading.value = true
+  try {
+    fillSmtpForm(await api.get<SmtpStatus>('/admin/integrations/smtp'))
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to load email settings', 'error')
+  } finally {
+    smtpLoading.value = false
+  }
+}
+
+// Ports 465 and 587 each have one usual encryption; follow the port.
+function onSmtpPortChange() {
+  if (smtpForm.port === 465) smtpForm.tls_mode = 'tls'
+  else if (smtpForm.port === 587) smtpForm.tls_mode = 'starttls'
+}
+
+async function saveSmtp() {
+  smtpSaving.value = true
+  smtpResult.value = null
+  try {
+    const body: Record<string, unknown> = {
+      host: smtpForm.host.trim(),
+      port: Number(smtpForm.port) || 587,
+      username: smtpForm.username.trim(),
+      from: smtpForm.from.trim(),
+      tls_mode: smtpForm.tls_mode,
+    }
+    if (smtpForm.password) body.password = smtpForm.password
+    fillSmtpForm(await api.put<SmtpStatus>('/admin/integrations/smtp', body))
+    showToast('Email settings saved')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to save email settings', 'error')
+  } finally {
+    smtpSaving.value = false
+  }
+}
+
+async function clearSmtp() {
+  if (!confirm('Remove the email settings stored in the panel? Email alerts stop unless SMTP_* environment variables are set.')) return
+  smtpSaving.value = true
+  smtpResult.value = null
+  try {
+    fillSmtpForm(await api.put<SmtpStatus>('/admin/integrations/smtp', { host: '' }))
+    showToast('Email settings removed')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? 'Failed to remove email settings', 'error')
+  } finally {
+    smtpSaving.value = false
+  }
+}
+
+async function testSmtp() {
+  smtpTesting.value = true
+  smtpResult.value = null
+  try {
+    const res = await api.post<{ sent_to: string }>('/admin/integrations/smtp/test')
+    smtpResult.value = { ok: true, text: `Test email sent to ${res.sent_to}. Check your inbox and spam folder.` }
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    smtpResult.value = { ok: false, text: e.data?.error ?? e.message ?? 'Sending the test email failed' }
+  } finally {
+    smtpTesting.value = false
   }
 }
 
@@ -926,6 +1032,106 @@ async function submitCreateUser() {
           Stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code>. Takes effect immediately —
           no API restart required. Clearing falls back to the <code class="font-mono">CURSEFORGE_API_KEY</code>
           env value (if set) on the next API restart.
+        </p>
+      </div>
+
+      <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
+              <Mail class="w-4 h-4 text-tp-primary" />
+              Email (SMTP)
+            </h3>
+            <p class="text-tp-muted text-sm mt-1">
+              Needed for email alerts. Enter the SMTP details from your mail provider, for example your web
+              hosting package, Gmail with an app password, or a sending service like Brevo or Mailgun.
+            </p>
+          </div>
+          <span
+            :class="[
+              'text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap',
+              smtpStatus?.configured
+                ? 'bg-tp-success/15 text-tp-success'
+                : 'bg-tp-warning/15 text-tp-warning',
+            ]">
+            {{ smtpStatus?.configured ? (smtpStatus.source === 'env' ? 'Configured (env)' : 'Configured') : 'Not configured' }}
+          </span>
+        </div>
+
+        <p v-if="smtpStatus?.source === 'env'" class="text-tp-muted text-sm">
+          These values come from the <code class="font-mono">SMTP_*</code> environment variables.
+          Once you save here, the panel's values are used instead.
+        </p>
+
+        <form class="grid grid-cols-1 sm:grid-cols-2 gap-4" autocomplete="off" @submit.prevent="saveSmtp">
+          <div class="flex flex-col gap-2">
+            <label for="smtp-host" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">SMTP server</label>
+            <input id="smtp-host" v-model="smtpForm.host" type="text" placeholder="smtp.example.com"
+              class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="flex flex-col gap-2">
+              <label for="smtp-port" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Port</label>
+              <input id="smtp-port" v-model.number="smtpForm.port" type="number" min="1" max="65535"
+                class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all"
+                @change="onSmtpPortChange" />
+            </div>
+            <div class="flex flex-col gap-2">
+              <label for="smtp-tls" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Encryption</label>
+              <select id="smtp-tls" v-model="smtpForm.tls_mode"
+                class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2.5 text-sm text-tp-text">
+                <option value="starttls">STARTTLS (port 587)</option>
+                <option value="tls">SSL/TLS (port 465)</option>
+                <option value="none">None (local relay only)</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="smtp-user" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
+            <input id="smtp-user" v-model="smtpForm.username" type="text" autocomplete="off" placeholder="Usually your email address"
+              class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="smtp-pass" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+            <input id="smtp-pass" v-model="smtpForm.password" type="password" autocomplete="new-password"
+              :placeholder="smtpStatus?.password_set ? 'Saved. Leave empty to keep it' : 'SMTP password'"
+              class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
+          </div>
+          <div class="flex flex-col gap-2 sm:col-span-2">
+            <label for="smtp-from" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Sender address</label>
+            <input id="smtp-from" v-model="smtpForm.from" type="text" placeholder="TalePanel <noreply@example.com>"
+              class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
+            <p class="text-tp-outline text-xs">Most providers only accept a sender address that belongs to your account.</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+            <UiButton type="submit" variant="primary" size="sm" :loading="smtpSaving" :disabled="!smtpForm.host.trim() || !smtpForm.from.trim()">
+              <Save class="w-3.5 h-3.5" /> Save
+            </UiButton>
+            <UiButton variant="secondary" size="sm" :loading="smtpTesting" :disabled="!smtpStatus?.configured" @click="testSmtp">
+              <Send class="w-3.5 h-3.5" /> Send test email
+            </UiButton>
+            <UiButton v-if="smtpStatus?.source === 'panel'" variant="danger" size="sm" :loading="smtpSaving" @click="clearSmtp">
+              <Trash2 class="w-3.5 h-3.5" /> Remove
+            </UiButton>
+            <UiButton variant="secondary" size="sm" :loading="smtpLoading" @click="fetchSmtp">
+              <RefreshCw class="w-3.5 h-3.5" />
+            </UiButton>
+          </div>
+        </form>
+
+        <div v-if="smtpResult" role="status"
+          :class="[
+            'rounded-xl px-4 py-3 text-sm break-words',
+            smtpResult.ok ? 'bg-tp-success/15 text-tp-success' : 'bg-tp-danger/15 text-tp-error',
+          ]">
+          {{ smtpResult.text }}
+        </div>
+
+        <p class="text-tp-outline text-xs">
+          The test email goes to your own account's address and uses the saved settings, so save first.
+          The password is stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code> and is never shown again.
+          Changes take effect immediately, no API restart required.
         </p>
       </div>
     </div>
