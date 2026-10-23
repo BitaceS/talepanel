@@ -87,7 +87,14 @@ func SetupRouter(
 		}
 	}()
 	backupSvc := services.NewBackupService(db, daemonPool, log)
-	smtpNotifier := alerting.NewSMTPNotifier(envSMTPConfig(cfg), log)
+	smtpEnv := envSMTPConfig(cfg)
+	smtpNotifier := alerting.NewSMTPNotifier(smtpEnv, log)
+	// Email settings saved in the panel win over the SMTP_* env vars.
+	if dbSMTP, err := appSettingsSvc.GetSMTP(ctx); err != nil {
+		log.Warn("could not load smtp settings from app_settings", zap.Error(err))
+	} else if dbSMTP != nil {
+		smtpNotifier.SetConfig(*dbSMTP)
+	}
 	webhookNotifier := alerting.NewWebhookNotifier(log)
 	discordNotifier := alerting.NewDiscordNotifier(log)
 	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, discordNotifier, log)
@@ -369,6 +376,12 @@ func SetupRouter(
 		integrationsH := handlers.NewIntegrationsHandler(appSettingsSvc, cfSvc)
 		adminGroup.GET("/integrations/curseforge", integrationsH.GetCurseForge)
 		adminGroup.PUT("/integrations/curseforge", integrationsH.UpdateCurseForge)
+
+		// Email (SMTP) for alert notifications.
+		smtpH := handlers.NewSMTPSettingsHandler(appSettingsSvc, smtpNotifier, smtpEnv)
+		adminGroup.GET("/integrations/smtp", smtpH.GetSMTP)
+		adminGroup.PUT("/integrations/smtp", smtpH.UpdateSMTP)
+		adminGroup.POST("/integrations/smtp/test", smtpH.TestSMTP)
 
 		// Hytale account link: servers start authenticated with a minted game session.
 		adminGroup.GET("/hytale-auth", hytaleH.AuthStatus)
