@@ -67,6 +67,28 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get update && apt-get install -y --no-install-recommends temurin-25-jre \
     && rm -rf /var/lib/apt/lists/*
 
+# rclone — transport for off-site backups (OneDrive, Google Drive, Dropbox,
+# S3, B2, SFTP, WebDAV).  Pinned release from downloads.rclone.org, verified
+# against the SHA-256 published in that release's SHA256SUMS.  Debian's own
+# package (1.60 in bookworm) is too old for current OneDrive/Drive APIs.
+ARG RCLONE_VERSION=1.75.2
+ARG RCLONE_SHA256_AMD64=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
+ARG RCLONE_SHA256_ARM64=7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10
+RUN set -eu; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) sum="$RCLONE_SHA256_AMD64" ;; \
+        arm64) sum="$RCLONE_SHA256_ARM64" ;; \
+        *) echo "no pinned rclone checksum for $arch" >&2; exit 1 ;; \
+    esac; \
+    tmp="$(mktemp -d)"; \
+    curl -fsSL -o "$tmp/rclone.zip" "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${arch}.zip"; \
+    echo "$sum  $tmp/rclone.zip" | sha256sum -c -; \
+    unzip -q "$tmp/rclone.zip" -d "$tmp"; \
+    install -m 0755 "$tmp/rclone-v${RCLONE_VERSION}-linux-${arch}/rclone" /usr/local/bin/rclone; \
+    rm -rf "$tmp"; \
+    rclone version | head -n 1
+
 COPY --from=builder /build/target/release/taledaemon /usr/local/bin/taledaemon
 
 EXPOSE 8444

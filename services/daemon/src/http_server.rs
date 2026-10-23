@@ -1749,6 +1749,10 @@ async fn create_archive(
 #[derive(Deserialize)]
 struct BackupRequest {
     backup_id: String,
+    /// Off-site destination the archive lives on (restore/download of a
+    /// backup whose local copy was removed, upload, remote delete).
+    #[serde(default)]
+    remote: Option<crate::rclone::RemoteSpec>,
 }
 
 #[derive(Deserialize)]
@@ -1852,17 +1856,27 @@ async fn restore_backup(
     }
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
-    if !archive_path.is_file() {
+    // A backup whose local copy was dropped after upload is fetched first.
+    let fetched = if archive_path.is_file() {
+        None
+    } else if let Some(remote) = req.remote.as_ref() {
+        match fetch_remote_archive(&state, &server_id, &req.backup_id, remote).await {
+            Ok(tmp) => Some(tmp),
+            Err(resp) => return resp,
+        }
+    } else {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
-    }
+    };
+    let source = fetched.as_ref().map(|t| t.path.clone()).unwrap_or(archive_path);
 
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
+        let file = std::fs::File::open(&source).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
         let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
         Ok(stats.written)
     })
     .await;
+    drop(fetched);
 
     match result {
         Ok(Ok(count)) => ActionResponse::ok(format!("restored {count} entries")).into_response(),
@@ -1886,17 +1900,223 @@ async fn download_backup(
     if !archive_path.is_file() {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
     }
+    stream_archive(&archive_path, &backup_id, None).await
+}
 
-    match tokio::fs::read(&archive_path).await {
-        Ok(data) => {
-            let headers = [
-                (axum::http::header::CONTENT_TYPE, "application/zip".to_string()),
-                (axum::http::header::CONTENT_DISPOSITION, content_disposition_attachment(&format!("{backup_id}.zip"))),
-            ];
-            (headers, data).into_response()
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to read archive: {e}")}))).into_response(),
+/// `POST /servers/:id/backup/download` — like the GET variant, but the body
+/// may carry the off-site remote to fetch from when the local copy is gone.
+/// (POST so the remote's credentials never end up in a URL.)
+async fn download_backup_from(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    if !valid_backup_id(&req.backup_id) || !valid_server_id(&server_id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or backup_id"}))).into_response();
     }
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
+    if archive_path.is_file() {
+        return stream_archive(&archive_path, &req.backup_id, None).await;
+    }
+    let Some(remote) = req.remote.as_ref() else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+    };
+    match fetch_remote_archive(&state, &server_id, &req.backup_id, remote).await {
+        Ok(tmp) => {
+            let path = tmp.path.clone();
+            stream_archive(&path, &req.backup_id, Some(tmp)).await
+        }
+        Err(resp) => resp,
+    }
+}
+
+/// Stream a zip file as an attachment without loading it into memory.
+/// `owned_tmp` is kept alive until the stream finishes, then removed.
+async fn stream_archive(
+    path: &std::path::Path,
+    backup_id: &str,
+    owned_tmp: Option<TempArchive>,
+) -> axum::response::Response {
+    use tokio::io::AsyncReadExt;
+
+    let mut file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to read archive: {e}")}))).into_response()
+        }
+    };
+    let len = file.metadata().await.map(|m| m.len()).ok();
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(8);
+    tokio::spawn(async move {
+        let _keep = owned_tmp;
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            match file.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(Ok(axum::body::Bytes::copy_from_slice(&buf[..n]))).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e)).await;
+                    break;
+                }
+            }
+        }
+    });
+    let body = axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+    let mut resp = axum::response::Response::new(body);
+    let headers = resp.headers_mut();
+    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/zip"));
+    if let Ok(v) = axum::http::HeaderValue::from_str(&content_disposition_attachment(&format!("{backup_id}.zip"))) {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, v);
+    }
+    if let Some(len) = len {
+        headers.insert(axum::http::header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
+    }
+    resp
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Off-site backups (rclone) — upload, remote delete, fetch, connection test
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A remote archive fetched to the backups directory; deleted on drop.
+struct TempArchive {
+    path: PathBuf,
+}
+
+impl Drop for TempArchive {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Scratch space for rclone config files and fetched archives. Lives under
+/// the backups directory, outside every server's data dir.
+fn rclone_tmp_root(state: &AppState) -> PathBuf {
+    PathBuf::from(&state.backups_base_dir).join(".rclone")
+}
+
+#[derive(Serialize)]
+struct RemoteResponse {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_path: Option<String>,
+    config_updates: crate::rclone::ConfigUpdates,
+}
+
+fn remote_response<T>(outcome: crate::rclone::Outcome<T>, remote_path: impl FnOnce(&T) -> Option<String>) -> axum::response::Response {
+    match outcome.result {
+        Ok(v) => Json(RemoteResponse {
+            success: true,
+            error: None,
+            remote_path: remote_path(&v),
+            config_updates: outcome.config_updates,
+        })
+        .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(RemoteResponse { success: false, error: Some(e), remote_path: None, config_updates: outcome.config_updates }),
+        )
+            .into_response(),
+    }
+}
+
+fn remote_bad_request(msg: &str) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(RemoteResponse { success: false, error: Some(msg.to_string()), remote_path: None, config_updates: Default::default() }),
+    )
+        .into_response()
+}
+
+/// Fetch `<base>/<server>/<backup>.zip` into a temp file next to the local
+/// archives. Errors are returned as ready-made responses.
+async fn fetch_remote_archive(
+    state: &AppState,
+    server_id: &str,
+    backup_id: &str,
+    remote: &crate::rclone::RemoteSpec,
+) -> Result<TempArchive, axum::response::Response> {
+    let dir = PathBuf::from(&state.backups_base_dir).join(server_id);
+    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+        return Err(remote_response::<()>(
+            crate::rclone::Outcome { result: Err(format!("create backup dir: {e}")), config_updates: Default::default() },
+            |_| None,
+        ));
+    }
+    let tmp = TempArchive { path: dir.join(format!(".fetch-{}-{}.zip", backup_id, uuid::Uuid::new_v4())) };
+    let outcome = crate::rclone::fetch(&rclone_tmp_root(state), remote, server_id, &format!("{backup_id}.zip"), &tmp.path).await;
+    if outcome.result.is_err() || !tmp.path.is_file() {
+        let outcome = crate::rclone::Outcome {
+            result: Err::<(), String>(outcome.result.err().unwrap_or_else(|| "rclone did not produce the archive".into())),
+            config_updates: outcome.config_updates,
+        };
+        return Err(remote_response(outcome, |_| None));
+    }
+    Ok(tmp)
+}
+
+/// `POST /servers/:id/backup/upload` — copy a local archive to the remote.
+/// Body: `{"backup_id": "<uuid>", "remote": {...}}`. The local archive is
+/// never touched; the panel decides whether to delete it afterwards.
+async fn upload_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    if !valid_backup_id(&req.backup_id) || !valid_server_id(&server_id) {
+        return remote_bad_request("invalid server id or backup_id");
+    }
+    let Some(remote) = req.remote.as_ref() else {
+        return remote_bad_request("remote is required");
+    };
+    let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
+    if !archive_path.is_file() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(RemoteResponse { success: false, error: Some("backup archive not found".into()), remote_path: None, config_updates: Default::default() }),
+        )
+            .into_response();
+    }
+    info!(%server_id, backup_id = %req.backup_id, backend = %remote.backend, "uploading backup off-site");
+    let outcome = crate::rclone::upload(&rclone_tmp_root(&state), remote, &archive_path, &server_id, &format!("{}.zip", req.backup_id)).await;
+    if let Err(e) = &outcome.result {
+        warn!(%server_id, backup_id = %req.backup_id, error = %e, "off-site upload failed");
+    }
+    remote_response(outcome, |p| Some(p.clone()))
+}
+
+/// `POST /servers/:id/backup/remote-delete` — delete the remote copy
+/// (idempotent: a missing object is success).
+async fn delete_remote_backup(
+    State(state): State<AppState>,
+    Path(server_id): Path<String>,
+    Json(req): Json<BackupRequest>,
+) -> impl IntoResponse {
+    if !valid_backup_id(&req.backup_id) || !valid_server_id(&server_id) {
+        return remote_bad_request("invalid server id or backup_id");
+    }
+    let Some(remote) = req.remote.as_ref() else {
+        return remote_bad_request("remote is required");
+    };
+    let outcome = crate::rclone::delete(&rclone_tmp_root(&state), remote, &server_id, &format!("{}.zip", req.backup_id)).await;
+    remote_response(outcome, |_| None)
+}
+
+#[derive(Deserialize)]
+struct RemoteTestRequest {
+    remote: crate::rclone::RemoteSpec,
+}
+
+/// `POST /rclone/test` — write and delete a probe file on the remote.
+async fn test_remote(State(state): State<AppState>, Json(req): Json<RemoteTestRequest>) -> impl IntoResponse {
+    let outcome = crate::rclone::test(&rclone_tmp_root(&state), &req.remote).await;
+    remote_response(outcome, |_| None)
 }
 
 /// `DELETE /servers/:id/backup?backup_id=<uuid>` — remove a backup archive.
@@ -2073,7 +2293,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/files/archive", post(create_archive))
         .route("/servers/:id/backup", post(create_backup).delete(delete_backup))
         .route("/servers/:id/backup/restore", post(restore_backup))
-        .route("/servers/:id/backup/download", get(download_backup))
+        .route("/servers/:id/backup/download", get(download_backup).post(download_backup_from))
+        .route("/servers/:id/backup/upload", post(upload_backup))
+        .route("/servers/:id/backup/remote-delete", post(delete_remote_backup))
+        .route("/rclone/test", post(test_remote))
         .route("/servers/:id/import", post(import_server))
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 

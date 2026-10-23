@@ -32,6 +32,8 @@ var sensitiveFields = map[string]struct{}{
 	"secret":           {},
 	"setup_code":       {},
 	"api_key":          {},
+	// Backup destination credentials (OAuth tokens, keys, passwords).
+	"secrets": {},
 }
 
 // multiSlash collapses consecutive slashes and trailing slashes for

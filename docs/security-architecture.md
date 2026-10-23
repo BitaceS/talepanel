@@ -151,8 +151,15 @@ Content-Security-Policy: default-src 'self'
 - Logs are append-only (no update/delete endpoints)
 
 ### Backup Storage
-- **Today:** backups are Zip archives written by the daemon to the same node as the server. They are served through the authenticated API (RBAC-checked); there is no public URL and no object-storage upload path in the code.
-- **Planned (S3/object storage):** private bucket ACL, presigned download URLs with short TTL, credentials from env only.
+- Backups are Zip archives written by the daemon on the server's node (`/srv/taledaemon/backups/<server>/<backup>.zip`). They are served through the authenticated API (RBAC-checked); there is no public URL.
+- **Off-site destinations** (OneDrive, Google Drive, Dropbox, S3-compatible, Backblaze B2, SFTP, WebDAV) are configured by admins/owners only. The node uploads with rclone to `<base path>/<server id>/<backup id>.zip`.
+- **Credentials at rest:** tokens, keys and passwords are stored AES-256-GCM encrypted with `TOTP_ENC_KEY` (same envelope as `app_settings`). The API never returns them; the UI only sees a "stored" flag per secret. Request bodies with a `secrets` object are redacted in the audit log.
+- **Credentials in transit:** the API sends the destination to the daemon in the request body of each backup operation (never in a URL). Protect the panel ↔ daemon link as described under *Node Daemon Security → Communication Security*; anyone who can read that traffic can read the destination credentials.
+- **On the node:** rclone gets its config from a per-operation file (0600 in a 0700 directory below `/srv/taledaemon/backups/.rclone/`, removed afterwards; stale ones are swept). Secrets never appear on the rclone command line (`ps`); passwords are obscured through `rclone obscure -` on stdin. rclone is started without a shell, with `--` before positional arguments, under a timeout.
+- **Option allowlist:** the API accepts only the options listed per provider; the daemon additionally refuses option keys that run commands or read local files (`ssh`, `*_command`, `*_file`, `config_*`, `type`) and values containing line breaks, and validates the base path (no `..`, no segment starting with `-`).
+- **Token refresh:** rclone writes refreshed OAuth tokens (and the OneDrive drive it looked up) into the temporary config; the daemon returns only `token`, `drive_id` and `drive_type` changes, which the API re-encrypts.
+- SFTP destinations do not pin the server's host key (rclone's default without `known_hosts_file`); use a host you reach over a trusted network or prefer another provider when that matters.
+- Uploaded archives are not encrypted by TalePanel; rely on the provider's encryption at rest.
 
 ---
 
@@ -188,5 +195,5 @@ Content-Security-Policy: default-src 'self'
 | SQL injection | Parameterized queries throughout |
 | Rogue daemon node | Node token authentication + future mTLS |
 | Privilege escalation | RBAC at middleware + service layer (dual check) |
-| Backup data exposure | Backups stay on the node, downloadable only through the RBAC-checked API |
+| Backup data exposure | Downloadable only through the RBAC-checked API; off-site destinations configured by admins only, credentials encrypted at rest and never returned |
 | Log injection | Structured logging (zap), no string interpolation |

@@ -473,6 +473,15 @@ EOF
   log "starting daemon..."
   docker compose up -d
 
+  # Off-site backups run rclone inside the daemon container; the image
+  # installs a pinned, checksum-verified release (services/daemon/Dockerfile),
+  # so the host itself needs no rclone.
+  if docker compose exec -T daemon rclone version >/dev/null 2>&1; then
+    success "rclone available for off-site backups"
+  else
+    warn "rclone not found in the daemon container — off-site backups will fail until the image is rebuilt"
+  fi
+
   if curl $curl_flags -o /dev/null "$PANEL_URL/api/v1/health"; then
     success "panel reachable"
   else

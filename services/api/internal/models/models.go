@@ -267,6 +267,16 @@ type Backup struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	Error       *string    `json:"error,omitempty"`
+	// Off-site copy (rclone destination). UploadStatus is nil for local-only
+	// backups, else pending/uploading/done/failed.
+	DestinationID   *uuid.UUID `json:"destination_id,omitempty"`
+	DestinationName *string    `json:"destination_name,omitempty"`
+	RemotePath      *string    `json:"remote_path,omitempty"`
+	UploadStatus    *string    `json:"upload_status,omitempty"`
+	UploadError     *string    `json:"upload_error,omitempty"`
+	// LocalPresent is false once the on-node archive was removed because the
+	// destination keeps no local copy.
+	LocalPresent bool `json:"local_present"`
 }
 
 // BackupSchedule represents a cron-based backup schedule.
@@ -282,6 +292,7 @@ type BackupSchedule struct {
 	LastRun        *time.Time `json:"last_run,omitempty"`
 	NextRun        *time.Time `json:"next_run,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
+	DestinationID  *uuid.UUID `json:"destination_id,omitempty"`
 }
 
 // AlertRule represents an alert trigger rule.

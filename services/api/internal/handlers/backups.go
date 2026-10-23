@@ -128,6 +128,28 @@ func (h *BackupHandler) RestoreBackup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"backup": backup, "message": "restore initiated"})
 }
 
+// RetryUpload — POST /backups/:backupId/upload — re-run a failed off-site upload.
+func (h *BackupHandler) RetryUpload(c *gin.Context) {
+	backupID, ok := parseUUID(c, "backupId")
+	if !ok {
+		return
+	}
+	serverID, err := h.backupSvc.BackupServerID(c.Request.Context(), backupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "backup not found"})
+		return
+	}
+	if !h.requireServerPerm(c, serverID, "backup.create") {
+		return
+	}
+	backup, err := h.backupSvc.RetryUpload(c.Request.Context(), backupID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"backup": backup, "message": "upload started"})
+}
+
 func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 	backupID, ok := parseUUID(c, "backupId")
 	if !ok {

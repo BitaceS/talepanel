@@ -86,7 +86,8 @@ func SetupRouter(
 			log.Warn("redistributing network mod configs on startup failed", zap.Error(err))
 		}
 	}()
-	backupSvc := services.NewBackupService(db, daemonPool, log)
+	backupDestSvc := services.NewBackupDestinationService(db, cfg.TOTPEncKey, daemonPool, log)
+	backupSvc := services.NewBackupService(db, daemonPool, backupDestSvc, log)
 	smtpEnv := envSMTPConfig(cfg)
 	smtpNotifier := alerting.NewSMTPNotifier(smtpEnv, log)
 	// Email settings saved in the panel win over the SMTP_* env vars.
@@ -125,6 +126,7 @@ func SetupRouter(
 	playerH := handlers.NewPlayerHandler(playerSvc, serverSvc, log)
 	networkRoutingH := handlers.NewNetworkRoutingHandler(networkRoutingSvc, log)
 	backupH := handlers.NewBackupHandler(backupSvc, permSvc, log)
+	backupDestH := handlers.NewBackupDestinationHandler(backupDestSvc, log)
 	alertH := handlers.NewAlertHandler(alertSvc, log)
 
 	// New handlers
@@ -328,7 +330,11 @@ func SetupRouter(
 		backupGroup.DELETE("/:backupId", backupH.DeleteBackup)
 		backupGroup.POST("/:backupId/restore", backupH.RestoreBackup)
 		backupGroup.GET("/:backupId/download", backupH.DownloadBackup)
+		backupGroup.POST("/:backupId/upload", backupH.RetryUpload)
 	}
+
+	// Off-site destinations picker (names only; managed under /admin).
+	v1.GET("/backup-destinations", authRequired, generalLimiter, backupDestH.ListSummaries)
 
 	// Backup schedules — requires user authentication, general rate limit
 	scheduleGroup := v1.Group("/backup-schedules")
@@ -385,6 +391,13 @@ func SetupRouter(
 		adminGroup.GET("/integrations/smtp", smtpH.GetSMTP)
 		adminGroup.PUT("/integrations/smtp", smtpH.UpdateSMTP)
 		adminGroup.POST("/integrations/smtp/test", smtpH.TestSMTP)
+		// Off-site backup destinations (rclone remotes on the nodes).
+		adminGroup.GET("/backup-destinations/providers", backupDestH.Providers)
+		adminGroup.GET("/backup-destinations", backupDestH.List)
+		adminGroup.POST("/backup-destinations", backupDestH.Create)
+		adminGroup.PUT("/backup-destinations/:id", backupDestH.Update)
+		adminGroup.DELETE("/backup-destinations/:id", backupDestH.Delete)
+		adminGroup.POST("/backup-destinations/:id/test", backupDestH.Test)
 
 		// Hytale account link: servers start authenticated with a minted game session.
 		adminGroup.GET("/hytale-auth", hytaleH.AuthStatus)
