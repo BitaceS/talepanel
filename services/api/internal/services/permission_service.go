@@ -197,3 +197,77 @@ func (s *PermissionService) ListAllPermissions(ctx context.Context) ([]models.Pe
 	}
 	return perms, rows.Err()
 }
+
+// ─── Per-server member roles ─────────────────────────────────────────────────
+
+// ErrInvalidMemberRole is returned for a server member role other than
+// viewer/moderator/admin (the server_member_role enum).
+var ErrInvalidMemberRole = errors.New("role must be viewer, moderator or admin")
+
+// ServerScopedPermissions are the permission keys checked per server (via
+// RequireServerPermission or HasServerPermission). A member's per-server
+// override map lists every one of them, so the member role decides what the
+// member may do on that server instead of their global role.
+var ServerScopedPermissions = []string{
+	"server.view", "server.manage", "server.start", "server.stop",
+	"server.console", "server.files", "server.delete",
+	"mod.install", "mod.remove",
+	"backup.create", "backup.restore",
+	"player.ban", "player.whitelist",
+	"database.view", "database.reset",
+}
+
+// serverMemberRoleGrants are the permissions each server member role grants.
+// server.delete is never granted: only the server's owner (or cluster staff)
+// may delete a server.
+var serverMemberRoleGrants = map[string][]string{
+	"viewer": {"server.view"},
+	"moderator": {
+		"server.view", "server.start", "server.stop", "server.console",
+		"mod.install", "mod.remove", "backup.create",
+		"player.ban", "player.whitelist", "database.view",
+	},
+	"admin": {
+		"server.view", "server.manage", "server.start", "server.stop",
+		"server.console", "server.files",
+		"mod.install", "mod.remove", "backup.create", "backup.restore",
+		"player.ban", "player.whitelist", "database.view", "database.reset",
+	},
+}
+
+// ServerMemberRolePermissions returns the explicit per-server permission map
+// for a member role: every server-scoped key, true when the role grants it.
+func ServerMemberRolePermissions(role string) (map[string]bool, error) {
+	grants, ok := serverMemberRoleGrants[role]
+	if !ok {
+		return nil, ErrInvalidMemberRole
+	}
+	perms := make(map[string]bool, len(ServerScopedPermissions))
+	for _, key := range ServerScopedPermissions {
+		perms[key] = false
+	}
+	for _, key := range grants {
+		perms[key] = true
+	}
+	return perms, nil
+}
+
+// MissingServerPermissions returns the keys granted in perms that user does
+// not hold on serverID. Used to stop a member from handing out more access
+// than they have themselves.
+func (s *PermissionService) MissingServerPermissions(ctx context.Context, user *models.User, serverID uuid.UUID, perms map[string]bool) ([]string, error) {
+	var missing []string
+	for _, key := range ServerScopedPermissions {
+		if !perms[key] {
+			continue
+		}
+		ok, err := s.HasServerPermission(ctx, user, serverID, key)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			missing = append(missing, key)
+		}
+	}
+	return missing, nil
+}

@@ -2214,6 +2214,10 @@ const sidebarMods = computed(() => {
                 {{ invitingEmail ? 'Sending…' : 'Invite' }}
               </button>
             </div>
+            <p class="text-tp-muted text-xs">
+              Viewer: read-only. Moderator: start/stop, console, players, mods, backups.
+              Admin: everything except deleting the server. You can only grant what you hold yourself.
+            </p>
 
             <div v-if="invitationsStore.serverInvitations.length === 0" class="text-tp-muted text-xs py-3 text-center">
               No pending invitations.

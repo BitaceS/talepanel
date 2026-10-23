@@ -311,9 +311,11 @@ type ServerInvitation struct {
 	InviteeEmail string    `json:"invitee_email"`
 	Token        string    `json:"token,omitempty"`
 	Role         string    `json:"role"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	// Per-server permissions the invitee gets on accept (derived from Role).
+	Permissions map[string]bool `json:"permissions,omitempty"`
+	Status      string          `json:"status"`
+	CreatedAt   time.Time       `json:"created_at"`
+	ExpiresAt   time.Time       `json:"expires_at"`
 }
 
 // ServerDatabase represents a per-server MariaDB database.
