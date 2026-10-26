@@ -83,3 +83,9 @@ srv/
 # talepanel.com marketing site: kept locally, not part of the self-hosted product
 website/
 docs/website/
+
+# ─────────────────────────────────────────────
+# Local tooling, not part of the product
+# ─────────────────────────────────────────────
+strix-claude-code/
+.impeccable/
