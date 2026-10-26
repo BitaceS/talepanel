@@ -34,6 +34,7 @@ A fresh install via `scripts/install.sh --mode panel` guarantees:
 - No seed account and no default password — the first owner is created during install via the setup wizard.
 - Owner and admin passwords enforce a 12-character + digit + symbol policy.
 - TOTP secrets are encrypted at rest with AES-256-GCM (`TOTP_ENC_KEY`).
+- Server backups are encrypted with ChaCha20-Poly1305 (streaming AEAD) under a panel-managed key before the archive is written on the node, so both the local copy and any off-site upload are sealed. The key is stored encrypted in the panel database, never on the daemon host; it can be rotated and older backups stay restorable.
 - Refresh tokens are stored hashed with SHA-256, access tokens signed with HS256, JTI blacklist on logout.
 - Rate limiting (Redis sliding window): 30 req/min on `/auth/*`, 120 req/min on the rest, per client IP.
 - Caddy reverse proxy terminates TLS with automatic Let's Encrypt certificates.
@@ -47,7 +48,7 @@ The installer cannot enforce what is outside its reach. As the operator, you are
 - Firewalling Postgres and Redis — they should **not** be exposed to the public internet. The installer binds them to the internal Docker network by default; do not publish their ports.
 - Protecting the panel host's filesystem — `/opt/talepanel/deploy/panel/.env` is `chmod 600` owned by root, keep it that way.
 - Backing up the Postgres database off-site. TalePanel does not back up its own control plane.
-- Getting server backups off the node. TalePanel's backups are Zip archives stored on the node — on their own they survive a bad update, not a dead disk. Add an off-site destination (Backups → Destinations) with credentials scoped to that purpose, and check the upload status after the first run.
+- Getting server backups off the node. TalePanel's backups are Zip archives stored on the node — on their own they survive a bad update, not a dead disk. Add an off-site destination (Backups → Destinations) with credentials scoped to that purpose, and check the upload status after the first run. Archives are encrypted before upload (see the promises above), so a leaked storage credential exposes ciphertext, not your worlds — but **export and keep the backup key** (Admin → Integrations → Backup encryption) somewhere safe, because a lost panel database makes encrypted backups unrecoverable.
 - Rotating your CurseForge API key if exposed (only relevant if you set one under Admin → Integrations).
 - If you use GDPR-relevant personal data (player IPs, emails), publishing a privacy policy and honouring deletion requests via the admin UI.
 
