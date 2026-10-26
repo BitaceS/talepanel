@@ -4,6 +4,13 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Security
+- Server backups are now encrypted. Each archive is sealed with ChaCha20-Poly1305 (streaming AEAD, 64 KiB chunks, `TPBKENC1` header) on the node *before* it is written, so both the local copy and every off-site upload are ciphertext — a leaked OneDrive/Drive/S3/SFTP credential no longer exposes your worlds. The symmetric key is panel-managed: stored encrypted in the database (AES-256-GCM under `TOTP_ENC_KEY`), never persisted on the node, and handed to the daemon per operation over HTTPS. On by default, nothing to configure.
+- Backup keys can be rotated, and backups sealed with an older key stay restorable (each backup records its key id, migration 040). Legacy plaintext backups are detected by the absent header and still restore.
+
+### Added
+- Backup encryption controls under Admin → Integrations → Backup encryption: the active key id is shown, and owners can reveal/export the key for off-site escrow or rotate it. New owner-only, audit-logged endpoints `GET /admin/backup-key`, `GET /admin/backup-key/export`, `POST /admin/backup-key/rotate`. The backup list shows an "Encrypted" badge per backup.
+
 ## [0.11.0-beta] — 2026-10-24
 
 Off-site backups (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV), email setup in the panel, auto restart, CPU limits, and invitation roles that actually apply.
