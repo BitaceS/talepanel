@@ -277,6 +277,9 @@ type Backup struct {
 	// LocalPresent is false once the on-node archive was removed because the
 	// destination keeps no local copy.
 	LocalPresent bool `json:"local_present"`
+	// Encrypted is true when the archive was written with a panel-managed
+	// encryption key (enc_key_id set).
+	Encrypted bool `json:"encrypted"`
 }
 
 // BackupSchedule represents a cron-based backup schedule.

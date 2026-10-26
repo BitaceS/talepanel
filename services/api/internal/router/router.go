@@ -87,7 +87,7 @@ func SetupRouter(
 		}
 	}()
 	backupDestSvc := services.NewBackupDestinationService(db, cfg.TOTPEncKey, daemonPool, log)
-	backupSvc := services.NewBackupService(db, daemonPool, backupDestSvc, log)
+	backupSvc := services.NewBackupService(db, daemonPool, backupDestSvc, appSettingsSvc, log)
 	smtpEnv := envSMTPConfig(cfg)
 	smtpNotifier := alerting.NewSMTPNotifier(smtpEnv, log)
 	// Email settings saved in the panel win over the SMTP_* env vars.
@@ -391,6 +391,14 @@ func SetupRouter(
 		adminGroup.GET("/integrations/smtp", smtpH.GetSMTP)
 		adminGroup.PUT("/integrations/smtp", smtpH.UpdateSMTP)
 		adminGroup.POST("/integrations/smtp/test", smtpH.TestSMTP)
+
+		// Backup encryption key (panel-managed). Status is admin-visible;
+		// export and rotate are owner-only. All are audited by the v1 audit log.
+		backupKeyH := handlers.NewBackupKeyHandler(appSettingsSvc)
+		adminGroup.GET("/backup-key", backupKeyH.Status)
+		adminGroup.GET("/backup-key/export", middleware.RequireRole(models.RoleOwner), backupKeyH.Export)
+		adminGroup.POST("/backup-key/rotate", middleware.RequireRole(models.RoleOwner), backupKeyH.Rotate)
+
 		// Off-site backup destinations (rclone remotes on the nodes).
 		adminGroup.GET("/backup-destinations/providers", backupDestH.Providers)
 		adminGroup.GET("/backup-destinations", backupDestH.List)

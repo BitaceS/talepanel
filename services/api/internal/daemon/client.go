@@ -405,10 +405,30 @@ func (c *Client) longClient() *http.Client {
 	return &http.Client{Timeout: 0}
 }
 
+// EncKey carries a panel-managed backup key to the daemon for one operation.
+// The daemon encrypts with it on create and decrypts with it on restore/
+// download; it is never stored on the node.
+type EncKey struct {
+	Key   string // base64 32-byte key
+	KeyID uint8
+}
+
+// backupBody builds a backup request body, adding the encryption key when set.
+func backupBody(backupID string, enc *EncKey) []byte {
+	m := map[string]any{"backup_id": backupID}
+	if enc != nil {
+		m["encryption_key"] = enc.Key
+		m["key_id"] = enc.KeyID
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
 // CreateBackup asks the daemon to archive the whole server data dir into the
-// backups directory and returns the archive size and on-node path.
-func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string) (*BackupCreatedResponse, error) {
-	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
+// backups directory and returns the archive size and on-node path. When enc is
+// set the archive is encrypted.
+func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string, enc *EncKey) (*BackupCreatedResponse, error) {
+	body := backupBody(backupID, enc)
 	backupURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/backup", nil)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backupURL, bytes.NewReader(body))
 	if err != nil {
@@ -435,9 +455,10 @@ func (c *Client) CreateBackup(ctx context.Context, serverID, backupID string) (*
 	return &out, nil
 }
 
-// RestoreBackup asks the daemon to extract a backup archive back into the server.
-func (c *Client) RestoreBackup(ctx context.Context, serverID, backupID string) error {
-	body, _ := json.Marshal(map[string]string{"backup_id": backupID})
+// RestoreBackup asks the daemon to extract a backup archive back into the
+// server. When enc is set the archive is decrypted first.
+func (c *Client) RestoreBackup(ctx context.Context, serverID, backupID string, enc *EncKey) error {
+	body := backupBody(backupID, enc)
 	restoreURL := c.endpoint("/servers/"+url.PathEscape(serverID)+"/backup/restore", nil)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, restoreURL, bytes.NewReader(body))
 	if err != nil {

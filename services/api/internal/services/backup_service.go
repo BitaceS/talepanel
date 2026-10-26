@@ -51,17 +51,57 @@ const remoteTransferTimeout = 6 * time.Hour
 const maxUploadErrorLen = 2000
 
 type BackupService struct {
-	db      *pgxpool.Pool
-	daemons *daemon.ClientPool
-	dests   *BackupDestinationService
-	log     *zap.Logger
+	db       *pgxpool.Pool
+	daemons  *daemon.ClientPool
+	dests    *BackupDestinationService
+	settings *AppSettingsService
+	log      *zap.Logger
 }
 
-func NewBackupService(db *pgxpool.Pool, daemons *daemon.ClientPool, dests *BackupDestinationService, log *zap.Logger) *BackupService {
+func NewBackupService(db *pgxpool.Pool, daemons *daemon.ClientPool, dests *BackupDestinationService, settings *AppSettingsService, log *zap.Logger) *BackupService {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &BackupService{db: db, daemons: daemons, dests: dests, log: log}
+	return &BackupService{db: db, daemons: daemons, dests: dests, settings: settings, log: log}
+}
+
+// activeEncKey returns the key new backups are encrypted with and the key id to
+// record on the row. Returns (nil, nil, nil) when encryption is not configured.
+func (s *BackupService) activeEncKey(ctx context.Context) (*daemon.EncKey, *int, error) {
+	if s.settings == nil {
+		return nil, nil, nil
+	}
+	kr, err := s.settings.BackupKeyring(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, key, ok := kr.ActiveKey()
+	if !ok {
+		return nil, nil, fmt.Errorf("backup keyring has no active key")
+	}
+	idInt := int(id)
+	return &daemon.EncKey{Key: key, KeyID: id}, &idInt, nil
+}
+
+// encKeyForBackup returns the key that decrypts a specific backup, or nil for a
+// legacy plaintext backup (enc_key_id NULL).
+func (s *BackupService) encKeyForBackup(ctx context.Context, backupID uuid.UUID) (*daemon.EncKey, error) {
+	var encKeyID *int
+	if err := s.db.QueryRow(ctx, `SELECT enc_key_id FROM backups WHERE id = $1`, backupID).Scan(&encKeyID); err != nil {
+		return nil, fmt.Errorf("loading backup key id: %w", err)
+	}
+	if encKeyID == nil || s.settings == nil {
+		return nil, nil
+	}
+	kr, err := s.settings.BackupKeyring(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key, ok := kr.KeyByID(uint8(*encKeyID))
+	if !ok {
+		return nil, fmt.Errorf("the key that encrypted this backup (id %d) is missing from the keyring", *encKeyID)
+	}
+	return &daemon.EncKey{Key: key, KeyID: uint8(*encKeyID)}, nil
 }
 
 // serverNode returns the node UUID a server is assigned to.
@@ -81,7 +121,8 @@ const backupSelect = `
 	SELECT b.id, b.server_id, b.world_name, b.type, b.storage, b.storage_path,
 	       b.size_bytes, b.checksum, b.status, b.triggered_by, b.created_at,
 	       b.completed_at, b.expires_at, b.error,
-	       b.destination_id, d.name, b.remote_path, b.upload_status, b.upload_error, b.local_present
+	       b.destination_id, d.name, b.remote_path, b.upload_status, b.upload_error, b.local_present,
+	       (b.enc_key_id IS NOT NULL) AS encrypted
 	FROM backups b
 	LEFT JOIN backup_destinations d ON d.id = b.destination_id`
 
@@ -90,7 +131,8 @@ func scanBackup(row pgx.Row) (*models.Backup, error) {
 	err := row.Scan(&b.ID, &b.ServerID, &b.WorldName, &b.Type, &b.Storage,
 		&b.StoragePath, &b.SizeBytes, &b.Checksum, &b.Status, &b.TriggeredBy,
 		&b.CreatedAt, &b.CompletedAt, &b.ExpiresAt, &b.Error,
-		&b.DestinationID, &b.DestinationName, &b.RemotePath, &b.UploadStatus, &b.UploadError, &b.LocalPresent)
+		&b.DestinationID, &b.DestinationName, &b.RemotePath, &b.UploadStatus, &b.UploadError, &b.LocalPresent,
+		&b.Encrypted)
 	return b, err
 }
 
@@ -170,13 +212,20 @@ func (s *BackupService) createBackup(ctx context.Context, req CreateBackupReques
 		uploadStatus = &pending
 	}
 
+	// New backups are encrypted with the active panel-managed key; its id is
+	// recorded so the archive stays restorable across key rotation.
+	enc, encKeyID, err := s.activeEncKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var id uuid.UUID
 	err = s.db.QueryRow(ctx, `
 		INSERT INTO backups (server_id, world_name, type, storage, storage_path, status, triggered_by,
-		                     destination_id, upload_status)
-		VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)
+		                     destination_id, upload_status, enc_key_id)
+		VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9)
 		RETURNING id
-	`, req.ServerID, req.WorldName, req.Type, req.Storage, storagePath, triggeredBy, req.DestinationID, uploadStatus).Scan(&id)
+	`, req.ServerID, req.WorldName, req.Type, req.Storage, storagePath, triggeredBy, req.DestinationID, uploadStatus, encKeyID).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating backup: %w", err)
 	}
@@ -187,14 +236,14 @@ func (s *BackupService) createBackup(ctx context.Context, req CreateBackupReques
 
 	// Archive on the node asynchronously; the row starts 'pending' and the
 	// worker transitions it to running -> completed/failed.
-	go s.runBackup(b.ID, req.ServerID, nodeID, req.DestinationID)
+	go s.runBackup(b.ID, req.ServerID, nodeID, req.DestinationID, enc)
 
 	return b, nil
 }
 
 // runBackup performs the archive on the node and updates the backup row's status.
 // Runs in its own goroutine with a fresh context (the request context is gone).
-func (s *BackupService) runBackup(backupID, serverID uuid.UUID, nodeID string, destinationID *uuid.UUID) {
+func (s *BackupService) runBackup(backupID, serverID uuid.UUID, nodeID string, destinationID *uuid.UUID, enc *daemon.EncKey) {
 	ctx, cancel := context.WithTimeout(context.Background(), backupDispatchTimeout)
 	defer cancel()
 
@@ -206,7 +255,7 @@ func (s *BackupService) runBackup(backupID, serverID uuid.UUID, nodeID string, d
 
 	_, _ = s.db.Exec(ctx, `UPDATE backups SET status = 'running' WHERE id = $1`, backupID)
 
-	res, err := client.CreateBackup(ctx, serverID.String(), backupID.String())
+	res, err := client.CreateBackup(ctx, serverID.String(), backupID.String(), enc)
 	if err != nil {
 		s.log.Warn("backup archive failed", zap.String("backup_id", backupID.String()), zap.Error(err))
 		s.failBackup(ctx, backupID, err.Error())
@@ -502,6 +551,10 @@ func (s *BackupService) RestoreBackup(ctx context.Context, backupID uuid.UUID) (
 	if err != nil {
 		return nil, err
 	}
+	enc, err := s.encKeyForBackup(ctx, backupID)
+	if err != nil {
+		return nil, err
+	}
 
 	// Extract on the node asynchronously; the backup record itself is unchanged.
 	go func() {
@@ -518,10 +571,10 @@ func (s *BackupService) RestoreBackup(ctx context.Context, backupID uuid.UUID) (
 		}
 		var rErr error
 		if remote != nil {
-			rErr = client.RestoreBackupFrom(bgCtx, serverID.String(), backupID.String(), remote)
+			rErr = client.RestoreBackupFrom(bgCtx, serverID.String(), backupID.String(), remote, enc)
 			s.dests.saveUpdatesFromErr(bgCtx, *b.DestinationID, rErr)
 		} else {
-			rErr = client.RestoreBackup(bgCtx, serverID.String(), backupID.String())
+			rErr = client.RestoreBackup(bgCtx, serverID.String(), backupID.String(), enc)
 		}
 		if rErr != nil {
 			s.log.Warn("restore failed", zap.String("backup_id", backupID.String()), zap.Error(rErr))
@@ -553,13 +606,19 @@ func (s *BackupService) DownloadBackup(ctx context.Context, backupID uuid.UUID) 
 	if err != nil {
 		return nil, "", err
 	}
+	enc, err := s.encKeyForBackup(ctx, backupID)
+	if err != nil {
+		return nil, "", err
+	}
 	client, err := s.daemons.Get(nodeID)
 	if err != nil {
 		return nil, "", fmt.Errorf("daemon not connected")
 	}
 	var body io.ReadCloser
-	if remote != nil {
-		body, err = client.DownloadBackupFrom(ctx, serverID.String(), backupID.String(), remote)
+	// An encrypted archive is decrypted on the node, which needs the key in the
+	// request body — so it (and any off-site fetch) goes through the POST path.
+	if remote != nil || enc != nil {
+		body, err = client.DownloadBackupFrom(ctx, serverID.String(), backupID.String(), remote, enc)
 	} else {
 		body, err = client.DownloadBackup(ctx, serverID.String(), backupID.String())
 	}

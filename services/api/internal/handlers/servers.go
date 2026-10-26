@@ -1368,8 +1368,9 @@ func (h *ServerHandler) MigrateServer(c *gin.Context) {
 	migrationID := uuid.NewString()
 	sid := serverID.String()
 
-	// 1. Archive the server on the source node.
-	if _, err := srcClient.CreateBackup(ctx, sid, migrationID); err != nil {
+	// 1. Archive the server on the source node. This is a transient node-to-node
+	// transfer archive (not a stored backup), so it stays plaintext — no key.
+	if _, err := srcClient.CreateBackup(ctx, sid, migrationID, nil); err != nil {
 		h.log.Warn("migration: source archive failed", zap.String("server_id", sid), zap.Error(err))
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to archive server on source node"})
 		return

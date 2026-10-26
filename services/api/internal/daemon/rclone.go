@@ -52,6 +52,20 @@ func (e *RemoteError) Error() string { return e.Message }
 type remoteBackupRequest struct {
 	BackupID string      `json:"backup_id"`
 	Remote   *RemoteSpec `json:"remote,omitempty"`
+	// Panel-managed encryption key for this operation (restore/download of an
+	// encrypted archive). Omitted for upload/delete, which move opaque bytes.
+	EncryptionKey string `json:"encryption_key,omitempty"`
+	KeyID         *uint8 `json:"key_id,omitempty"`
+}
+
+// withEnc returns the request with the panel-managed key applied when set.
+func (r remoteBackupRequest) withEnc(enc *EncKey) remoteBackupRequest {
+	if enc != nil {
+		r.EncryptionKey = enc.Key
+		id := enc.KeyID
+		r.KeyID = &id
+	}
+	return r
 }
 
 // postRemote sends body to path and decodes a RemoteResult.  A non-2xx answer
@@ -115,16 +129,16 @@ func (c *Client) TestRemote(ctx context.Context, remote RemoteSpec) (*RemoteResu
 
 // RestoreBackupFrom restores a backup; when the local archive is gone the
 // daemon first fetches it from remote.
-func (c *Client) RestoreBackupFrom(ctx context.Context, serverID, backupID string, remote *RemoteSpec) error {
+func (c *Client) RestoreBackupFrom(ctx context.Context, serverID, backupID string, remote *RemoteSpec, enc *EncKey) error {
 	_, err := c.postRemote(ctx, "/servers/"+url.PathEscape(serverID)+"/backup/restore",
-		remoteBackupRequest{BackupID: backupID, Remote: remote})
+		remoteBackupRequest{BackupID: backupID, Remote: remote}.withEnc(enc))
 	return err
 }
 
 // DownloadBackupFrom streams a backup archive; when the local archive is gone
 // the daemon fetches it from remote first.
-func (c *Client) DownloadBackupFrom(ctx context.Context, serverID, backupID string, remote *RemoteSpec) (io.ReadCloser, error) {
-	data, err := json.Marshal(remoteBackupRequest{BackupID: backupID, Remote: remote})
+func (c *Client) DownloadBackupFrom(ctx context.Context, serverID, backupID string, remote *RemoteSpec, enc *EncKey) (io.ReadCloser, error) {
+	data, err := json.Marshal(remoteBackupRequest{BackupID: backupID, Remote: remote}.withEnc(enc))
 	if err != nil {
 		return nil, fmt.Errorf("daemon: marshal body: %w", err)
 	}
