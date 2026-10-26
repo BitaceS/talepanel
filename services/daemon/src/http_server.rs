@@ -1771,6 +1771,13 @@ struct BackupRequest {
     /// backup whose local copy was removed, upload, remote delete).
     #[serde(default)]
     remote: Option<crate::rclone::RemoteSpec>,
+    /// Base64 32-byte key the panel manages. When present on create, the archive
+    /// is encrypted; on restore/download it decrypts an encrypted archive.
+    #[serde(default)]
+    encryption_key: Option<String>,
+    /// Which panel key id encrypted this archive (stored in the header).
+    #[serde(default)]
+    key_id: Option<u8>,
 }
 
 #[derive(Deserialize)]
@@ -1822,6 +1829,85 @@ fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Resul
     Ok(size)
 }
 
+/// Parse the optional panel-managed key from a backup request.
+fn parse_backup_key(req: &BackupRequest) -> Result<Option<([u8; 32], u8)>, Box<axum::response::Response>> {
+    match &req.encryption_key {
+        None => Ok(None),
+        Some(s) => {
+            let key = crate::backup_crypto::decode_key(s).map_err(|e| {
+                Box::new((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("invalid backup key: {e}")}))).into_response())
+            })?;
+            Ok(Some((key, req.key_id.unwrap_or(0))))
+        }
+    }
+}
+
+/// Peek an archive's first bytes to decide whether it is TalePanel-encrypted.
+fn archive_is_encrypted(path: &std::path::Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut head = [0u8; 8];
+    let mut filled = 0;
+    while filled < head.len() {
+        match f.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(k) => filled += k,
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(crate::backup_crypto::is_encrypted(&head[..filled]))
+}
+
+/// Zip `source` into `archive_path`; when `enc` is set, encrypt the archive.
+/// `ZipWriter` needs `Seek`, so build a plaintext zip in a temp first, then
+/// stream-encrypt it into place.
+fn write_backup_archive(
+    source: &std::path::Path,
+    archive_path: &std::path::Path,
+    enc: Option<(&[u8; 32], u8)>,
+) -> Result<u64, String> {
+    let Some((key, key_id)) = enc else {
+        return zip_dir_to(source, archive_path);
+    };
+    if let Some(parent) = archive_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create backup dir: {e}"))?;
+    }
+    let tmp = archive_path.with_extension(format!("plain-{}", uuid::Uuid::new_v4()));
+    zip_dir_to(source, &tmp)?;
+    let encrypted = match std::fs::File::open(&tmp) {
+        Ok(infile) => safe_fs::write_atomic(archive_path, |out| {
+            crate::backup_crypto::encrypt_stream(infile, out, key, key_id)
+        })
+        .map(|_| ())
+        .map_err(|e| format!("encrypt archive: {e}")),
+        Err(e) => Err(format!("open plaintext archive: {e}")),
+    };
+    let _ = std::fs::remove_file(&tmp);
+    encrypted?;
+    Ok(std::fs::metadata(archive_path).map(|m| m.len()).unwrap_or(0))
+}
+
+/// Return a readable plaintext archive path for `src`. If `src` is encrypted,
+/// decrypt it into `scratch_dir` and return a guard that removes the temp when
+/// dropped. A plaintext archive is read in place (guard `None`).
+fn open_plaintext_archive(
+    src: &std::path::Path,
+    key: Option<&[u8; 32]>,
+    scratch_dir: &std::path::Path,
+) -> Result<(PathBuf, Option<TempArchive>), String> {
+    if !archive_is_encrypted(src).map_err(|e| format!("read archive: {e}"))? {
+        return Ok((src.to_path_buf(), None));
+    }
+    let key = key.ok_or_else(|| "this backup is encrypted; a key is required to restore it".to_string())?;
+    std::fs::create_dir_all(scratch_dir).map_err(|e| format!("create scratch dir: {e}"))?;
+    let tmp = TempArchive { path: scratch_dir.join(format!(".plain-{}.zip", uuid::Uuid::new_v4())) };
+    let infile = std::fs::File::open(src).map_err(|e| format!("open archive: {e}"))?;
+    let out = std::fs::File::create(&tmp.path).map_err(|e| format!("create plaintext temp: {e}"))?;
+    crate::backup_crypto::decrypt_stream(infile, out, key).map_err(|e| format!("decrypt archive: {e}"))?;
+    Ok((tmp.path.clone(), Some(tmp)))
+}
+
 /// `POST /servers/:id/backup` — archive the whole server data dir into the
 /// backups directory. Body: `{"backup_id": "<uuid>"}`.
 async fn create_backup(
@@ -1832,6 +1918,10 @@ async fn create_backup(
     if !valid_backup_id(&req.backup_id) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid backup_id"}))).into_response();
     }
+    let enc = match parse_backup_key(&req) {
+        Ok(v) => v,
+        Err(resp) => return *resp,
+    };
 
     // The server data dir is validated the same way as every other file op.
     let source = match resolve_safe_path(&state.servers_base_dir, &server_id, "/").await {
@@ -1845,7 +1935,11 @@ async fn create_backup(
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
     let storage_path = archive_path.to_string_lossy().to_string();
 
-    let result = tokio::task::spawn_blocking(move || zip_dir_to(&source, &archive_path)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        let enc_ref = enc.as_ref().map(|(k, id)| (k, *id));
+        write_backup_archive(&source, &archive_path, enc_ref)
+    })
+    .await;
 
     match result {
         Ok(Ok(size_bytes)) => Json(BackupCreatedResponse { success: true, size_bytes, storage_path }).into_response(),
@@ -1886,9 +1980,16 @@ async fn restore_backup(
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
     };
     let source = fetched.as_ref().map(|t| t.path.clone()).unwrap_or(archive_path);
+    let key = match parse_backup_key(&req) {
+        Ok(v) => v.map(|(k, _)| k),
+        Err(resp) => return *resp,
+    };
+    let scratch = PathBuf::from(&state.backups_base_dir).join(".decrypt");
 
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let file = std::fs::File::open(&source).map_err(|e| format!("open archive: {e}"))?;
+        // Decrypt into a scratch plaintext zip first if the archive is encrypted.
+        let (plain_path, _guard) = open_plaintext_archive(&source, key.as_ref(), &scratch)?;
+        let file = std::fs::File::open(&plain_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
         let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
         Ok(stats.written)
@@ -1918,6 +2019,11 @@ async fn download_backup(
     if !archive_path.is_file() {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
     }
+    // Encrypted archives have no key on this unauthenticated GET path; the panel
+    // downloads them through the key-carrying POST variant instead.
+    if archive_is_encrypted(&archive_path).unwrap_or(false) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "this backup is encrypted; download it through the panel"}))).into_response();
+    }
     stream_archive(&archive_path, &backup_id, None).await
 }
 
@@ -1932,20 +2038,48 @@ async fn download_backup_from(
     if !valid_backup_id(&req.backup_id) || !valid_server_id(&server_id) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or backup_id"}))).into_response();
     }
+    let key = match parse_backup_key(&req) {
+        Ok(v) => v.map(|(k, _)| k),
+        Err(resp) => return *resp,
+    };
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
-    if archive_path.is_file() {
-        return stream_archive(&archive_path, &req.backup_id, None).await;
-    }
-    let Some(remote) = req.remote.as_ref() else {
+
+    // Ciphertext source: the local archive if present, else fetched off-site.
+    let (src_path, fetched): (PathBuf, Option<TempArchive>) = if archive_path.is_file() {
+        (archive_path, None)
+    } else if let Some(remote) = req.remote.as_ref() {
+        match fetch_remote_archive(&state, &server_id, &req.backup_id, remote).await {
+            Ok(tmp) => (tmp.path.clone(), Some(tmp)),
+            Err(resp) => return *resp,
+        }
+    } else {
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
     };
-    match fetch_remote_archive(&state, &server_id, &req.backup_id, remote).await {
-        Ok(tmp) => {
-            let path = tmp.path.clone();
-            stream_archive(&path, &req.backup_id, Some(tmp)).await
+
+    // Decrypt to a plaintext temp if needed, off the async thread.
+    let scratch = PathBuf::from(&state.backups_base_dir).join(".decrypt");
+    let decrypted = tokio::task::spawn_blocking(move || open_plaintext_archive(&src_path, key.as_ref(), &scratch)).await;
+    let (plain_path, guard) = match decrypted {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            drop(fetched);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response();
         }
-        Err(resp) => *resp,
-    }
+        Err(e) => {
+            drop(fetched);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("decrypt task failed: {e}")}))).into_response();
+        }
+    };
+    // When we decrypted, stream the plaintext temp and drop the ciphertext copy.
+    // When the archive was already plaintext, keep whatever temp holds it alive.
+    let owned = match guard {
+        Some(dtemp) => {
+            drop(fetched);
+            Some(dtemp)
+        }
+        None => fetched,
+    };
+    stream_archive(&plain_path, &req.backup_id, owned).await
 }
 
 /// Stream a zip file as an attachment without loading it into memory.
@@ -2385,6 +2519,46 @@ mod tests {
     ) -> Result<safe_fs::ExtractStats, String> {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
         safe_fs::extract_zip(&mut archive, base, limits)
+    }
+
+    #[test]
+    fn backup_archive_encrypts_and_restores_roundtrip() {
+        let dir = scratch_dir("backup-enc");
+        let source = dir.join("src");
+        std::fs::create_dir_all(source.join("world")).unwrap();
+        std::fs::write(source.join("world/level.dat"), b"hytale world bytes").unwrap();
+
+        let key = [42u8; 32];
+        let archive = dir.join("enc.zip");
+        write_backup_archive(&source, &archive, Some((&key, 3))).expect("write encrypted archive");
+
+        // On disk it is encrypted — a header-tagged blob, not a readable zip.
+        assert!(archive_is_encrypted(&archive).unwrap());
+        assert!(zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).is_err());
+
+        // Decrypt + restore round-trips the content byte-for-byte.
+        let (plain, guard) =
+            open_plaintext_archive(&archive, Some(&key), &dir.join("scratch")).expect("decrypt");
+        assert!(guard.is_some(), "encrypted archive decrypts into a temp");
+        let dest = dir.join("restored");
+        std::fs::create_dir_all(&dest).unwrap();
+        extract(std::fs::read(&plain).unwrap(), &dest, safe_fs::ExtractLimits::default()).expect("extract");
+        assert_eq!(std::fs::read(dest.join("world/level.dat")).unwrap(), b"hytale world bytes");
+        drop(guard);
+
+        // Wrong key is rejected.
+        assert!(open_plaintext_archive(&archive, Some(&[0u8; 32]), &dir.join("scratch2")).is_err());
+
+        // A plaintext archive still works and reports not-encrypted; no key needed.
+        let plain_archive = dir.join("plain.zip");
+        write_backup_archive(&source, &plain_archive, None).expect("write plain archive");
+        assert!(!archive_is_encrypted(&plain_archive).unwrap());
+        let (p2, guard2) =
+            open_plaintext_archive(&plain_archive, None, &dir.join("scratch3")).expect("open plain");
+        assert!(guard2.is_none(), "plaintext archive is read in place");
+        assert_eq!(p2, plain_archive);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

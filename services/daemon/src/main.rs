@@ -1,4 +1,5 @@
 mod api_client;
+mod backup_crypto;
 mod command_poller;
 mod config;
 mod downloader;
