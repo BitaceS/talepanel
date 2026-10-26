@@ -87,5 +87,6 @@ docs/website/
 # ─────────────────────────────────────────────
 # Local tooling, not part of the product
 # ─────────────────────────────────────────────
+PRODUCT.md
 strix-claude-code/
 .impeccable/
