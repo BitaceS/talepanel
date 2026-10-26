@@ -209,6 +209,8 @@ export interface Backup {
   upload_error?: string | null
   // false once the on-node archive was removed after a successful upload
   local_present: boolean
+  // true when the archive is encrypted with the panel-managed key
+  encrypted: boolean
 }
 
 export interface BackupDestinationField {

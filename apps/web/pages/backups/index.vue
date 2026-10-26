@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DatabaseBackup, Calendar, Plus, Download, Trash2, RefreshCw, Play, Pause, Clock, Cloud, UploadCloud, HardDrive } from '@lucide/vue'
+import { DatabaseBackup, Calendar, Plus, Download, Trash2, RefreshCw, Play, Pause, Clock, Cloud, UploadCloud, HardDrive, Lock } from '@lucide/vue'
 import { useBackupsStore } from '~/stores/backups'
 import { useServersStore } from '~/stores/servers'
 import { useAuthStore } from '~/stores/auth'
@@ -283,6 +283,7 @@ onMounted(async () => {
             <tr v-for="b in backupsStore.backups" :key="b.id" class="border-b border-tp-border/50 hover:bg-tp-surface2/50 transition-colors align-top">
               <td class="px-4 py-3">
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', statusColor(b.status)]" :title="b.error ?? undefined">{{ b.status }}</span>
+                <span v-if="b.encrypted" class="mt-1 flex items-center gap-1 text-xs text-tp-muted" title="Encrypted with the panel-managed key"><Lock class="w-3 h-3" /> Encrypted</span>
               </td>
               <td class="px-4 py-3 text-tp-text capitalize">{{ b.type }}</td>
               <td class="px-4 py-3 text-xs">

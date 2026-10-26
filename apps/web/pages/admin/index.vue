@@ -2,7 +2,7 @@
 import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
-  Plug, Save, ExternalLink, Mail, Send,
+  Plug, Save, ExternalLink, Mail, Send, KeyRound, Lock, Copy, RotateCw,
 } from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
@@ -55,6 +55,64 @@ function onTabChange(key: 'users' | 'nodes' | 'logs' | 'integrations') {
     fetchCurseForgeStatus()
     fetchSmtp()
     fetchHytaleAuth()
+    fetchBackupKey()
+  }
+}
+
+// ── Backup encryption key (panel-managed) ────────────────────────────────────
+const backupKey = reactive({
+  loading: false,
+  activeKeyId: null as number | null,
+  revealed: '',
+  revealing: false,
+  rotating: false,
+})
+async function fetchBackupKey() {
+  backupKey.loading = true
+  try {
+    const s = await api.get<{ enabled: boolean; active_key_id: number }>('/admin/backup-key')
+    backupKey.activeKeyId = s.active_key_id
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to load backup key status', 'error')
+  } finally {
+    backupKey.loading = false
+  }
+}
+async function revealBackupKey() {
+  backupKey.revealing = true
+  try {
+    const s = await api.get<{ active_key_id: number; key: string }>('/admin/backup-key/export')
+    backupKey.revealed = s.key
+    backupKey.activeKeyId = s.active_key_id
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to reveal backup key', 'error')
+  } finally {
+    backupKey.revealing = false
+  }
+}
+async function copyBackupKey() {
+  try {
+    await navigator.clipboard.writeText(backupKey.revealed)
+    showToast('Backup key copied')
+  } catch {
+    showToast('Copy failed', 'error')
+  }
+}
+async function rotateBackupKey() {
+  if (!confirm('Generate a new backup encryption key? New backups use the new key; existing backups keep restoring with their old key. Export and store the new key somewhere safe afterwards.')) return
+  backupKey.rotating = true
+  try {
+    const s = await api.post<{ active_key_id: number }>('/admin/backup-key/rotate', {})
+    backupKey.activeKeyId = s.active_key_id
+    backupKey.revealed = ''
+    showToast(`Backup key rotated to #${s.active_key_id}`)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to rotate backup key', 'error')
+  } finally {
+    backupKey.rotating = false
   }
 }
 
@@ -912,6 +970,45 @@ async function submitCreateUser() {
          INTEGRATIONS TAB
          ═══════════════════════════════════════════════════════════════════════ -->
     <div v-else-if="activeTab === 'integrations'" class="space-y-4">
+      <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
+              <KeyRound class="w-4 h-4 text-tp-primary" />
+              Backup encryption
+            </h3>
+            <p class="text-tp-muted text-sm mt-1">
+              Backups are encrypted with a panel-managed key before they are written or
+              copied off-site, so a leaked storage credential never exposes world data.
+              Keep an exported copy of the key somewhere safe — without it, a lost panel
+              database means unrecoverable backups.
+            </p>
+          </div>
+          <span class="text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap bg-tp-success/15 text-tp-success">
+            Active · key #{{ backupKey.activeKeyId ?? '—' }}
+          </span>
+        </div>
+
+        <div v-if="backupKey.revealed" class="bg-tp-surface2 rounded-xl p-4 space-y-2">
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Active key (base64)</label>
+          <div class="flex items-center gap-2">
+            <code class="font-mono text-tp-text text-sm break-all flex-1">{{ backupKey.revealed }}</code>
+            <UiButton variant="secondary" size="sm" @click="copyBackupKey"><Copy class="w-3.5 h-3.5" /> Copy</UiButton>
+          </div>
+          <p class="text-tp-outline text-xs">Store this offline. Anyone with this key can decrypt your backup archives.</p>
+        </div>
+
+        <div v-if="authStore.isOwner" class="flex items-center gap-2">
+          <UiButton variant="secondary" size="sm" :loading="backupKey.revealing" @click="revealBackupKey">
+            <Lock class="w-3.5 h-3.5" /> {{ backupKey.revealed ? 'Reveal again' : 'Reveal & export key' }}
+          </UiButton>
+          <UiButton variant="danger" size="sm" :loading="backupKey.rotating" @click="rotateBackupKey">
+            <RotateCw class="w-3.5 h-3.5" /> Rotate key
+          </UiButton>
+        </div>
+        <p v-else class="text-tp-outline text-xs">Only the owner can reveal or rotate the backup key.</p>
+      </div>
+
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
         <div class="flex items-start justify-between gap-4">
           <div>
