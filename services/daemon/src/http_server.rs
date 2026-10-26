@@ -211,6 +211,15 @@ async fn start_server(
     let mut cfg = req.config;
     cfg.server_id = server_id.clone(); // ensure ID matches path
 
+    // Containment: the launcher writes binaries into, and runs the JVM with
+    // current_dir set to, `data_path`. Accept only this server's own directory
+    // ({servers_base_dir}/{server_id}) — the same check command_poller enforces
+    // on every outside-supplied path. Guards against a caller (holding the node
+    // token) steering writes/execution elsewhere on the node.
+    if !crate::command_poller::is_server_data_path(&cfg.data_path, &state.servers_base_dir, &server_id) {
+        return ActionResponse::err("data_path is not this server's directory").into_response();
+    }
+
     match state.process_manager.start_server(cfg).await {
         Ok(_) => ActionResponse::ok(format!("Server {server_id} is starting")).into_response(),
         Err(e) => ActionResponse::err(e.to_string()).into_response(),
@@ -292,6 +301,15 @@ async fn provision_server(
     Path(server_id): Path<String>,
     Json(req): Json<ProvisionRequest>,
 ) -> impl IntoResponse {
+    // Containment: the downloader runs with `-download-path <data_path>` and the
+    // fetched binaries/Assets.zip are extracted there. Accept only this server's
+    // own directory ({servers_base_dir}/{server_id}), matching the check
+    // command_poller applies to every outside-supplied path. Prevents a caller
+    // (holding the node token) from writing/extracting outside the server tree.
+    if !crate::command_poller::is_server_data_path(&req.data_path, &state.servers_base_dir, &server_id) {
+        return ActionResponse::err("data_path is not this server's directory").into_response();
+    }
+
     match state
         .process_manager
         .provision_server(server_id.clone(), req.version, req.data_path, req.reinstall)
@@ -2377,6 +2395,24 @@ mod tests {
         assert!(!valid_server_id("../etc"));
         assert!(!valid_server_id("123e4567e89b12d3a456426614174000"));
         assert!(!valid_server_id("{123e4567-e89b-12d3-a456-426614174000}"));
+    }
+
+    #[test]
+    fn provision_and_start_accept_only_this_servers_data_path() {
+        // start_server and provision_server gate `data_path` through this helper
+        // with AppState.servers_base_dir ({data_root}/servers). Lock the contract
+        // they depend on: only {servers_base_dir}/{server_id} is accepted.
+        use crate::command_poller::is_server_data_path;
+        let base = "/srv/taledaemon/servers";
+        assert!(is_server_data_path(&format!("{base}/{SID}"), base, SID));
+        assert!(is_server_data_path(&format!("{base}/{SID}/"), base, SID)); // trailing slash tolerated
+        // Rejected: data root itself, siblings, other servers, traversal, nesting.
+        assert!(!is_server_data_path(base, base, SID));
+        assert!(!is_server_data_path("/etc/cron.d", base, SID));
+        assert!(!is_server_data_path(&format!("{base}/other"), base, SID));
+        assert!(!is_server_data_path(&format!("{base}/{SID}/../x"), base, SID));
+        assert!(!is_server_data_path(&format!("{base}/{SID}/sub"), base, SID));
+        assert!(!is_server_data_path(&format!("{base}/{SID}"), base, "not-a-uuid"));
     }
 
     #[test]

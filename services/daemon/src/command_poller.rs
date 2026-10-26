@@ -608,7 +608,7 @@ const ALLOWED_MOD_DIRS: [&str; 2] = ["mods", "plugins"];
 /// there. Requiring the exact shape rules out the data root itself, other
 /// servers' directories, siblings like backups/ and hytale-bin/, nested
 /// paths, and any `..` or separator trickery.
-fn is_server_data_path(data_path: &str, servers_dir: &str, server_id: &str) -> bool {
+pub(crate) fn is_server_data_path(data_path: &str, servers_dir: &str, server_id: &str) -> bool {
     let servers_dir = servers_dir.trim_end_matches('/');
     if servers_dir.is_empty() || data_path.contains('\0') || data_path.contains('\\') {
         return false;
