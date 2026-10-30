@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/BitaceS/talepanel/api/internal/middleware"
@@ -38,6 +40,25 @@ func decodeCSRField(s string) []byte {
 		return b
 	}
 	return []byte(s)
+}
+
+// nodeLookupStatus maps a node lookup error to an HTTP status. Only a missing
+// row is a 404: the daemon reads 404 as "this panel has no CSR endpoint" and
+// stops retrying, so transient DB errors must surface as 500.
+func nodeLookupStatus(err error) int {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
+}
+
+// sanFromFQDN strips the brackets of an IPv6 literal ("[2001:db8::1]") so it
+// becomes an IP SAN instead of a bogus DNS SAN.
+func sanFromFQDN(fqdn string) string {
+	if strings.HasPrefix(fqdn, "[") && strings.HasSuffix(fqdn, "]") {
+		return fqdn[1 : len(fqdn)-1]
+	}
+	return fqdn
 }
 
 // SignCSR handles POST /nodes/:id/csr.
@@ -72,7 +93,11 @@ func (h *NodeCSRHandler) SignCSR(c *gin.Context) {
 	ctx := c.Request.Context()
 	var fqdn string
 	if err := h.db.QueryRow(ctx, `SELECT fqdn FROM nodes WHERE id = $1`, nodeID).Scan(&fqdn); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+		if status := nodeLookupStatus(err); status == http.StatusNotFound {
+			c.JSON(status, gin.H{"error": "node not found"})
+		} else {
+			c.JSON(status, gin.H{"error": "could not load node"})
+		}
 		return
 	}
 
@@ -81,7 +106,7 @@ func (h *NodeCSRHandler) SignCSR(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load CA"})
 		return
 	}
-	certPEM, serial, notAfter, err := ca.SignCSR(csrPEM, nodeID.String(), []string{fqdn}, nodeCertValidity)
+	certPEM, serial, notAfter, err := ca.SignCSR(csrPEM, nodeID.String(), []string{sanFromFQDN(fqdn)}, nodeCertValidity)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not sign certificate"})
 		return

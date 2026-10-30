@@ -12,6 +12,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"encoding/pem"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/BitaceS/talepanel/api/internal/middleware"
@@ -203,5 +206,35 @@ func TestNodeCSR_requiresAuth(t *testing.T) {
 	f := newCSRFixture(t, "daemon.example.com")
 	if w := f.post(t, f.idA, "wrong-token", string(testCSRPEM(t))); w.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d, want 401", w.Code)
+	}
+}
+
+func TestNodeCSR_bracketedIPv6FQDNBecomesIPSAN(t *testing.T) {
+	f := newCSRFixture(t, "[2001:db8::1]")
+	w := f.post(t, f.idA, f.tokenA, string(testCSRPEM(t)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		NodeCertPEM string `json:"node_cert_pem"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	leaf := decodeCert(t, resp.NodeCertPEM)
+	if len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 1 || leaf.IPAddresses[0].String() != "2001:db8::1" {
+		t.Fatalf("DNS=%v IP=%v", leaf.DNSNames, leaf.IPAddresses)
+	}
+}
+
+// Only a missing node is a 404: the daemon reads 404 as "panel has no CSR
+// endpoint" and stops retrying, so a transient DB error must be a 500.
+func TestNodeLookupStatus(t *testing.T) {
+	if got := nodeLookupStatus(pgx.ErrNoRows); got != http.StatusNotFound {
+		t.Fatalf("ErrNoRows -> %d, want 404", got)
+	}
+	if got := nodeLookupStatus(fmt.Errorf("wrapped: %w", pgx.ErrNoRows)); got != http.StatusNotFound {
+		t.Fatalf("wrapped ErrNoRows -> %d, want 404", got)
+	}
+	if got := nodeLookupStatus(errors.New("connection reset")); got != http.StatusInternalServerError {
+		t.Fatalf("DB error -> %d, want 500", got)
 	}
 }
