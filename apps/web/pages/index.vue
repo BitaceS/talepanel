@@ -235,7 +235,7 @@ function actionLabel(action: string): string {
             />
           </div>
           <div class="flex justify-between text-[11px] text-tp-outline font-mono">
-            <span>{{ hourLabel(hourly[0].hour) }}</span>
+            <span>{{ hourly[0] ? hourLabel(hourly[0].hour) : '' }}</span>
             <span>now</span>
           </div>
         </template>

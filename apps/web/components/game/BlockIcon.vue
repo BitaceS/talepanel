@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // 16x16 pixel-art block used as a server icon in the game theme.
-const props = defineProps<{ tone: 'gold' | 'green' | 'stone' | 'red' }>()
+type Tone = 'gold' | 'green' | 'stone' | 'red'
+const props = defineProps<{ tone: Tone }>()
 
-const PALETTES: Record<string, string[]> = {
+const PALETTES: Record<Tone, [string, string, string, string]> = {
   gold: ['#ffe39a', '#f2c14e', '#e8863b', '#a9531a'],
   green: ['#b6e08a', '#86c160', '#4f7a37', '#35552a'],
   stone: ['#8f8a96', '#6b6570', '#4a444f', '#35303a'],

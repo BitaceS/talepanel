@@ -67,7 +67,7 @@ function move(delta: number) {
   const list = visible.value
   if (!list.length) return
   const i = Math.max(0, list.findIndex(s => s.id === selected.value?.id))
-  selectedId.value = list[(i + delta + list.length) % list.length].id
+  selectedId.value = list[(i + delta + list.length) % list.length]!.id
 }
 
 function onKey(e: KeyboardEvent) {

@@ -13,6 +13,11 @@ type RGB = [number, number, number]
 const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
 const FLAME = ['#fff2b8', '#f2c14e', '#e8863b', '#b9542c', '#7a2b22'].map(hex)
 
+// Lookups the compiler can't prove in range (noUncheckedIndexedAccess); all
+// indices here are masked or clamped by the caller.
+const bayer = (x: number, y: number) => BAYER[y & 3]![x & 3]!
+const flame = (k: number) => FLAME[Math.max(0, Math.min(4, k))]!
+
 function rng(seed: number) {
   return () => {
     seed = (seed + 0x6D2B79F5) | 0
@@ -33,7 +38,7 @@ function buildBase(ctx: CanvasRenderingContext2D): ImageData {
   }
   const get = (x: number, y: number): RGB => {
     const i = (y * W + x) * 4
-    return [d[i], d[i + 1], d[i + 2]]
+    return [d[i]!, d[i + 1]!, d[i + 2]!]
   }
 
   // Sky: hard colour bands with dithered seams
@@ -42,7 +47,7 @@ function buildBase(ctx: CanvasRenderingContext2D): ImageData {
     const t = (y / 120) * (sky.length - 1)
     const a = Math.floor(t)
     const f = t - a
-    for (let x = 0; x < W; x++) put(x, y, sky[Math.min(a + (f > BAYER[y % 4][x % 4] ? 1 : 0), sky.length - 1)])
+    for (let x = 0; x < W; x++) put(x, y, sky[Math.min(a + (f > bayer(x, y) ? 1 : 0), sky.length - 1)]!)
   }
 
   // Stars
@@ -66,15 +71,15 @@ function buildBase(ctx: CanvasRenderingContext2D): ImageData {
         put(mx + x, my + y, hex(x + y > 4 ? '#d6c49a' : '#efe3c8'))
       } else if (dd < 26) {
         const f = (1 - (dd - 10) / 16) * 0.55
-        if (f > BAYER[(my + y) % 4][(mx + x) % 4]) {
+        if (f > bayer(mx + x, my + y)) {
           const c = get(mx + x, my + y)
-          const tint = [90, 74, 96]
-          put(mx + x, my + y, c.map((v, k) => Math.round(v + (tint[k] - v) * 0.5)) as RGB)
+          const tint: RGB = [90, 74, 96]
+          put(mx + x, my + y, c.map((v, k) => Math.round(v + (tint[k]! - v) * 0.5)) as RGB)
         }
       }
     }
   }
-  for (const [a, b] of [[-3, -2], [2, 3], [4, -4], [-4, 4]]) put(mx + a, my + b, hex('#c9b78d'))
+  for (const [a, b] of [[-3, -2], [2, 3], [4, -4], [-4, 4]] as [number, number][]) put(mx + a, my + b, hex('#c9b78d'))
 
   // Blocky ridges and pines, back to front
   function ridge(base: number, amp: number, step: number, col: string, top: string, seed: number) {
@@ -87,7 +92,7 @@ function buildBase(ctx: CanvasRenderingContext2D): ImageData {
       hs.push(h)
     }
     for (let x = 0; x < W; x++) {
-      const hh = hs[Math.floor(x / step)]
+      const hh = hs[Math.floor(x / step)]!
       for (let y = hh; y < H; y++) put(x, y, hex(y === hh ? top : col))
     }
   }
@@ -164,12 +169,15 @@ function drawFrame(ctx: CanvasRenderingContext2D, base: ImageData, t: number, em
         const dd = Math.hypot(x - L.x, (y - L.y) * 1.3) / R
         if (dd >= 1) continue
         const f = (1 - dd) * L.s
-        if (f * 1.15 <= BAYER[y % 4][x % 4]) continue
+        if (f * 1.15 <= bayer(x, y)) continue
         const i = (y * W + x) * 4
         const step = f > 0.66 ? 0.42 : f > 0.33 ? 0.26 : 0.12
-        d[i] = Math.min(255, d[i] + (232 - d[i]) * step)
-        d[i + 1] = Math.min(255, d[i + 1] + (134 - d[i + 1]) * step * 0.8)
-        d[i + 2] = d[i + 2] + (59 - d[i + 2]) * step * 0.6
+        const r = d[i]!
+        const g = d[i + 1]!
+        const b = d[i + 2]!
+        d[i] = Math.min(255, r + (232 - r) * step)
+        d[i + 1] = Math.min(255, g + (134 - g) * step * 0.8)
+        d[i + 2] = b + (59 - b) * step * 0.6
       }
     }
   }
@@ -181,28 +189,28 @@ function drawFrame(ctx: CanvasRenderingContext2D, base: ImageData, t: number, em
     for (let x = -w; x <= w; x++) {
       const k = Math.min(4, Math.floor((Math.abs(x) / (w + 1)) * 3 + y / 6 + fr() * 0.8))
       if (fr() < 0.08 && y > 8) continue
-      put(160 + x, 143 - y, FLAME[k])
+      put(160 + x, 143 - y, flame(k))
     }
   }
 
   // Torch flames
-  for (const [j, [x, y]] of [[64, 128], [256, 128]].entries()) {
+  for (const [j, [x, y]] of ([[64, 128], [256, 128]] as [number, number][]).entries()) {
     const tr = rng(Math.floor(t / 130) + j * 31)
     for (let k = 0; k < 5; k++) {
       const w = k < 2 ? 1 : 0
-      for (let i = -w; i <= w + 1; i++) put(x + i, y - k - (tr() < 0.3 ? 1 : 0), FLAME[Math.min(4, k + (tr() < 0.4 ? 1 : 0))])
+      for (let i = -w; i <= w + 1; i++) put(x + i, y - k - (tr() < 0.3 ? 1 : 0), flame(k + (tr() < 0.4 ? 1 : 0)))
     }
   }
 
   // Rising embers
   if (er() < 0.35) embers.push({ x: 160 + (er() - 0.5) * 8, y: 132, v: 0.25 + er() * 0.35, l: 0 })
   for (let i = embers.length - 1; i >= 0; i--) {
-    const e = embers[i]
+    const e = embers[i]!
     e.y -= e.v
     e.x += Math.sin(e.l + t / 300) * 0.15
     e.l++
     if (e.l > 110) { embers.splice(i, 1); continue }
-    put(e.x, e.y, e.l < 50 ? FLAME[1] : FLAME[3])
+    put(e.x, e.y, flame(e.l < 50 ? 1 : 3))
   }
 
   ctx.putImageData(img, 0, 0)
