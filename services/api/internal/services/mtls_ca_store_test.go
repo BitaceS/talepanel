@@ -10,10 +10,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/BitaceS/talepanel/api/internal/pki"
@@ -53,17 +55,26 @@ func TestMTLSCA_createsThenReloadsSame(t *testing.T) {
 
 func TestMTLSCA_missingEncKeyErrors(t *testing.T) {
 	_, pool := mtlsTestService(t)
+	ctx := context.Background()
+	// Other packages' tests share this DB and may create the CA row
+	// concurrently, so assert on what this call did rather than on a global
+	// row count: the stored value (or its absence) must be unchanged.
+	stored := func() *string {
+		var v *string
+		err := pool.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = 'daemon_mtls_ca'`).Scan(&v)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatal(err)
+		}
+		return v
+	}
+	before := stored()
 	svc := NewAppSettingsService(pool, nil)
-	if _, err := svc.MTLSCA(context.Background()); err == nil {
+	if _, err := svc.MTLSCA(ctx); err == nil {
 		t.Fatal("expected error without enc key")
 	}
-	var n int
-	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM app_settings WHERE key = 'daemon_mtls_ca'`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Fatalf("expected nothing persisted, got %d rows", n)
+	after := stored()
+	if (before == nil) != (after == nil) || (before != nil && *before != *after) {
+		t.Fatal("MTLSCA without enc key changed the stored CA")
 	}
 }
 

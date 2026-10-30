@@ -60,6 +60,10 @@ func newCSRFixture(t *testing.T, fqdnA string) *csrFixture {
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM nodes WHERE id IN ($1, $2)`, f.idA, f.idB)
+		// The handler creates the panel CA on first use; don't leak it into
+		// other packages' tests that share this database.
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM app_settings WHERE key IN ('daemon_mtls_ca', 'daemon_mtls_panel_cert')`)
 	})
 
 	settings := services.NewAppSettingsService(pool, bytes.Repeat([]byte{7}, 32))
