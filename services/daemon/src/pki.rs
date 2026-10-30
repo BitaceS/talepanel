@@ -1,9 +1,6 @@
 //! Node PKI: generates this daemon's own ECDSA P-256 key + CSR, fetches a
 //! panel-signed certificate and persists/loads the PEMs on disk.
 
-// Not wired into startup until the mTLS listener task lands; remove then.
-#![allow(dead_code)]
-
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};

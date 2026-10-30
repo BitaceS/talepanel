@@ -34,7 +34,30 @@ pub struct HeartbeatMetrics {
     pub server_count: usize,
     /// UTC timestamp of this heartbeat.
     pub timestamp: DateTime<Utc>,
+    /// Set only when the local listener really serves TLS with the node cert.
+    pub mtls: Option<MtlsAdvert>,
 }
+
+/// Node certificate details advertised in the heartbeat so the panel can
+/// switch to https + mTLS for this node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MtlsAdvert {
+    /// Certificate serial, lowercase hex.
+    pub serial: String,
+    pub not_after: DateTime<Utc>,
+}
+
+/// The panel has no CSR endpoint (older panel): 404 or 405. Not retryable.
+#[derive(Debug)]
+pub struct CsrUnsupported(pub reqwest::StatusCode);
+
+impl std::fmt::Display for CsrUnsupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "panel does not support node CSR enrollment (HTTP {})", self.0)
+    }
+}
+
+impl std::error::Error for CsrUnsupported {}
 
 /// A command issued by the TalePanel API for the daemon to execute.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +134,29 @@ struct HeartbeatBody<'a> {
     /// Included so the API can (re-)register the daemon HTTP client pool entry
     /// on every heartbeat without requiring a separate handshake.
     node_token: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mtls_ready: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cert_serial: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cert_not_after: Option<DateTime<Utc>>,
+}
+
+impl<'a> HeartbeatBody<'a> {
+    fn new(status: &'a str, metrics: &'a HeartbeatMetrics, node_token: &'a str) -> Self {
+        Self {
+            status,
+            cpu_percent: metrics.cpu_percent,
+            ram_used_mb: metrics.ram_used_mb,
+            disk_used_mb: metrics.disk_used_mb,
+            server_count: metrics.server_count,
+            timestamp: metrics.timestamp,
+            node_token,
+            mtls_ready: metrics.mtls.as_ref().map(|_| true),
+            cert_serial: metrics.mtls.as_ref().map(|m| m.serial.as_str()),
+            cert_not_after: metrics.mtls.as_ref().map(|m| m.not_after),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -217,6 +263,9 @@ impl ApiClient {
             .context("HTTP request failed for node CSR")?;
 
         let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+            return Err(CsrUnsupported(status).into());
+        }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             bail!("Node CSR request failed: HTTP {status} – {body}");
@@ -234,15 +283,7 @@ impl ApiClient {
         let url = format!("{}/api/v1/nodes/{}/heartbeat", self.base_url, self.node_id);
         debug!(%url, "Sending heartbeat");
 
-        let body = HeartbeatBody {
-            status,
-            cpu_percent: metrics.cpu_percent,
-            ram_used_mb: metrics.ram_used_mb,
-            disk_used_mb: metrics.disk_used_mb,
-            server_count: metrics.server_count,
-            timestamp: metrics.timestamp,
-            node_token: &self.node_token,
-        };
+        let body = HeartbeatBody::new(status, &metrics, &self.node_token);
 
         let resp = self
             .http
@@ -543,5 +584,41 @@ impl std::fmt::Debug for GameSession {
             .field("identity_token", &"<redacted>")
             .field("owner_uuid", &self.owner_uuid)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod heartbeat_body_tests {
+    use super::*;
+
+    fn metrics(mtls: Option<MtlsAdvert>) -> HeartbeatMetrics {
+        HeartbeatMetrics {
+            cpu_percent: 1.0,
+            ram_used_mb: 2,
+            disk_used_mb: 3,
+            server_count: 0,
+            timestamp: Utc::now(),
+            mtls,
+        }
+    }
+
+    #[test]
+    fn heartbeat_body_includes_mtls_fields() {
+        let not_after = Utc::now();
+        let m = metrics(Some(MtlsAdvert { serial: "1a2b".into(), not_after }));
+        let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
+        assert_eq!(v["mtls_ready"], true);
+        assert_eq!(v["cert_serial"], "1a2b");
+        assert_eq!(v["cert_not_after"], serde_json::to_value(not_after).unwrap());
+        assert_eq!(v["status"], "online");
+        assert_eq!(v["server_count"], 0);
+
+        let m = metrics(None);
+        let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
+        let o = v.as_object().unwrap();
+        assert!(!o.contains_key("mtls_ready"));
+        assert!(!o.contains_key("cert_serial"));
+        assert!(!o.contains_key("cert_not_after"));
+        assert_eq!(v["node_token"], "tok");
     }
 }

@@ -20,9 +20,10 @@ use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use api_client::{ApiClient, HeartbeatMetrics, NodeRegistration};
+use api_client::{ApiClient, CsrUnsupported, HeartbeatMetrics, MtlsAdvert, NodeRegistration};
 use config::Config;
 use http_server::AppState;
+use pki::LoadedPki;
 use process::ProcessManager;
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,26 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ── 4b. Node PKI bootstrap (mTLS) ───────────────────────────────────────
+    //
+    // `pki` is Some only if the listener below really serves TLS with it; the
+    // heartbeat advertises mTLS readiness from this, never from intent.
+    let pki = match bootstrap_pki(&config, &api_client).await {
+        Ok(p) => Some(p),
+        Err(e) if config.daemon.require_mtls => {
+            error!(error = %e, "FATAL: mTLS bootstrap failed and require_mtls is set; exiting");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            error!(error = %e, "mTLS bootstrap failed; serving legacy plaintext until next restart");
+            None
+        }
+    };
+    let mtls_advert = pki.as_ref().map(|p| MtlsAdvert {
+        serial: p.serial.clone(),
+        not_after: p.not_after,
+    });
+
     // ── 5. Set up the graceful-shutdown broadcast channel ───────────────────
     //
     // The channel capacity of 8 ensures all background tasks receive the
@@ -104,9 +125,10 @@ async fn main() -> Result<()> {
         let api = Arc::clone(&api_client);
         let pm = Arc::clone(&process_manager);
         let cfg = Arc::clone(&config);
+        let mtls = mtls_advert.clone();
         let rx = shutdown_tx.subscribe();
         tokio::spawn(async move {
-            heartbeat::run_heartbeat_loop(api, pm, cfg, rx).await;
+            heartbeat::run_heartbeat_loop(api, pm, cfg, mtls, rx).await;
         })
     };
 
@@ -156,16 +178,18 @@ async fn main() -> Result<()> {
         net_monitor: net_mon,
     };
 
+    let http_legacy_bearer = config.daemon.allow_legacy_bearer;
+    let http_require_mtls = config.daemon.require_mtls;
     let http_handle = tokio::spawn(async move {
-        // The PKI bootstrap wires mTLS in at startup (next task); until then
-        // the listener serves the legacy plain-HTTP bearer path only.
         let security = http_server::ListenerSecurity {
-            pki: None,
-            allow_legacy_bearer: true,
-            require_mtls: false,
+            pki,
+            allow_legacy_bearer: http_legacy_bearer,
+            require_mtls: http_require_mtls,
         };
         if let Err(err) = http_server::run_http_server(http_state, listen_addr, security).await {
-            error!(%err, "Local HTTP server exited with error");
+            // Fatal: otherwise the daemon would keep heartbeating while unreachable.
+            error!(%err, "Local HTTP server exited with error; exiting");
+            std::process::exit(1);
         }
     });
 
@@ -188,6 +212,7 @@ async fn main() -> Result<()> {
         disk_used_mb: 0,
         server_count: 0,
         timestamp: chrono::Utc::now(),
+        mtls: mtls_advert,
     };
     if let Err(err) = api_client.heartbeat("offline", offline_metrics).await {
         warn!(%err, "Failed to send offline heartbeat (non-fatal)");
@@ -216,6 +241,28 @@ async fn main() -> Result<()> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const PKI_MAX_ATTEMPTS: u32 = 5;
+
+/// Ensure the node cert, retrying with backoff (about 1 minute in total).
+/// A panel without the CSR endpoint (404/405) is not retried.
+async fn bootstrap_pki(config: &Config, api: &ApiClient) -> Result<LoadedPki> {
+    let dir = std::path::Path::new(&config.daemon.pki_dir);
+    let mut attempt = 1;
+    loop {
+        match pki::ensure_pki(dir, api, &config.daemon.node_id).await {
+            Ok(p) => return Ok(p),
+            Err(e) if e.downcast_ref::<CsrUnsupported>().is_some() => return Err(e),
+            Err(e) if attempt >= PKI_MAX_ATTEMPTS => return Err(e),
+            Err(e) => {
+                let delay = std::time::Duration::from_secs(5 * u64::from(attempt));
+                warn!(error = %e, attempt, retry_in_s = delay.as_secs(), "mTLS bootstrap attempt failed; retrying");
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+            }
+        }
+    }
+}
 
 /// Minimal tracing subscriber used only while the config is loaded.
 fn bootstrap_subscriber() -> impl tracing::Subscriber + Send + Sync {
