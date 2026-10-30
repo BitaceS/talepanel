@@ -260,6 +260,9 @@ async fn bootstrap_pki(config: &Config, api: &ApiClient) -> Result<LoadedPki> {
             Err(e) if e.downcast_ref::<CsrUnsupported>().is_some() => return Err(e),
             Err(e) if attempt >= PKI_MAX_ATTEMPTS => return Err(e),
             Err(e) => {
+                if attempt == 1 {
+                    info!("waiting for panel to issue node certificate (up to ~1 min)");
+                }
                 let delay = std::time::Duration::from_secs(5 * u64::from(attempt));
                 warn!(error = %e, attempt, retry_in_s = delay.as_secs(), "mTLS bootstrap attempt failed; retrying");
                 tokio::time::sleep(delay).await;
