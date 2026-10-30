@@ -86,7 +86,8 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 	const q = `
 		SELECT id, name, fqdn, public_address, port, location, cert_thumbprint,
 		       total_cpu, total_ram_mb, total_disk_mb, max_servers,
-		       status, last_heartbeat, created_at, metadata
+		       status, last_heartbeat, created_at, metadata,
+		       mtls_enabled, cert_serial, cert_not_after
 		FROM nodes
 		ORDER BY name ASC
 	`
@@ -104,6 +105,7 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 			&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 			&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 			&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
+		&n.MTLSEnabled, &n.CertSerial, &n.CertNotAfter,
 		); err != nil {
 			return nil, fmt.Errorf("scanning node row: %w", err)
 		}
@@ -123,7 +125,8 @@ func (s *NodeService) GetNode(ctx context.Context, nodeID uuid.UUID) (*models.No
 	const q = `
 		SELECT id, name, fqdn, public_address, port, location, cert_thumbprint,
 		       total_cpu, total_ram_mb, total_disk_mb, max_servers,
-		       status, last_heartbeat, created_at, metadata
+		       status, last_heartbeat, created_at, metadata,
+		       mtls_enabled, cert_serial, cert_not_after
 		FROM nodes
 		WHERE id = $1
 	`
@@ -133,6 +136,7 @@ func (s *NodeService) GetNode(ctx context.Context, nodeID uuid.UUID) (*models.No
 		&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 		&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 		&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
+		&n.MTLSEnabled, &n.CertSerial, &n.CertNotAfter,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -171,7 +175,8 @@ func (s *NodeService) RegisterNode(ctx context.Context, req RegisterNodeRequest)
 		)
 		RETURNING id, name, fqdn, public_address, port, location, cert_thumbprint,
 		          total_cpu, total_ram_mb, total_disk_mb, max_servers,
-		          status, last_heartbeat, created_at, metadata
+		          status, last_heartbeat, created_at, metadata,
+		          mtls_enabled, cert_serial, cert_not_after
 	`
 
 	n := &models.Node{}
@@ -183,6 +188,7 @@ func (s *NodeService) RegisterNode(ctx context.Context, req RegisterNodeRequest)
 		&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 		&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 		&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
+		&n.MTLSEnabled, &n.CertSerial, &n.CertNotAfter,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("inserting node: %w", err)

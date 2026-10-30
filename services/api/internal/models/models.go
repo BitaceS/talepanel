@@ -89,6 +89,9 @@ type Node struct {
 	LastHeartbeat   *time.Time      `json:"last_heartbeat,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	MTLSEnabled     bool            `json:"mtls_enabled"`
+	CertSerial      *string         `json:"cert_serial,omitempty"`
+	CertNotAfter    *time.Time      `json:"cert_not_after,omitempty"`
 }
 
 // Server represents a managed Hytale game server instance.
