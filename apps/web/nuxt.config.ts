@@ -29,10 +29,6 @@ export default defineNuxtConfig({
       ],
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' },
-        {
-          rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0',
-        },
       ],
       htmlAttrs: {
         class: 'dark',
@@ -61,8 +57,8 @@ export default defineNuxtConfig({
         'Content-Security-Policy': [
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline'",
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-          "font-src 'self' data: https://fonts.gstatic.com",
+          "style-src 'self' 'unsafe-inline'",
+          "font-src 'self' data:",
           "img-src 'self' data: blob: https:",
           `connect-src 'self' https: wss:${process.env.NODE_ENV === 'production' ? '' : ' http: ws:'}`,
           "frame-ancestors 'none'",

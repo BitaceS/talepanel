@@ -12,7 +12,7 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 - `GET /api/v1/servers/activity`: players online right now (per server and in total) and the number of players per hour over the last 24 hours, limited to the servers the caller can see. Counted from the player sessions the panel already records.
 
 ### Changed
-- New default look, matching talepanel.com: warm dark palette with gold and ember accents, Alegreya and JetBrains Mono fonts, the voxel logo in the sidebar, on the login page and as favicon, squarer corners and visible borders on form fields. The text fonts are now served by the panel itself instead of Google Fonts (icons still load from Google).
+- New default look, matching talepanel.com: warm dark palette with gold and ember accents, Alegreya and JetBrains Mono fonts, the voxel logo in the sidebar, on the login page and as favicon, squarer corners and visible borders on form fields. Fonts and icons are now served by the panel itself; the panel no longer loads anything from Google Fonts.
 - The dashboard shows real data: servers and how many are running, nodes with online/offline count (offline nodes shown as a warning), players online, node CPU/RAM/disk usage for admins, and player activity per hour. Values that aren't known yet show a dash instead of a number.
 - The notification bell lists open alert events and links to Alerts.
 - Login and registration use plain wording ("Sign in", "Password", "Create account"); the help menu links to the docs, Discord and GitHub issues and shows the installed version.
