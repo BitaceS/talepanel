@@ -110,7 +110,7 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]*models.Node, error) {
 			&n.ID, &n.Name, &n.FQDN, &n.PublicAddress, &n.Port, &n.Location, &n.CertThumbprint,
 			&n.TotalCPU, &n.TotalRAMMB, &n.TotalDiskMB, &n.MaxServers,
 			&n.Status, &n.LastHeartbeat, &n.CreatedAt, &n.Metadata,
-		&n.MTLSEnabled, &n.CertSerial, &n.CertNotAfter,
+			&n.MTLSEnabled, &n.CertSerial, &n.CertNotAfter,
 		); err != nil {
 			return nil, fmt.Errorf("scanning node row: %w", err)
 		}
