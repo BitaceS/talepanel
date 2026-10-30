@@ -9,6 +9,7 @@ definePageMeta({
 
 const serversStore = useServersStore()
 const api = useApi()
+const { theme } = useTheme()
 
 interface HytalePatchline { patchline: string; latest: string }
 const patchlines = ref<HytalePatchline[]>([])
@@ -143,11 +144,6 @@ function statusLabel(status: string) {
   }
 }
 
-function ramPercent(server: ServerType): number {
-  if (!server.ram_limit_mb) return 0
-  return Math.min(100, Math.round(Math.random() * 80))
-}
-
 // Row action handlers
 const router = useRouter()
 const actionPending = ref<string | null>(null)
@@ -217,7 +213,21 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 space-y-6">
+  <div class="h-full">
+  <div v-if="theme === 'game'" class="h-full">
+    <GameServerSelect
+      :servers="Array.isArray(serversStore.servers) ? serversStore.servers : []"
+      :loading="serversStore.loading"
+      :pending-id="actionPending"
+      :error="serversStore.error"
+      @open="openSettings"
+      @power="togglePower"
+      @restart="restartFromMenu"
+      @remove="confirmDelete"
+      @create="openModal"
+    />
+  </div>
+  <div v-else class="p-6 space-y-6">
     <!-- Page header -->
     <div>
       <div class="flex items-start justify-between mb-1">
@@ -307,7 +317,7 @@ onMounted(() => {
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Status</p>
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Node ID</p>
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Network</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36">Resources (RAM)</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36">RAM</p>
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-28 text-center">Quick Actions</p>
       </div>
 
@@ -346,14 +356,9 @@ onMounted(() => {
           {{ server.port ?? '—' }}
         </div>
 
-        <!-- RAM bar -->
-        <div class="w-36 flex items-center gap-2">
-          <div class="flex-1 h-1.5 bg-tp-surface-highest rounded-full overflow-hidden">
-            <div class="h-full progress-fill rounded-full transition-all" :style="{ width: (server.ram_limit_mb ? ramPercent(server) : 0) + '%' }" />
-          </div>
-          <span class="text-tp-muted text-[10px] whitespace-nowrap tabular-nums">
-            {{ server.ram_limit_mb ? `${server.ram_limit_mb} MB` : '—' }}
-          </span>
+        <!-- RAM limit (live usage is on the server page) -->
+        <div class="w-36 text-tp-muted text-xs whitespace-nowrap tabular-nums">
+          {{ server.ram_limit_mb ? `${server.ram_limit_mb} MB limit` : 'No limit' }}
         </div>
 
         <!-- Quick actions -->
@@ -461,6 +466,8 @@ onMounted(() => {
         <a href="#" class="text-tp-accent text-xs hover:text-tp-primary transition-colors">View Incidents</a>
       </div>
     </div>
+
+  </div>
 
     <!-- Create Server Modal -->
     <UiModal

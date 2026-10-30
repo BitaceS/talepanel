@@ -92,15 +92,19 @@ const helpLinks = [
 ]
 
 const { info: versionInfo } = useUpdateCheck()
+
+const { theme, setTheme } = useTheme()
 </script>
 
 <template>
-  <div class="flex h-screen bg-tp-bg overflow-hidden">
+  <div class="relative flex h-screen bg-tp-bg overflow-hidden">
+    <GamePixelScene v-if="theme === 'game'" />
+
     <!-- Sidebar -->
     <LayoutSidebar />
 
     <!-- Main content area -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div class="relative z-10 flex-1 flex flex-col min-w-0 overflow-hidden">
       <!-- Top bar (glass) -->
       <header class="sticky top-0 z-30 h-14 glass-panel border-b flex items-center justify-between px-6 shrink-0">
         <div>
@@ -294,6 +298,23 @@ const { info: versionInfo } = useUpdateCheck()
                     <span class="material-symbols-outlined text-lg">admin_panel_settings</span>
                     Admin Panel
                   </NuxtLink>
+                </div>
+
+                <div class="border-t border-tp-border/20 px-4 py-3">
+                  <p class="text-tp-outline text-[11px] font-mono uppercase tracking-[0.18em] mb-2">Theme</p>
+                  <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Theme">
+                    <button
+                      v-for="t in PANEL_THEMES"
+                      :key="t.id"
+                      role="radio"
+                      :aria-checked="theme === t.id"
+                      :class="[
+                        'rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors',
+                        theme === t.id ? 'bg-tp-primary text-tp-on-primary' : 'bg-tp-surface3 text-tp-muted hover:text-tp-text',
+                      ]"
+                      @click="setTheme(t.id)"
+                    >{{ t.label }}</button>
+                  </div>
                 </div>
 
                 <div class="border-t border-tp-border/20">
