@@ -4,6 +4,29 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+A new look for the panel, an optional game-style theme, and a dashboard that only shows real numbers.
+
+### Added
+- Theme switch in the user menu (top right): **Classic** or **Game**. The choice is stored per browser. Classic is the default.
+- Game theme: a hand-drawn pixel-art night scene behind the panel (moon, pine forest, campfire and torches), stone-framed panels and game-style buttons. The server list becomes a server select like in a game's multiplayer menu: tabs for all/online/stopped servers, a block icon per server status, keyboard selection (arrow keys, Enter to open, double-click) and Open, Start/Stop, Restart, New Server and Delete buttons. The scene is drawn in the browser, no image files are downloaded; with "reduce motion" enabled in the operating system it stays still, and it pauses in background tabs.
+- `GET /api/v1/servers/activity`: players online right now (per server and in total) and the number of players per hour over the last 24 hours, limited to the servers the caller can see. Counted from the player sessions the panel already records.
+
+### Changed
+- New default look, matching talepanel.com: warm dark palette with gold and ember accents, Alegreya and JetBrains Mono fonts, the voxel logo in the sidebar, on the login page and as favicon, squarer corners and visible borders on form fields. The text fonts are now served by the panel itself instead of Google Fonts (icons still load from Google).
+- The dashboard shows real data: servers and how many are running, nodes with online/offline count (offline nodes shown as a warning), players online, node CPU/RAM/disk usage for admins, and player activity per hour. Values that aren't known yet show a dash instead of a number.
+- The notification bell lists open alert events and links to Alerts.
+- Login and registration use plain wording ("Sign in", "Password", "Create account"); the help menu links to the docs, Discord and GitHub issues and shows the installed version.
+
+### Fixed
+- The dashboard displayed made-up numbers: a fixed weekly CPU/RAM chart, a drawn player curve, "N operational" even for offline nodes, "0 players" on every server card, and four sample notifications.
+- The RAM bars in the server list were filled with random values. The list now shows the configured RAM limit.
+- Console output contained raw ANSI colour codes from the Hytale server, shown as `[m` noise. They are now stripped.
+- The 2FA settings page used light-theme colours and was hard to read on the dark background.
+- The help menu showed a hard-coded "v1.0.0" and links that went nowhere; the login page had a "Lost credentials?" link without a function. Both fixed or removed.
+
+### Build
+- Release images are built per architecture on native GitHub runners (amd64 and arm64) instead of under QEMU emulation, with a build cache and timeouts. The v0.12.0-beta release hung for hours in the emulated arm64 web build. A release can be re-run for an existing tag from the Actions tab.
+
 ## [0.12.0-beta] — 2026-10-30
 
 Encrypted backups and mutual TLS between panel and nodes. Both are on by default with nothing to configure.
