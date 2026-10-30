@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"time"
 
 	"github.com/BitaceS/talepanel/api/internal/pki"
 )
@@ -15,6 +18,9 @@ const (
 	mtlsPanelCertKey = "daemon_mtls_panel_cert"
 	// panelClientCN is the common name of the panel's client certificate.
 	panelClientCN = "panel"
+	// panelCertMinRemaining is how long the stored panel client cert must
+	// still be valid; a cert closer to expiry is reissued on load.
+	panelCertMinRemaining = 30 * 24 * time.Hour
 )
 
 type pemPair struct {
@@ -89,21 +95,64 @@ func (s *AppSettingsService) CACertPEM(ctx context.Context) ([]byte, error) {
 }
 
 // PanelClientCert loads the panel's CN=panel client certificate and key,
-// issuing and persisting it from the CA on first use.
+// issuing and persisting it from the CA on first use. A stored cert that no
+// longer chains to the current CA (CA replaced) or has less than
+// panelCertMinRemaining left is reissued and overwrites the stored one, so
+// the panel never keeps presenting a cert the daemons reject.
 func (s *AppSettingsService) PanelClientCert(ctx context.Context) (certPEM, keyPEM []byte, err error) {
 	ca, err := s.MTLSCA(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	p, err := s.loadOrCreatePair(ctx, mtlsPanelCertKey, func() (pemPair, error) {
+	issue := func() (pemPair, error) {
 		c, k, err := ca.IssueClientCert(panelClientCN)
 		if err != nil {
 			return pemPair{}, err
 		}
 		return pemPair{CertPEM: c, KeyPEM: k}, nil
-	})
+	}
+	p, err := s.loadOrCreatePair(ctx, mtlsPanelCertKey, issue)
 	if err != nil {
 		return nil, nil, err
 	}
-	return p.CertPEM, p.KeyPEM, nil
+	if usablePanelCert(ca.CertPEM, p.CertPEM, time.Now()) {
+		return p.CertPEM, p.KeyPEM, nil
+	}
+	fresh, err := issue()
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := json.Marshal(fresh)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding %s: %w", mtlsPanelCertKey, err)
+	}
+	if err := s.Set(ctx, mtlsPanelCertKey, string(data), nil); err != nil {
+		return nil, nil, err
+	}
+	return fresh.CertPEM, fresh.KeyPEM, nil
+}
+
+// usablePanelCert reports whether certPEM chains to caPEM for client auth and
+// stays valid for at least panelCertMinRemaining after now.
+func usablePanelCert(caPEM, certPEM []byte, now time.Time) bool {
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return false
+	}
+	blk, _ := pem.Decode(certPEM)
+	if blk == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return false
+	}
+	if _, err := cert.Verify(x509.VerifyOptions{
+		Roots:       roots,
+		CurrentTime: now,
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}); err != nil {
+		return false
+	}
+	return cert.NotAfter.Sub(now) >= panelCertMinRemaining
 }
