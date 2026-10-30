@@ -193,6 +193,39 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Submit a PEM CSR to the panel CA and receive the signed node cert.
+    ///
+    /// Returns `(ca_cert_pem, node_cert_pem)`.
+    #[instrument(skip(self, csr_pem), fields(node_id = %self.node_id))]
+    pub async fn request_node_cert(&self, csr_pem: &str) -> Result<(String, String)> {
+        #[derive(Deserialize)]
+        struct CsrResponse {
+            ca_cert_pem: String,
+            node_cert_pem: String,
+        }
+
+        let url = format!("{}/api/v1/nodes/{}/csr", self.base_url, self.node_id);
+        debug!(%url, "Requesting node certificate");
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&serde_json::json!({ "csr_pem": csr_pem }))
+            .send()
+            .await
+            .context("HTTP request failed for node CSR")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            bail!("Node CSR request failed: HTTP {status} – {body}");
+        }
+
+        let body: CsrResponse = resp.json().await.context("Invalid CSR response body")?;
+        Ok((body.ca_cert_pem, body.node_cert_pem))
+    }
+
     /// Send a heartbeat to the TalePanel API.
     ///
     /// The `status` string should be one of: `"online"`, `"degraded"`, `"offline"`.

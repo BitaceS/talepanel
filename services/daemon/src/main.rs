@@ -7,6 +7,7 @@ mod heartbeat;
 mod http_server;
 mod machine_id;
 mod net_monitor;
+mod pki;
 mod plugin_scanner;
 mod process;
 mod rclone;
