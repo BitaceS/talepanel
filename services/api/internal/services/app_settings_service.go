@@ -61,3 +61,22 @@ func (s *AppSettingsService) Set(ctx context.Context, key, value string, updated
 	`, key, enc, updatedBy)
 	return err
 }
+
+// SetIfAbsent encrypts and inserts the value only when no row exists for key.
+// It reports whether this call stored the value.  Callers that must converge
+// on a single value (e.g. a CA) re-read via Get afterwards.
+func (s *AppSettingsService) SetIfAbsent(ctx context.Context, key, value string) (bool, error) {
+	enc, err := tpcrypto.Encrypt(s.encKey, []byte(value))
+	if err != nil {
+		return false, fmt.Errorf("encrypting setting %s: %w", key, err)
+	}
+	tag, err := s.db.Exec(ctx, `
+		INSERT INTO app_settings (key, value, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (key) DO NOTHING
+	`, key, enc)
+	if err != nil {
+		return false, fmt.Errorf("storing setting %s: %w", key, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
