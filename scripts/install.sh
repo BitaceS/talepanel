@@ -510,6 +510,8 @@ EOF
 # It skips the enrollment dialog by creating the token locally via the
 # freshly-installed panel's API.
 install_daemon_local() {
+  # install_panel does not pull jq, and a fresh Debian/Ubuntu lacks it.
+  install_pkgs jq
   require_cmds jq
 
   local PANEL_URL_LOCAL="https://$DOMAIN"
