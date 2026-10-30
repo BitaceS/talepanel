@@ -73,6 +73,16 @@ func SetupRouter(
 	} else if dbKey != "" {
 		cfSvc.SetAPIKey(dbKey)
 	}
+	// Give the daemon pool the panel's mTLS material so mTLS-ready nodes are
+	// reached over https. Without it the panel still starts and talks legacy
+	// http+bearer to every node.
+	if caPEM, err := appSettingsSvc.CACertPEM(ctx); err != nil {
+		log.Warn("could not load daemon mTLS CA; daemon calls stay on legacy http", zap.Error(err))
+	} else if certPEM, keyPEM, err := appSettingsSvc.PanelClientCert(ctx); err != nil {
+		log.Warn("could not load panel mTLS client cert; daemon calls stay on legacy http", zap.Error(err))
+	} else if err := daemonPool.SetTLSMaterial(caPEM, certPEM, keyPEM); err != nil {
+		log.Warn("invalid panel mTLS material; daemon calls stay on legacy http", zap.Error(err))
+	}
 
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)

@@ -204,7 +204,7 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 	rawToken := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	node, err := h.svc.GetNode(c.Request.Context(), nodeID)
 	if err == nil {
-		if regErr := h.daemons.Register(nodeID.String(), node.FQDN, node.Port, rawToken); regErr != nil {
+		if regErr := h.daemons.Register(nodeID.String(), node.FQDN, node.Port, rawToken, node.MTLSEnabled); regErr != nil {
 			h.log.Warn("node has an invalid fqdn/port; daemon client not registered",
 				zap.String("node_id", nodeID.String()),
 				zap.Error(regErr),

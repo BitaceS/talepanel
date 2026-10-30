@@ -59,6 +59,11 @@ func ValidateNodePort(port int) error {
 
 // BaseURL builds "http://host:port" for a node after validating both parts.
 func BaseURL(host string, port int) (string, error) {
+	return baseURLWithScheme("http", host, port)
+}
+
+// baseURLWithScheme builds "scheme://host:port" after validating host and port.
+func baseURLWithScheme(scheme, host string, port int) (string, error) {
 	if err := ValidateNodeHost(host); err != nil {
 		return "", err
 	}
@@ -66,7 +71,7 @@ func BaseURL(host string, port int) (string, error) {
 		return "", err
 	}
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	u := url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port))}
+	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, strconv.Itoa(port))}
 	return u.String(), nil
 }
 

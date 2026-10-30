@@ -116,13 +116,13 @@ func TestClientEncodesQueryParams(t *testing.T) {
 
 func TestClientPoolRejectsBadHost(t *testing.T) {
 	p := NewClientPool(zap.NewNop())
-	if err := p.Register("n1", "evil.com/x?", 8444, "t"); err == nil {
+	if err := p.Register("n1", "evil.com/x?", 8444, "t", false); err == nil {
 		t.Fatal("bad host registered")
 	}
 	if _, err := p.Get("n1"); err == nil {
 		t.Fatal("client exists for rejected node")
 	}
-	if err := p.Register("n2", "daemon", 8444, "t"); err != nil {
+	if err := p.Register("n2", "daemon", 8444, "t", false); err != nil {
 		t.Fatal(err)
 	}
 	if c, err := p.Get("n2"); err != nil || c.baseURL != "http://daemon:8444" {

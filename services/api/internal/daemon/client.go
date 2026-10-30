@@ -3,13 +3,20 @@
 // power actions (start/stop/restart/kill) and to retrieve real-time metrics.
 //
 // Authentication: every request carries the node's registration token as a
-// Bearer token.  The daemon validates this against its local config.
+// Bearer token.  The daemon validates this against its local config.  Nodes
+// that have finished mTLS enrollment are additionally reached over https with
+// mutual TLS: the panel presents its CA-issued client certificate and pins the
+// daemon's certificate to the panel CA and the node's UUID (see
+// BuildPanelTLSConfig).  The bearer token is sent in both modes.
 package daemon
 
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -96,13 +103,17 @@ type DaemonHealth struct {
 
 // Client communicates with a single TaleDaemon node.
 type Client struct {
-	baseURL    string // e.g. "http://192.168.1.10:8444"
+	baseURL    string // e.g. "http://192.168.1.10:8444" or "https://..." for mTLS
 	nodeToken  string
 	httpClient *http.Client
-	log        *zap.Logger
+	// transport is the mTLS transport of a TLS client, nil for legacy clients
+	// (which use http.DefaultTransport). Shared by httpClient and longClient.
+	transport *http.Transport
+	tls       bool
+	log       *zap.Logger
 }
 
-// NewClient constructs a daemon client for the given node.
+// NewClient constructs a legacy (plain http + bearer) daemon client.
 //
 //	baseURL   — "http://{fqdn}:{port}" of the daemon's local HTTP server
 //	nodeToken — the registration token issued to this node
@@ -115,6 +126,113 @@ func NewClient(baseURL, nodeToken string, log *zap.Logger) *Client {
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// NewClientTLS constructs a daemon client that talks https with the given
+// mutual-TLS config (from BuildPanelTLSConfig). baseURL must be
+// "https://{fqdn}:{port}". The bearer token is still sent on every request.
+func NewClientTLS(baseURL, nodeToken string, tlsCfg *tls.Config, log *zap.Logger) *Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = tlsCfg
+	return &Client{
+		baseURL:   baseURL,
+		nodeToken: nodeToken,
+		log:       log,
+		transport: tr,
+		tls:       true,
+		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: tr,
+		},
+	}
+}
+
+// roundTripper returns the transport for this client; nil means
+// http.DefaultTransport.
+func (c *Client) roundTripper() http.RoundTripper {
+	if c.transport == nil {
+		return nil
+	}
+	return c.transport
+}
+
+// closeIdle drops the pooled connections of a client that is being replaced.
+func (c *Client) closeIdle() {
+	if c.transport != nil {
+		c.transport.CloseIdleConnections()
+	}
+}
+
+// BuildPanelTLSConfig builds the panel's client-side TLS config for one node.
+//
+// The daemon's certificate is pinned to the panel CA and to expectedCN (the
+// node's UUID) instead of the dialed hostname: nodes are addressed by Docker
+// service names, private IPs or changing FQDNs, while their identity is the
+// node UUID the panel's CA wrote into the CN. Go's built-in verification is
+// therefore disabled (InsecureSkipVerify) and fully replaced by
+// VerifyPeerCertificate, which checks the chain to the panel CA, the validity
+// window, the serverAuth usage and the CN. The panel's client certificate is
+// presented for the daemon's side of the mutual authentication.
+//
+// ClientSessionCache is intentionally left nil: VerifyPeerCertificate is not
+// run on resumed sessions, so session resumption must stay off.
+func BuildPanelTLSConfig(caCertPEM, panelCertPEM, panelKeyPEM []byte, expectedCN string) (*tls.Config, error) {
+	if expectedCN == "" {
+		return nil, errors.New("daemon tls: empty expected node CN")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caCertPEM) {
+		return nil, errors.New("daemon tls: no valid CA certificate")
+	}
+	clientCert, err := tls.X509KeyPair(panelCertPEM, panelKeyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("daemon tls: panel client certificate: %w", err)
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{clientCert},
+		// Disables only Go's hostname-based verification; VerifyPeerCertificate
+		// below re-does the chain check and pins the CN instead.
+		InsecureSkipVerify: true,
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			return verifyNodeCert(rawCerts, roots, expectedCN)
+		},
+	}, nil
+}
+
+// verifyNodeCert checks that rawCerts[0] chains to roots (with the remaining
+// certs as intermediates), is valid right now, allows serverAuth and has
+// Subject CN == expectedCN.
+func verifyNodeCert(rawCerts [][]byte, roots *x509.CertPool, expectedCN string) error {
+	if len(rawCerts) == 0 {
+		return errors.New("daemon tls: no peer certificate")
+	}
+	certs := make([]*x509.Certificate, len(rawCerts))
+	for i, raw := range rawCerts {
+		cert, err := x509.ParseCertificate(raw)
+		if err != nil {
+			return fmt.Errorf("daemon tls: parsing peer certificate: %w", err)
+		}
+		certs[i] = cert
+	}
+	intermediates := x509.NewCertPool()
+	for _, cert := range certs[1:] {
+		intermediates.AddCert(cert)
+	}
+	leaf := certs[0]
+	if _, err := leaf.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   time.Now(),
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}); err != nil {
+		return fmt.Errorf("daemon tls: peer certificate rejected: %w", err)
+	}
+	if leaf.Subject.CommonName != expectedCN {
+		return fmt.Errorf("daemon tls: peer certificate CN %q does not match node %q",
+			leaf.Subject.CommonName, expectedCN)
+	}
+	return nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,7 +520,7 @@ type BackupCreatedResponse struct {
 // longClient returns an HTTP client with no fixed timeout for long-running
 // backup operations. The caller's context governs cancellation.
 func (c *Client) longClient() *http.Client {
-	return &http.Client{Timeout: 0}
+	return &http.Client{Timeout: 0, Transport: c.roundTripper()}
 }
 
 // EncKey carries a panel-managed backup key to the daemon for one operation.
@@ -705,6 +823,10 @@ type ClientPool struct {
 	mu      sync.RWMutex
 	clients map[string]*Client
 	log     *zap.Logger
+
+	// Panel mTLS material (PEM). Nil until SetTLSMaterial succeeds; until then
+	// every node is reached over legacy http.
+	caPEM, certPEM, keyPEM []byte
 }
 
 // NewClientPool creates an empty pool.
@@ -715,17 +837,68 @@ func NewClientPool(log *zap.Logger) *ClientPool {
 	}
 }
 
-// Register adds or replaces a daemon client for the given node. The fqdn and
-// port are validated so a stored node address cannot smuggle a path, query or
-// userinfo into every daemon URL.
-func (p *ClientPool) Register(nodeID, fqdn string, port int, token string) error {
-	baseURL, err := BaseURL(fqdn, port)
-	if err != nil {
+// SetTLSMaterial gives the pool the panel CA certificate and the panel's
+// client certificate/key, enabling https+mTLS for nodes registered with mtls.
+// The material is validated up front; on error the pool stays legacy-only.
+func (p *ClientPool) SetTLSMaterial(caPEM, certPEM, keyPEM []byte) error {
+	if _, err := BuildPanelTLSConfig(caPEM, certPEM, keyPEM, "validate"); err != nil {
 		return err
 	}
 	p.mu.Lock()
-	p.clients[nodeID] = NewClient(baseURL, token, p.log)
+	p.caPEM, p.certPEM, p.keyPEM = caPEM, certPEM, keyPEM
 	p.mu.Unlock()
+	return nil
+}
+
+// Register adds or replaces a daemon client for the given node. The fqdn and
+// port are validated so a stored node address cannot smuggle a path, query or
+// userinfo into every daemon URL.
+//
+// With mtls set (the node reported a ready certificate) the client uses https
+// with mutual TLS, pinning the daemon certificate to the node UUID. If the
+// pool has no TLS material it falls back to legacy http and logs a warning
+// instead of failing registration. An unchanged registration keeps the
+// existing client, so its pooled connections survive heartbeats.
+func (p *ClientPool) Register(nodeID, fqdn string, port int, token string, mtls bool) error {
+	p.mu.RLock()
+	caPEM, certPEM, keyPEM := p.caPEM, p.certPEM, p.keyPEM
+	p.mu.RUnlock()
+
+	var tlsCfg *tls.Config
+	if mtls {
+		if caPEM == nil {
+			p.log.Warn("node is mTLS-ready but the panel has no TLS material; using legacy http",
+				zap.String("node_id", nodeID))
+		} else if cfg, err := BuildPanelTLSConfig(caPEM, certPEM, keyPEM, nodeID); err != nil {
+			p.log.Warn("building node TLS config failed; using legacy http",
+				zap.String("node_id", nodeID), zap.Error(err))
+		} else {
+			tlsCfg = cfg
+		}
+	}
+
+	scheme := "http"
+	if tlsCfg != nil {
+		scheme = "https"
+	}
+	baseURL, err := baseURLWithScheme(scheme, fqdn, port)
+	if err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if old, ok := p.clients[nodeID]; ok {
+		if old.baseURL == baseURL && old.nodeToken == token && old.tls == (tlsCfg != nil) {
+			return nil
+		}
+		old.closeIdle()
+	}
+	if tlsCfg != nil {
+		p.clients[nodeID] = NewClientTLS(baseURL, token, tlsCfg, p.log)
+	} else {
+		p.clients[nodeID] = NewClient(baseURL, token, p.log)
+	}
 	return nil
 }
 
