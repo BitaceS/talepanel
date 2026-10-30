@@ -500,7 +500,7 @@ function logLevelColor(level: string): string {
     case 'warn':  case 'warning': return 'text-tp-warning'
     case 'info':  return 'text-tp-tertiary'
     case 'system': return 'text-tp-warning'
-    case 'debug': return 'text-blue-400'
+    case 'debug': return 'text-tp-outline'
     default:      return 'text-tp-muted'
   }
 }
@@ -522,8 +522,12 @@ function escapeHtml(s: string): string {
 
 const urlRegex = /(https?:\/\/[^\s"'<>]+)/g
 
+// The Hytale server writes ANSI colour/reset sequences (ESC [ ... m) into its
+// log; drop them so they don't show up as "[m" noise in the console.
+const ansiRegex = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g
+
 function renderLogMessage(message: string): string {
-  const safe = escapeHtml(message)
+  const safe = escapeHtml(message.replace(ansiRegex, ''))
   return safe.replace(urlRegex, (url) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline text-tp-accent hover:text-tp-primary break-all">${url}</a>`
   )
@@ -1336,7 +1340,7 @@ const sidebarMods = computed(() => {
 
       <!-- Tabs -->
       <div class="border-b border-tp-border">
-        <nav class="flex gap-1 overflow-x-auto">
+        <nav class="flex gap-1 overflow-x-auto scrollbar-none">
           <button
             v-for="tab in tabs" :key="tab.id"
             :class="[
@@ -1912,7 +1916,7 @@ const sidebarMods = computed(() => {
                 <div class="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer" @click="openFile(entry)">
                   <FolderOpen v-if="entry.is_dir" class="w-4 h-4 text-tp-primary shrink-0" />
                   <FileArchive v-else-if="['jar','zip','gz','tar'].includes(entry.name.split('.').pop()?.toLowerCase() ?? '')" class="w-4 h-4 text-yellow-400 shrink-0" />
-                  <FileText v-else-if="['json','toml','yaml','yml','xml','properties','cfg','conf','ini','txt','md','log','csv'].includes(entry.name.split('.').pop()?.toLowerCase() ?? '')" class="w-4 h-4 text-blue-400 shrink-0" />
+                  <FileText v-else-if="['json','toml','yaml','yml','xml','properties','cfg','conf','ini','txt','md','log','csv'].includes(entry.name.split('.').pop()?.toLowerCase() ?? '')" class="w-4 h-4 text-tp-tertiary shrink-0" />
                   <File v-else class="w-4 h-4 text-tp-muted shrink-0" />
                   <span class="text-tp-text text-sm truncate" :class="entry.is_dir ? 'font-medium' : ''">{{ entry.name }}</span>
                 </div>
@@ -2502,6 +2506,6 @@ const sidebarMods = computed(() => {
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 
 .progress-fill {
-  background: linear-gradient(90deg, #3b82f6, #89ceff);
+  background: linear-gradient(90deg, #e8863b, #f2c14e);
 }
 </style>
