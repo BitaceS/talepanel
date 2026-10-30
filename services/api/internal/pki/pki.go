@@ -49,6 +49,10 @@ func encodeKey(key *ecdsa.PrivateKey) ([]byte, error) {
 
 // GenerateCA creates a self-signed ECDSA P-256 CA valid for ~10 years.
 func GenerateCA() (*CA, error) {
+	return generateCA(caValidity)
+}
+
+func generateCA(validFor time.Duration) (*CA, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating CA key: %w", err)
@@ -62,7 +66,7 @@ func GenerateCA() (*CA, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "TalePanel Root CA", Organization: []string{"TalePanel"}},
 		NotBefore:             now.Add(-clockSkew),
-		NotAfter:              now.Add(caValidity),
+		NotAfter:              now.Add(validFor),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,

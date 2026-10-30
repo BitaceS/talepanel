@@ -3269,6 +3269,54 @@ mod tests {
             );
         }
 
+        /// PEMs issued by the Go panel's `internal/pki` package (see
+        /// testdata/README.md): CA, panel client cert, this node's cert and
+        /// another node's cert, all from the real Go signing paths.
+        fn go_fixture() -> Fixture {
+            const CA: &str = include_str!("../testdata/go-pki/ca.pem");
+            let pair = |cert: &str, key: &str| (cert.to_string(), key.to_string());
+            Fixture {
+                ca_pem: CA.into(),
+                node: LoadedPki {
+                    ca_pem: CA.into(),
+                    cert_pem: include_str!("../testdata/go-pki/node-cert.pem").into(),
+                    key_pem: include_str!("../testdata/go-pki/node-key.pem").into(),
+                    not_after: chrono::Utc::now() + chrono::Duration::days(30),
+                    serial: "1".into(),
+                },
+                panel: pair(
+                    include_str!("../testdata/go-pki/panel-cert.pem"),
+                    include_str!("../testdata/go-pki/panel-key.pem"),
+                ),
+                other_node: pair(
+                    include_str!("../testdata/go-pki/other-node-cert.pem"),
+                    include_str!("../testdata/go-pki/other-node-key.pem"),
+                ),
+                // Unused here: a foreign CA is covered by the rcgen fixture.
+                foreign_panel: (String::new(), String::new()),
+            }
+        }
+
+        #[tokio::test]
+        async fn go_issued_certs_interoperate() {
+            let f = go_fixture();
+            validate_pki(&f.node).expect("Go-issued node PKI unusable for rustls");
+            let addr = start(Some(f.node.clone()), false, true).await;
+
+            // Go-issued panel client cert against a Go-issued node cert.
+            let panel = tls_client(&f.ca_pem, Some(&f.panel));
+            assert_eq!(
+                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                200
+            );
+            // Go-issued cert from the same CA but CN != panel: refused.
+            let other = tls_client(&f.ca_pem, Some(&f.other_node));
+            assert_refused(
+                status(&other, format!("https://{addr}/network-stats"), Some(TOKEN)).await,
+                "Go-issued client cert with CN != panel",
+            );
+        }
+
         #[test]
         fn listener_security_debug_redacts_key() {
             let f = fixture();

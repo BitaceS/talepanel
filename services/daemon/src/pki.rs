@@ -370,6 +370,23 @@ mod tests {
     }
 
     #[test]
+    fn go_issued_pki_loads() {
+        // Cross-language: PEMs issued by the Go panel's pki package
+        // (see testdata/README.md).
+        let dir = tmp("go").join("pki");
+        write_pki(
+            &dir,
+            include_str!("../testdata/go-pki/ca.pem"),
+            include_str!("../testdata/go-pki/node-cert.pem"),
+            include_str!("../testdata/go-pki/node-key.pem"),
+        )
+        .unwrap();
+        let p = load_pki(&dir, NODE).unwrap().expect("Go-issued PKI rejected");
+        assert!(p.not_after > Utc::now() + chrono::Duration::days(365));
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
     fn debug_redacts_private_key() {
         let (cert, key) = self_signed(NODE, None);
         let key_pem = key.serialize_pem();

@@ -72,6 +72,8 @@ temp/
 *.crt
 *.csr
 certs/
+# Test-only Go-issued PKI fixtures for the daemon's interop tests.
+!services/daemon/testdata/go-pki/*.pem
 
 # ─────────────────────────────────────────────
 # Backups / data (daemon server data)
