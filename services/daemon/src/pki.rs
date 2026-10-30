@@ -17,6 +17,10 @@ const CA_FILE: &str = "ca.pem";
 const CERT_FILE: &str = "node-cert.pem";
 const KEY_FILE: &str = "node-key.pem";
 
+/// A node cert with less than this left is treated as missing, so the daemon
+/// re-enrols (and gets a fresh cert) instead of serving one about to expire.
+const MIN_REMAINING_DAYS: i64 = 30;
+
 /// PEM material for this node plus metadata parsed from the node cert.
 #[derive(Debug, Clone)]
 pub struct LoadedPki {
@@ -91,12 +95,18 @@ fn cert_meta(cert_pem: &str) -> Result<(DateTime<Utc>, String)> {
     Ok((not_after, cert.tbs_certificate.serial.to_str_radix(16)))
 }
 
-/// Validate that `ca_pem` parses, `key_pem` is a P-256 key, and the key's
-/// public half equals the public key in `cert_pem`.
-fn validate(ca_pem: &str, cert_pem: &str, key_pem: &str) -> Result<()> {
-    let (_, ca) =
+/// Validate the PKI set for `node_id`: `ca_pem` parses, `key_pem` is a P-256
+/// key whose public half equals the public key in `cert_pem`, the cert is
+/// signed by that CA, its subject CN is `node_id`, and it is valid for at
+/// least [`MIN_REMAINING_DAYS`] more days.
+///
+/// A set failing any check is stale (left over from an earlier install with
+/// another node id, issued by another panel, expired) and must be re-enrolled
+/// rather than served, or the panel would pin a cert the daemon cannot present.
+fn validate(ca_pem: &str, cert_pem: &str, key_pem: &str, node_id: &str) -> Result<()> {
+    let (_, ca_pem_obj) =
         x509_parser::pem::parse_x509_pem(ca_pem.as_bytes()).context("parsing CA PEM")?;
-    ca.parse_x509().context("parsing CA DER")?;
+    let ca = ca_pem_obj.parse_x509().context("parsing CA DER")?;
 
     let key = KeyPair::from_pem(key_pem).context("parsing node key")?;
     if !key.is_compatible(&rcgen::PKCS_ECDSA_P256_SHA256) {
@@ -107,6 +117,22 @@ fn validate(ca_pem: &str, cert_pem: &str, key_pem: &str) -> Result<()> {
     let cert = pem.parse_x509().context("parsing node cert DER")?;
     if cert.public_key().subject_public_key.data.as_ref() != key.public_key_raw() {
         bail!("node cert public key does not match node key");
+    }
+    cert.verify_signature(Some(ca.public_key()))
+        .map_err(|e| anyhow::anyhow!("node cert is not signed by the stored CA: {e}"))?;
+
+    let mut cns = cert.subject().iter_common_name();
+    let cn = cns.next().and_then(|a| a.as_str().ok());
+    if cns.next().is_some() || !cn.is_some_and(|cn| cn.eq_ignore_ascii_case(node_id)) {
+        bail!(
+            "node cert CN {:?} does not match configured node id {node_id}",
+            cn.unwrap_or("")
+        );
+    }
+
+    let (not_after, _) = cert_meta(cert_pem)?;
+    if not_after - Utc::now() < chrono::Duration::days(MIN_REMAINING_DAYS) {
+        bail!("node cert expires at {not_after} (less than {MIN_REMAINING_DAYS} days left)");
     }
     Ok(())
 }
@@ -122,8 +148,9 @@ fn build(ca_pem: String, cert_pem: String, key_pem: String) -> Result<LoadedPki>
     })
 }
 
-/// Load the PEMs from `dir`; `Ok(None)` if any of the three files is missing.
-pub fn load_pki(dir: &Path) -> Result<Option<LoadedPki>> {
+/// Load the PEMs from `dir` for `node_id`; `Ok(None)` if any of the three
+/// files is missing or the set fails [`validate`] (stale, foreign, expiring).
+pub fn load_pki(dir: &Path, node_id: &str) -> Result<Option<LoadedPki>> {
     let paths = [dir.join(CA_FILE), dir.join(CERT_FILE), dir.join(KEY_FILE)];
     if !paths.iter().all(|p| p.is_file()) {
         return Ok(None);
@@ -136,7 +163,7 @@ pub fn load_pki(dir: &Path) -> Result<Option<LoadedPki>> {
             return Ok(None);
         }
     };
-    match validate(&ca, &cert, &key).and_then(|()| build(ca, cert, key)) {
+    match validate(&ca, &cert, &key, node_id).and_then(|()| build(ca, cert, key)) {
         Ok(p) => Ok(Some(p)),
         Err(e) => {
             warn!(error = %e, dir = %dir.display(), "Invalid node PKI on disk; re-enrolling");
@@ -148,7 +175,7 @@ pub fn load_pki(dir: &Path) -> Result<Option<LoadedPki>> {
 /// Load existing PKI from `pki_dir`, or generate a key + CSR, have the panel
 /// sign it via `api`, persist the result and return it.
 pub async fn ensure_pki(pki_dir: &Path, api: &ApiClient, node_id: &str) -> Result<LoadedPki> {
-    if let Some(p) = load_pki(pki_dir)? {
+    if let Some(p) = load_pki(pki_dir, node_id)? {
         info!(not_after = %p.not_after, "Loaded existing node PKI");
         return Ok(p);
     }
@@ -157,7 +184,8 @@ pub async fn ensure_pki(pki_dir: &Path, api: &ApiClient, node_id: &str) -> Resul
     if ca_pem.trim().is_empty() || cert_pem.trim().is_empty() {
         bail!("panel returned an empty certificate");
     }
-    validate(&ca_pem, &cert_pem, &key_pem).context("panel-issued certificate is unusable")?;
+    validate(&ca_pem, &cert_pem, &key_pem, node_id)
+        .context("panel-issued certificate is unusable")?;
     let pki = build(ca_pem, cert_pem, key_pem)?;
     write_pki(pki_dir, &pki.ca_pem, &pki.cert_pem, &pki.key_pem)?;
     info!(not_after = %pki.not_after, serial = %pki.serial, "Obtained node certificate from panel");
@@ -198,19 +226,36 @@ mod tests {
             .contains("node-1"));
     }
 
+    const NODE: &str = "11111111-2222-3333-4444-555555555555";
+
+    /// Self-signed cert (acting as its own CA) with subject CN `cn`, valid
+    /// until `not_after` as (year, month, day); rcgen's far-future default
+    /// when `None`. Returns `(cert_pem, key)`.
+    fn self_signed(cn: &str, not_after: Option<(i32, u8, u8)>) -> (String, KeyPair) {
+        let key = KeyPair::generate().unwrap();
+        let mut params = CertificateParams::new(vec!["x".to_string()]).unwrap();
+        params.distinguished_name.push(rcgen::DnType::CommonName, cn);
+        if let Some((y, m, d)) = not_after {
+            params.not_after = rcgen::date_time_ymd(y, m, d);
+        }
+        (params.self_signed(&key).unwrap().pem(), key)
+    }
+
+    fn in_days(days: i64) -> (i32, u8, u8) {
+        use chrono::Datelike;
+        let d = Utc::now() + chrono::Duration::days(days);
+        (d.year(), d.month() as u8, d.day() as u8)
+    }
+
     #[test]
     fn write_and_reload_pki_roundtrips() {
-        let key = KeyPair::generate().unwrap();
-        let cert = CertificateParams::new(vec!["x".to_string()])
-            .unwrap()
-            .self_signed(&key)
-            .unwrap();
+        let (cert, key) = self_signed(NODE, None);
         let dir = tmp("rt").join("pki");
-        assert!(load_pki(&dir).unwrap().is_none());
-        write_pki(&dir, &cert.pem(), &cert.pem(), &key.serialize_pem()).unwrap();
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
+        write_pki(&dir, &cert, &cert, &key.serialize_pem()).unwrap();
 
-        let p = load_pki(&dir).unwrap().unwrap();
-        assert_eq!(p.cert_pem, cert.pem());
+        let p = load_pki(&dir, NODE).unwrap().unwrap();
+        assert_eq!(p.cert_pem, cert);
         assert_eq!(p.key_pem, key.serialize_pem());
         assert!(
             !p.serial.is_empty()
@@ -230,13 +275,9 @@ mod tests {
     }
 
     fn valid_set(dir: &Path) -> (String, KeyPair) {
-        let key = KeyPair::generate().unwrap();
-        let cert = CertificateParams::new(vec!["x".to_string()])
-            .unwrap()
-            .self_signed(&key)
-            .unwrap();
-        write_pki(dir, &cert.pem(), &cert.pem(), &key.serialize_pem()).unwrap();
-        (cert.pem(), key)
+        let (cert, key) = self_signed(NODE, None);
+        write_pki(dir, &cert, &cert, &key.serialize_pem()).unwrap();
+        (cert, key)
     }
 
     #[test]
@@ -244,7 +285,7 @@ mod tests {
         let dir = tmp("corrupt").join("pki");
         valid_set(&dir);
         fs::write(dir.join(KEY_FILE), "-----BEGIN PRIVATE KEY-----\ntrunc").unwrap();
-        assert!(load_pki(&dir).unwrap().is_none());
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 
@@ -254,7 +295,7 @@ mod tests {
         valid_set(&dir);
         let other = KeyPair::generate().unwrap();
         fs::write(dir.join(KEY_FILE), other.serialize_pem()).unwrap();
-        assert!(load_pki(&dir).unwrap().is_none());
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 
@@ -263,9 +304,55 @@ mod tests {
         let dir = tmp("partial").join("pki");
         valid_set(&dir);
         fs::remove_file(dir.join(KEY_FILE)).unwrap();
-        assert!(load_pki(&dir).unwrap().is_none());
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
         fs::remove_file(dir.join(CERT_FILE)).unwrap();
-        assert!(load_pki(&dir).unwrap().is_none());
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn cert_for_another_node_id_is_treated_as_missing() {
+        // Left over from an earlier install that was enrolled as another node.
+        let dir = tmp("other-node").join("pki");
+        valid_set(&dir);
+        assert!(load_pki(&dir, NODE).unwrap().is_some());
+        assert!(load_pki(&dir, "99999999-8888-7777-6666-555555555555")
+            .unwrap()
+            .is_none());
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn expired_cert_is_treated_as_missing() {
+        let dir = tmp("expired").join("pki");
+        let (cert, key) = self_signed(NODE, Some((2020, 1, 1)));
+        write_pki(&dir, &cert, &cert, &key.serialize_pem()).unwrap();
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn cert_near_expiry_is_treated_as_missing() {
+        let dir = tmp("near-expiry").join("pki");
+        let (cert, key) = self_signed(NODE, Some(in_days(10)));
+        write_pki(&dir, &cert, &cert, &key.serialize_pem()).unwrap();
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
+
+        // Comfortably outside the renewal window: kept.
+        let (cert, key) = self_signed(NODE, Some(in_days(60)));
+        write_pki(&dir, &cert, &cert, &key.serialize_pem()).unwrap();
+        assert!(load_pki(&dir, NODE).unwrap().is_some());
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn cert_not_signed_by_stored_ca_is_treated_as_missing() {
+        // e.g. the panel's CA was replaced; the stored CA is the new one.
+        let dir = tmp("foreign-ca").join("pki");
+        let (cert, key) = self_signed(NODE, None);
+        let (other_ca, _) = self_signed("TalePanel Root CA", None);
+        write_pki(&dir, &other_ca, &cert, &key.serialize_pem()).unwrap();
+        assert!(load_pki(&dir, NODE).unwrap().is_none());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 
@@ -283,7 +370,7 @@ mod tests {
         assert!(fs::read_dir(&dir)
             .unwrap()
             .all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
-        assert!(load_pki(&dir).unwrap().is_some());
+        assert!(load_pki(&dir, NODE).unwrap().is_some());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 }
