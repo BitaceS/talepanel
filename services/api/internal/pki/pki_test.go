@@ -2,8 +2,10 @@ package pki
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -116,6 +118,48 @@ func TestSignCSR_rejectsBadCSR(t *testing.T) {
 	ca, _ := GenerateCA()
 	if _, _, _, err := ca.SignCSR([]byte("junk"), "cn", nil, time.Hour); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func csrWithKey(t *testing.T, key any) []byte {
+	t.Helper()
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "x"},
+	}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+}
+
+func TestSignCSR_onlyECDSAP256Keys(t *testing.T) {
+	ca, err := GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, key := range map[string]any{"P-384": p384, "Ed25519": edKey, "RSA": rsaKey} {
+		if _, _, _, err := ca.SignCSR(csrWithKey(t, key), "cn", nil, time.Hour); err == nil {
+			t.Fatalf("%s CSR key accepted", name)
+		}
+	}
+	p256, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := ca.SignCSR(csrWithKey(t, p256), "cn", nil, time.Hour); err != nil {
+		t.Fatalf("P-256 CSR rejected: %v", err)
 	}
 }
 

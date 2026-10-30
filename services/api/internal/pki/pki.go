@@ -175,6 +175,11 @@ func (ca *CA) SignCSR(csrPEM []byte, cn string, sans []string, validFor time.Dur
 	if err != nil {
 		return nil, "", time.Time{}, err
 	}
+	// Daemons generate ECDSA P-256 keys; refuse anything else so the CA never
+	// certifies weak or unexpected key types.
+	if pub, ok := csr.PublicKey.(*ecdsa.PublicKey); !ok || pub.Curve != elliptic.P256() {
+		return nil, "", time.Time{}, errors.New("CSR key must be ECDSA P-256")
+	}
 	return ca.sign(csr.PublicKey, cn, sans, validFor)
 }
 
