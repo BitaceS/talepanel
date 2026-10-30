@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use crate::net_monitor::NetMonitor;
 use crate::pki::LoadedPki;
@@ -2471,25 +2471,19 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Bind a TCP listener and serve the local HTTP API until cancelled.
-///
-/// This is an infinite future; cancel it (via `tokio::select!` or
-/// `JoinHandle::abort()`) to shut down the server.
-#[instrument(skip(state, security))]
-pub async fn run_http_server(
-    state: AppState,
-    listen_addr: std::net::SocketAddr,
-    security: ListenerSecurity,
-) -> anyhow::Result<()> {
-    let router = build_router(state);
+/// Check up front that the node PKI yields a usable rustls config, so the
+/// caller can fall back (or fail) before advertising mTLS to the panel.
+pub fn validate_pki(pki: &LoadedPki) -> anyhow::Result<()> {
+    build_tls_config(pki).map(|_| ())
+}
 
+/// Bind the local API listener.
+pub async fn bind_listener(listen_addr: std::net::SocketAddr) -> anyhow::Result<TcpListener> {
     let listener = TcpListener::bind(listen_addr)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to bind HTTP server to {listen_addr}: {e}"))?;
-
     info!(%listen_addr, "Local HTTP server listening");
-
-    serve_listener(listener, router, security).await
+    Ok(listener)
 }
 
 /// How the local listener authenticates the panel.

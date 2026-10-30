@@ -33,7 +33,7 @@ pub async fn run_heartbeat_loop(
 
     // Fire an immediate heartbeat on startup so the API knows we are online
     // as soon as possible, rather than waiting for the first interval.
-    send_heartbeat(&api_client, &process_manager, &config, &mtls, "online").await;
+    send_heartbeat(&api_client, &process_manager, &config, mtls.as_ref(), "online").await;
 
     info!(
         interval_s = config.resources.heartbeat_interval_s,
@@ -43,7 +43,7 @@ pub async fn run_heartbeat_loop(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                send_heartbeat(&api_client, &process_manager, &config, &mtls, "online").await;
+                send_heartbeat(&api_client, &process_manager, &config, mtls.as_ref(), "online").await;
             }
 
             _ = shutdown.recv() => {
@@ -61,7 +61,7 @@ async fn send_heartbeat(
     api_client: &Arc<ApiClient>,
     process_manager: &Arc<ProcessManager>,
     config: &Arc<Config>,
-    mtls: &Option<MtlsAdvert>,
+    mtls: Option<&MtlsAdvert>,
     node_status: &str,
 ) {
     let all_metrics = process_manager.collect_all_metrics().await;
@@ -92,7 +92,7 @@ async fn send_heartbeat(
         disk_used_mb: disk_used_mb(&config.daemon.data_root),
         server_count,
         timestamp: chrono::Utc::now(),
-        mtls: mtls.clone(),
+        mtls: mtls.cloned(),
     };
 
     if let Err(err) = api_client.heartbeat(node_status, metrics).await {

@@ -258,6 +258,7 @@ impl ApiClient {
             .post(&url)
             .header("Authorization", self.auth_header())
             .json(&serde_json::json!({ "csr_pem": csr_pem }))
+            .timeout(std::time::Duration::from_secs(10))
             .send()
             .await
             .context("HTTP request failed for node CSR")?;

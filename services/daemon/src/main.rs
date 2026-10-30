@@ -96,6 +96,10 @@ async fn main() -> Result<()> {
     //
     // `pki` is Some only if the listener below really serves TLS with it; the
     // heartbeat advertises mTLS readiness from this, never from intent.
+    let listen_addr: SocketAddr = format!("0.0.0.0:{}", config.daemon.listen_port)
+        .parse()
+        .context("Invalid listen address")?;
+
     let pki = match bootstrap_pki(&config, &api_client).await {
         Ok(p) => Some(p),
         Err(e) if config.daemon.require_mtls => {
@@ -107,6 +111,9 @@ async fn main() -> Result<()> {
             None
         }
     };
+    // Bind before the heartbeat starts: mTLS is advertised only once the
+    // listener is really up (a bind failure is fatal, before any advert).
+    let listener = http_server::bind_listener(listen_addr).await?;
     let mtls_advert = pki.as_ref().map(|p| MtlsAdvert {
         serial: p.serial.clone(),
         not_after: p.not_after,
@@ -161,14 +168,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move { mon.run(Some(api)).await; })
     };
 
-    // 6e. Local Axum HTTP server
-    let listen_addr: SocketAddr = format!(
-        "0.0.0.0:{}",
-        config.daemon.listen_port
-    )
-    .parse()
-    .context("Invalid listen address")?;
-
+    // 6e. Local Axum HTTP server (listener already bound above)
     let http_state = AppState {
         process_manager: Arc::clone(&process_manager),
         node_id: config.daemon.node_id.clone(),
@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
             allow_legacy_bearer: http_legacy_bearer,
             require_mtls: http_require_mtls,
         };
-        if let Err(err) = http_server::run_http_server(http_state, listen_addr, security).await {
+        if let Err(err) = http_server::serve_listener(listener, http_server::build_router(http_state), security).await {
             // Fatal: otherwise the daemon would keep heartbeating while unreachable.
             error!(%err, "Local HTTP server exited with error; exiting");
             std::process::exit(1);
@@ -251,7 +251,12 @@ async fn bootstrap_pki(config: &Config, api: &ApiClient) -> Result<LoadedPki> {
     let mut attempt = 1;
     loop {
         match pki::ensure_pki(dir, api, &config.daemon.node_id).await {
-            Ok(p) => return Ok(p),
+            Ok(p) => {
+                // Build the TLS config now: a cert the listener cannot use is a
+                // bootstrap failure, not something to advertise to the panel.
+                http_server::validate_pki(&p).context("node PKI unusable for the TLS listener")?;
+                return Ok(p);
+            }
             Err(e) if e.downcast_ref::<CsrUnsupported>().is_some() => return Err(e),
             Err(e) if attempt >= PKI_MAX_ATTEMPTS => return Err(e),
             Err(e) => {
