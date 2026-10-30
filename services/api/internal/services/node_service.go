@@ -67,6 +67,11 @@ type NodeHeartbeatRequest struct {
 	CPUPercent float32 `json:"cpu_percent"`
 	RAMUsedMB  uint64  `json:"ram_used_mb"`
 	DiskUsedMB uint64  `json:"disk_used_mb"`
+	// mTLS state advertised by daemons that hold a panel-issued certificate.
+	// Absent on older daemons, in which case nothing is changed.
+	MTLSReady    bool       `json:"mtls_ready,omitempty"`
+	CertSerial   string     `json:"cert_serial,omitempty"`
+	CertNotAfter *time.Time `json:"cert_not_after,omitempty"`
 }
 
 // NodeService handles CRUD and heartbeat logic for daemon nodes.
@@ -261,9 +266,12 @@ func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID,
 
 	_, err := s.db.Exec(ctx, `
 		UPDATE nodes
-		SET status = $1, last_heartbeat = $2
+		SET status = $1, last_heartbeat = $2,
+		    mtls_enabled   = mtls_enabled OR $4,
+		    cert_serial    = CASE WHEN $4 THEN NULLIF($5, '') ELSE cert_serial END,
+		    cert_not_after = CASE WHEN $4 THEN $6 ELSE cert_not_after END
 		WHERE id = $3
-	`, status, time.Now().UTC(), nodeID)
+	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter)
 	if err != nil {
 		return fmt.Errorf("updating node heartbeat: %w", err)
 	}
