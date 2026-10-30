@@ -1,6 +1,6 @@
 # Security Policy
 
-_Last reviewed: 2026-10-26, against v0.11.0-beta._
+_Last reviewed: 2026-10-30, against v0.12.0-beta._
 
 ## Reporting a vulnerability
 
@@ -38,6 +38,7 @@ A fresh install via `scripts/install.sh --mode panel` guarantees:
 - Refresh tokens are stored hashed with SHA-256, access tokens signed with HS256, JTI blacklist on logout.
 - Rate limiting (Redis sliding window): 30 req/min on `/auth/*`, 120 req/min on the rest, per client IP.
 - Caddy reverse proxy terminates TLS with automatic Let's Encrypt certificates.
+- Panel ↔ node traffic uses mutual TLS. The panel is a private CA (ECDSA P-256, key encrypted at rest under `TOTP_ENC_KEY`) and issues each node a certificate on its first start; the node's private key never leaves the node. The panel verifies a node by CA chain + CN = node UUID, the node verifies the panel by CA chain + CN = `panel`, and the node token is still required on every request.
 - Security headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, strict CSP, `Referrer-Policy: strict-origin-when-cross-origin`.
 
 ## Operator responsibilities
@@ -56,7 +57,9 @@ The installer cannot enforce what is outside its reach. As the operator, you are
 
 These are on the roadmap but not yet implemented. Operators should know:
 
-- No mTLS between daemon and panel. Authentication is bearer-token over HTTPS.
+- mTLS runs in transition mode by default: a node still accepts the old plaintext bearer connection on its port so older panels keep working. Once all your panels are on v0.12+, set `TALEDAEMON_REQUIRE_MTLS=1` and `TALEDAEMON_ALLOW_LEGACY_BEARER=0` in each node's `.env` and restart it.
+- A node certificate is issued to whoever presents the node token, so a leaked node token alone can still obtain a valid node certificate. Treat the token like a private key; removing the node in the panel revokes it.
+- No certificate revocation lists and no automatic renewal while running: node and panel certificates are valid for 2 years and renewed on a restart within 30 days of expiry. Rotating the panel CA is not supported yet.
 - No process isolation per Hytale server. Every server managed by a single daemon runs under the same Linux user. A malicious server operator with shell access via plugins could interfere with others. Run one daemon per trust boundary for now.
 - No 2FA backup codes. If a user loses their TOTP device, an admin must disable 2FA for them via `tale-cli` (not yet implemented; SQL workaround: `UPDATE users SET totp_enabled=false, totp_secret=NULL WHERE email=...`).
 - No automatic session cleanup. Expired sessions accumulate in the `sessions` table. Run `DELETE FROM sessions WHERE expires_at < NOW() - INTERVAL '30 days';` occasionally.

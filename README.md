@@ -12,7 +12,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel**. You use i
 
 Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed, public beta. Latest release: [v0.11.0-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.11.0-beta) (2026-10-24), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed, public beta. Latest release: [v0.12.0-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.12.0-beta) (2026-10-30), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ---
 
@@ -59,16 +59,16 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Files** — browse, edit, upload, download inside the server directory.
 - **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
 - **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
-- **Backups** — create/restore/download/schedule a Zip snapshot of a server. The archive is written on the node; optionally the node also uploads it off-site with rclone to **OneDrive, Google Drive, Dropbox, S3-compatible storage (AWS, Wasabi, R2), Backblaze B2, SFTP or WebDAV/Nextcloud**, with upload status, retention and "keep local copy" per destination.
+- **Backups** — create/restore/download/schedule a Zip snapshot of a server. The archive is written on the node; optionally the node also uploads it off-site with rclone to **OneDrive, Google Drive, Dropbox, S3-compatible storage (AWS, Wasabi, R2), Backblaze B2, SFTP or WebDAV/Nextcloud**, with upload status, retention and "keep local copy" per destination. Archives are encrypted (ChaCha20-Poly1305) on the node before they are written, under a panel-managed key.
 - **Players** — list, kick, ban, whitelist.
-- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest), RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password.
+- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest), RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure.
 - **Install** — one script for panel or daemon, automatic Let's Encrypt TLS, works without a domain via `sslip.io`.
 
 **Not there yet (roadmap, tracked publicly):**
 
 - **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
-- **mTLS between panel and daemon, process isolation per server** — see [`SECURITY.md`](SECURITY.md).
+- **Process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -430,10 +430,12 @@ Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are b
 | Upload-based mod installer | Shipped |
 | CurseForge mod browser | Shipped (needs an API key in Admin → Integrations) |
 | Backups (create / restore / download / schedule) | Shipped |
-| Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV) | Unreleased |
+| Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV) | Shipped (v0.11) |
+| Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |
+| mTLS panel ↔ daemon | Shipped (v0.12) |
 | Alerts via Discord, webhook and email | Shipped |
 | WebSocket/SSE streaming instead of polling | Next |
-| mTLS panel ↔ daemon, per-server process isolation | Next |
+| Per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 | Server templates | Planned |
 

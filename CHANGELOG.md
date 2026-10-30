@@ -4,12 +4,28 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.12.0-beta] — 2026-10-30
+
+Encrypted backups and mutual TLS between panel and nodes. Both are on by default with nothing to configure.
+
 ### Security
-- Server backups are now encrypted. Each archive is sealed with ChaCha20-Poly1305 (streaming AEAD, 64 KiB chunks, `TPBKENC1` header) on the node *before* it is written, so both the local copy and every off-site upload are ciphertext — a leaked OneDrive/Drive/S3/SFTP credential no longer exposes your worlds. The symmetric key is panel-managed: stored encrypted in the database (AES-256-GCM under `TOTP_ENC_KEY`), never persisted on the node, and handed to the daemon per operation over HTTPS. On by default, nothing to configure.
+- Panel and nodes now talk over mutual TLS. The panel runs its own private CA (ECDSA P-256; key stored encrypted in the database under `TOTP_ENC_KEY`) and issues certificates automatically: on first start a node generates its own key, sends a certificate request to the new `POST /api/v1/nodes/:id/csr` (authenticated with the node token) and gets a 2-year certificate back. The private key never leaves the node (`/srv/taledaemon/pki`, mode 0600). Once the node's TLS listener is up, its heartbeat reports it and the panel switches that node from `http` to `https` with its own client certificate. The node token is still checked on every request as a second factor.
+- Both sides pin identity, not hostnames: the panel accepts only a certificate from its own CA whose CN is the node's UUID (so Docker service names and IP addresses work), and the node accepts only a client certificate from that CA with CN `panel`. A certificate or a token alone is not enough to drive a node.
+- Transition mode: existing nodes keep working. A node still accepts the old plaintext bearer connection on the same port (`TALEDAEMON_ALLOW_LEGACY_BEARER=1`, the default) so older panels can reach it. Set `TALEDAEMON_REQUIRE_MTLS=1` and `TALEDAEMON_ALLOW_LEGACY_BEARER=0` in the node's `.env` to refuse anything but mutual TLS. Both switches are now passed through by `deploy/daemon/docker-compose.yml`.
+- The panel switches a node to TLS only when the node reports the certificate serial the panel issued, so a leftover certificate from an earlier install can no longer lock the panel out of a node. A node re-requests its certificate when the stored one belongs to another node ID or CA, is corrupt, or expires within 30 days.
+- Server backups are now encrypted. Each archive is sealed with ChaCha20-Poly1305 (streaming AEAD, 64 KiB chunks, `TPBKENC1` header) on the node *before* it is written, so both the local copy and every off-site upload are ciphertext — a leaked OneDrive/Drive/S3/SFTP credential no longer exposes your worlds. The symmetric key is panel-managed: stored encrypted in the database (AES-256-GCM under `TOTP_ENC_KEY`), never persisted on the node, and handed to the daemon per operation — over mutual TLS once the node has its certificate. On by default, nothing to configure.
 - Backup keys can be rotated, and backups sealed with an older key stay restorable (each backup records its key id, migration 040). Legacy plaintext backups are detected by the absent header and still restore.
 
 ### Added
 - Backup encryption controls under Admin → Integrations → Backup encryption: the active key id is shown, and owners can reveal/export the key for off-site escrow or rotate it. New owner-only, audit-logged endpoints `GET /admin/backup-key`, `GET /admin/backup-key/export`, `POST /admin/backup-key/rotate`. The backup list shows an "Encrypted" badge per backup.
+- Migration 041 adds `mtls_enabled`, `cert_serial` and `cert_not_after` to `nodes`. New node settings `TALEDAEMON_PKI_DIR` (default `<data root>/pki`), `TALEDAEMON_ALLOW_LEGACY_BEARER`, `TALEDAEMON_REQUIRE_MTLS`.
+
+### Fixed
+- `install.sh --quick` (and panel + game server on one machine) stopped on a fresh Debian/Ubuntu box with "missing required commands: jq" after the panel was already running. The installer now installs `jq` first.
+
+### Upgrade notes
+- Nothing to do: after updating, each node fetches its certificate on its next start and moves to TLS by itself. If the panel is unreachable or too old at that moment, the node keeps serving the old way and tries again on its next restart.
+- If a node ever stays unreachable after a change of panel or node ID, delete its certificate folder (`rm -r /srv/taledaemon/pki`) and run `UPDATE nodes SET mtls_enabled = false WHERE id = '<node id>';` on the panel database, then restart the node.
 
 ## [0.11.0-beta] — 2026-10-24
 
