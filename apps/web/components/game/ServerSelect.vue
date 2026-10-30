@@ -127,7 +127,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <div class="name">{{ s.name }}</div>
             <div class="motd">
               <span :class="s.status === 'running' ? 'ok' : s.status === 'crashed' ? 'bad' : ''">{{ statusText(s) }}</span>
-              · {{ s.node_fqdn ?? 'node' }}:{{ s.port }}
+              · {{ s.node_fqdn ? `${s.node_fqdn}:${s.port}` : `Port ${s.port}` }}
               · Hytale {{ s.hytale_version }}
               <template v-if="s.active_world"> · World {{ s.active_world }}</template>
             </div>

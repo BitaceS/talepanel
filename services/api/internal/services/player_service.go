@@ -482,3 +482,82 @@ func (s *PlayerService) GetPlayerSessions(ctx context.Context, serverID, playerI
 	}
 	return sessions, rows.Err()
 }
+
+// ─── Dashboard activity ───────────────────────────────────────────────────────
+
+// HourlyPlayers is one hour bucket of the dashboard activity chart.
+type HourlyPlayers struct {
+	Hour    time.Time `json:"hour"`
+	Players int       `json:"players"`
+}
+
+// PlayerActivity is what the dashboard shows about players on a set of servers.
+type PlayerActivity struct {
+	// OnlineByServer maps server id to the number of open sessions.
+	OnlineByServer map[uuid.UUID]int `json:"online_by_server"`
+	OnlinePlayers  int               `json:"online_players"`
+	// Last24h has 24 hourly buckets, oldest first, ending with the current hour.
+	// Each counts the distinct players with a session overlapping that hour.
+	Last24h []HourlyPlayers `json:"last_24h"`
+}
+
+// PlayerActivity counts players online now and per hour over the last 24 hours
+// for the given servers. Open sessions are closed when a server or daemon goes
+// down, so an open session means the player is on the server.
+func (s *PlayerService) PlayerActivity(ctx context.Context, serverIDs []uuid.UUID) (*PlayerActivity, error) {
+	out := &PlayerActivity{OnlineByServer: map[uuid.UUID]int{}, Last24h: []HourlyPlayers{}}
+	if len(serverIDs) == 0 {
+		serverIDs = []uuid.UUID{}
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT p.server_id, COUNT(*)
+		FROM player_sessions ps
+		JOIN players p ON p.id = ps.player_id
+		WHERE ps.left_at IS NULL AND p.server_id = ANY($1)
+		GROUP BY p.server_id
+	`, serverIDs)
+	if err != nil {
+		return nil, fmt.Errorf("querying online players: %w", err)
+	}
+	for rows.Next() {
+		var id uuid.UUID
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning online players: %w", err)
+		}
+		out.OnlineByServer[id] = n
+		out.OnlinePlayers += n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating online players: %w", err)
+	}
+
+	rows, err = s.db.Query(ctx, `
+		SELECT h.hour, COUNT(DISTINCT ps.player_id)
+		FROM generate_series(
+		       date_trunc('hour', NOW()) - INTERVAL '23 hours',
+		       date_trunc('hour', NOW()),
+		       INTERVAL '1 hour') AS h(hour)
+		LEFT JOIN player_sessions ps
+		       ON ps.joined_at < h.hour + INTERVAL '1 hour'
+		      AND COALESCE(ps.left_at, NOW()) >= h.hour
+		      AND ps.player_id IN (SELECT id FROM players WHERE server_id = ANY($1))
+		GROUP BY h.hour
+		ORDER BY h.hour
+	`, serverIDs)
+	if err != nil {
+		return nil, fmt.Errorf("querying hourly players: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b HourlyPlayers
+		if err := rows.Scan(&b.Hour, &b.Players); err != nil {
+			return nil, fmt.Errorf("scanning hourly players: %w", err)
+		}
+		out.Last24h = append(out.Last24h, b)
+	}
+	return out, rows.Err()
+}

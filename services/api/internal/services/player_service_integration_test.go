@@ -317,3 +317,55 @@ func TestKickPlayer_SendsKickWithoutReason(t *testing.T) {
 		t.Fatalf("enqueued command = %q, want %q", cmd, "kick Kit")
 	}
 }
+
+// The dashboard counts open sessions as online and buckets sessions per hour,
+// and only for the servers it is asked about.
+func TestPlayerActivity_CountsOpenSessionsPerServer(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewPlayerService(pool)
+
+	ownerID := seedTestUser(t, pool, "user")
+	mine := seedTestServer(t, pool, ownerID)
+	other := seedTestServer(t, pool, ownerID)
+
+	if err := svc.RecordPlayerEvent(ctx, mine, "join", "Alice", uuid.New()); err != nil {
+		t.Fatalf("join alice: %v", err)
+	}
+	bob := uuid.New()
+	if err := svc.RecordPlayerEvent(ctx, mine, "join", "Bob", bob); err != nil {
+		t.Fatalf("join bob: %v", err)
+	}
+	if err := svc.RecordPlayerEvent(ctx, mine, "leave", "Bob", bob); err != nil {
+		t.Fatalf("leave bob: %v", err)
+	}
+	if err := svc.RecordPlayerEvent(ctx, other, "join", "Carol", uuid.New()); err != nil {
+		t.Fatalf("join carol: %v", err)
+	}
+
+	got, err := svc.PlayerActivity(ctx, []uuid.UUID{mine})
+	if err != nil {
+		t.Fatalf("PlayerActivity: %v", err)
+	}
+	if got.OnlinePlayers != 1 || got.OnlineByServer[mine] != 1 {
+		t.Fatalf("online = %d (server %d), want 1/1", got.OnlinePlayers, got.OnlineByServer[mine])
+	}
+	if _, leaked := got.OnlineByServer[other]; leaked {
+		t.Fatalf("server not asked for shows up in the result")
+	}
+	if len(got.Last24h) != 24 {
+		t.Fatalf("buckets = %d, want 24", len(got.Last24h))
+	}
+	// Alice (open) and Bob (closed this hour) both overlap the current hour.
+	if last := got.Last24h[23].Players; last != 2 {
+		t.Fatalf("current hour players = %d, want 2", last)
+	}
+
+	empty, err := svc.PlayerActivity(ctx, nil)
+	if err != nil {
+		t.Fatalf("PlayerActivity(nil): %v", err)
+	}
+	if empty.OnlinePlayers != 0 || len(empty.Last24h) != 24 || empty.Last24h[23].Players != 0 {
+		t.Fatalf("no servers: online=%d buckets=%d", empty.OnlinePlayers, len(empty.Last24h))
+	}
+}

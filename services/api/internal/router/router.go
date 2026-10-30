@@ -232,6 +232,7 @@ func SetupRouter(
 	{
 		// Collection routes have no :id and cannot be per-server scoped.
 		serverGroup.GET("", serverH.ListServers)
+		serverGroup.GET("/activity", playerH.DashboardActivity)
 		serverGroup.POST("", middleware.RequirePermission(permSvc, "server.create"), serverH.CreateServer)
 
 		serverGroup.GET("/:id", rsp("server.view"), serverH.GetServer)

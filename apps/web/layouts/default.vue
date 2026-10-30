@@ -27,6 +27,7 @@ function toggleNotifications() {
   const was = showNotifications.value
   closeAll()
   showNotifications.value = !was
+  if (!was) loadAlerts()
 }
 
 function toggleHelp() {
@@ -69,18 +70,49 @@ function onSearch() {
   searchQuery.value = ''
 }
 
-// ── Mock notifications ────────────────────────────────────────────────────────
-const notifications = ref([
-  { id: '1', title: 'Server started', desc: 'Hytale-Prod-01 is now running', time: '2m ago', read: false },
-  { id: '2', title: 'Node heartbeat', desc: 'dev-node reconnected', time: '5m ago', read: false },
-  { id: '3', title: 'Backup completed', desc: 'world_alpha backup finished', time: '12m ago', read: true },
-  { id: '4', title: 'Player joined', desc: 'ShadowMiner_42 connected', time: '18m ago', read: true },
-])
+// ── Notifications: open alert events ─────────────────────────────────────────
+interface AlertEvent {
+  id: string
+  severity: string
+  title: string
+  body?: string
+  resolved: boolean
+  created_at: string
+}
 
-const unreadCount = computed(() => notifications.value.filter(n => !n.read).length)
+const api = useApi()
+const alertEvents = ref<AlertEvent[]>([])
+const openAlerts = computed(() => alertEvents.value.filter(e => !e.resolved))
+const unreadCount = computed(() => openAlerts.value.length)
 
-function markAllRead() {
-  notifications.value.forEach(n => n.read = true)
+async function loadAlerts() {
+  try {
+    const data = await api.get<{ events: AlertEvent[] }>('/alerts/events')
+    alertEvents.value = data.events ?? []
+  } catch {
+    // Keep the last list; the bell just shows nothing new.
+  }
+}
+
+let alertTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  loadAlerts()
+  alertTimer = setInterval(loadAlerts, 60_000)
+})
+onUnmounted(() => clearInterval(alertTimer))
+
+function timeAgo(iso: string): string {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+function severityDot(sev: string): string {
+  if (sev === 'critical' || sev === 'error') return 'bg-tp-danger'
+  if (sev === 'warning') return 'bg-tp-warning'
+  return 'bg-tp-primary'
 }
 
 // ── Help links ────────────────────────────────────────────────────────────────
@@ -146,30 +178,28 @@ const { theme, setTheme } = useTheme()
                 class="absolute right-0 top-full mt-2 w-80 bg-tp-surface2 rounded-xl shadow-ambient overflow-hidden z-50"
               >
                 <div class="flex items-center justify-between px-4 py-3">
-                  <h3 class="text-tp-text font-display font-semibold text-sm">Notifications</h3>
-                  <button
-                    v-if="unreadCount > 0"
-                    class="text-tp-accent text-xs hover:text-tp-primary transition-colors"
-                    @click="markAllRead"
-                  >Mark all read</button>
+                  <h3 class="text-tp-text font-display font-semibold text-sm">Open alerts</h3>
+                  <span class="text-tp-outline text-xs">{{ unreadCount }}</span>
                 </div>
 
                 <div class="max-h-72 overflow-y-auto scrollbar-thin">
-                  <div
-                    v-for="notif in notifications"
-                    :key="notif.id"
-                    :class="[
-                      'flex items-start gap-3 px-4 py-3 hover:bg-tp-surface3/50 transition-colors cursor-pointer',
-                      !notif.read ? 'bg-tp-primary/5' : '',
-                    ]"
+                  <p v-if="openAlerts.length === 0" class="px-4 py-6 text-center text-tp-muted text-sm">
+                    No open alerts.
+                  </p>
+                  <NuxtLink
+                    v-for="ev in openAlerts.slice(0, 8)"
+                    :key="ev.id"
+                    to="/alerts"
+                    class="flex items-start gap-3 px-4 py-3 hover:bg-tp-surface3/50 transition-colors"
+                    @click="closeAll"
                   >
-                    <div :class="['w-2 h-2 rounded-full shrink-0 mt-1.5', notif.read ? 'bg-tp-surface-highest' : 'bg-tp-primary']" />
+                    <div :class="['w-2 h-2 rounded-full shrink-0 mt-1.5', severityDot(ev.severity)]" />
                     <div class="flex-1 min-w-0">
-                      <p class="text-tp-text text-sm font-medium truncate">{{ notif.title }}</p>
-                      <p class="text-tp-muted text-xs truncate">{{ notif.desc }}</p>
+                      <p class="text-tp-text text-sm font-medium truncate">{{ ev.title }}</p>
+                      <p v-if="ev.body" class="text-tp-muted text-xs truncate">{{ ev.body }}</p>
                     </div>
-                    <span class="text-tp-outline text-[10px] shrink-0 mt-0.5">{{ notif.time }}</span>
-                  </div>
+                    <span class="text-tp-outline text-[11px] shrink-0 mt-0.5">{{ timeAgo(ev.created_at) }}</span>
+                  </NuxtLink>
                 </div>
 
                 <div class="px-4 py-3 border-t border-tp-border/20">
@@ -178,7 +208,7 @@ const { theme, setTheme } = useTheme()
                     class="text-tp-accent text-xs font-medium hover:text-tp-primary transition-colors flex items-center justify-center gap-1"
                     @click="closeAll"
                   >
-                    View all notifications
+                    View all alerts
                     <span class="material-symbols-outlined text-sm">arrow_forward</span>
                   </NuxtLink>
                 </div>

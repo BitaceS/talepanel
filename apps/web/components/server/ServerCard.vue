@@ -4,6 +4,8 @@ import { useServersStore } from '~/stores/servers'
 
 interface Props {
   server: Server
+  // Players online now; undefined while the dashboard is still loading it.
+  players?: number
 }
 
 const props = defineProps<Props>()
@@ -124,7 +126,7 @@ const statusDotColor = computed(() => {
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-1.5 text-tp-muted text-xs">
           <span class="material-symbols-outlined text-sm">group</span>
-          <span>0 players</span>
+          <span>{{ players === undefined ? '—' : `${players} ${players === 1 ? 'player' : 'players'}` }}</span>
         </div>
 
         <!-- Quick action button -->

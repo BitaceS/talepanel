@@ -77,6 +77,29 @@ func (h *PlayerHandler) DaemonPlayerReport(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// DashboardActivity handles GET /servers/activity: players online now and per
+// hour over the last 24 hours, across the servers the caller can see.
+func (h *PlayerHandler) DashboardActivity(c *gin.Context) {
+	user := mustUser(c)
+	servers, err := h.serverSvc.ListServers(c.Request.Context(), user.ID, user.Role)
+	if err != nil {
+		h.log.Error("failed to list servers for activity", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load activity"})
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(servers))
+	for _, s := range servers {
+		ids = append(ids, s.ID)
+	}
+	activity, err := h.playerSvc.PlayerActivity(c.Request.Context(), ids)
+	if err != nil {
+		h.log.Error("failed to load player activity", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load activity"})
+		return
+	}
+	c.JSON(http.StatusOK, activity)
+}
+
 func (h *PlayerHandler) ListPlayers(c *gin.Context) {
 	serverID, ok := parseUUID(c, "id")
 	if !ok {

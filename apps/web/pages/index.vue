@@ -2,6 +2,7 @@
 import { useServersStore } from '~/stores/servers'
 import { useApi } from '~/composables/useApi'
 import { useModulesStore } from '~/stores/modules'
+import { useAuthStore } from '~/stores/auth'
 import type { Server as ServerType } from '~/types'
 
 definePageMeta({
@@ -12,6 +13,7 @@ definePageMeta({
 const serversStore = useServersStore()
 const api = useApi()
 const modulesStore = useModulesStore()
+const authStore = useAuthStore()
 
 // Live clock
 const now = ref(new Date())
@@ -46,37 +48,88 @@ const onlineServers = computed(() =>
   serversList.value.filter((s) => s.status === 'running').length
 )
 
-// Fetch nodes
-const nodes = ref<{ id: string; status: string }[]>([])
+interface ClusterStats {
+  total_nodes: number
+  online_nodes: number
+  avg_cpu_pct: number
+  total_ram_mb: number
+  used_ram_mb: number
+  total_disk_mb: number
+  used_disk_mb: number
+}
+
+interface PlayerActivity {
+  online_by_server: Record<string, number>
+  online_players: number
+  last_24h: { hour: string; players: number }[]
+}
+
+const isAdmin = computed(() => authStore.user?.role === 'admin' || authStore.user?.role === 'owner')
+
+// null = not loaded (or no access); the template shows "—" instead of a guess.
+const cluster = ref<ClusterStats | null>(null)
+const activity = ref<PlayerActivity | null>(null)
 const activityLogs = ref<{ id: string; action: string; target_type: string; created_at: string }[]>([])
 
 onMounted(async () => {
   clockInterval = setInterval(() => { now.value = new Date() }, 1000)
   serversStore.fetchServers()
-  if (modulesStore.isEnabled('nodes')) {
-    try {
-      const data = await api.get<{ nodes: { id: string; status: string }[] }>('/nodes')
-      nodes.value = data.nodes ?? []
-    } catch { /* non-admin users won't have access */ }
+  const jobs: Promise<void>[] = [
+    api.get<PlayerActivity>('/servers/activity')
+      .then((d) => { activity.value = d })
+      .catch(() => { /* leave as unknown */ }),
+  ]
+  if (isAdmin.value) {
+    if (modulesStore.isEnabled('nodes')) {
+      jobs.push(api.get<ClusterStats>('/nodes/cluster-stats')
+        .then((d) => { cluster.value = d })
+        .catch(() => { /* leave as unknown */ }))
+    }
+    jobs.push(api.get<{ logs: { id: string; action: string; target_type: string; created_at: string }[] }>('/admin/activity-logs')
+      .then((d) => { activityLogs.value = (d.logs ?? []).slice(0, 10) })
+      .catch(() => { /* leave empty */ }))
   }
-  try {
-    const data = await api.get<{ logs: { id: string; action: string; target_type: string; created_at: string }[] }>('/admin/activity-logs')
-    activityLogs.value = (data.logs ?? []).slice(0, 10)
-  } catch { /* non-admin users won't have access */ }
+  await Promise.all(jobs)
 })
 
-const onlineNodes = computed(() => nodes.value.filter(n => n.status === 'online').length)
+const offlineNodes = computed(() => cluster.value ? cluster.value.total_nodes - cluster.value.online_nodes : 0)
 
-// Mock chart data for Server Performance
-const perfBars = [
-  { label: 'Mon', cpu: 45, ram: 62 },
-  { label: 'Tue', cpu: 52, ram: 58 },
-  { label: 'Wed', cpu: 38, ram: 71 },
-  { label: 'Thu', cpu: 65, ram: 55 },
-  { label: 'Fri', cpu: 42, ram: 68 },
-  { label: 'Sat', cpu: 78, ram: 45 },
-  { label: 'Sun', cpu: 35, ram: 52 },
-]
+function pct(used: number, total: number): number {
+  return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
+}
+
+function formatMB(mb: number): string {
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+}
+
+const resourceBars = computed(() => {
+  const c = cluster.value
+  if (!c) return []
+  return [
+    { label: 'CPU (avg)', value: Math.min(100, Math.round(c.avg_cpu_pct)), detail: `${Math.round(c.avg_cpu_pct)}%` },
+    { label: 'RAM', value: pct(c.used_ram_mb, c.total_ram_mb), detail: `${formatMB(c.used_ram_mb)} / ${formatMB(c.total_ram_mb)}` },
+    { label: 'Disk', value: pct(c.used_disk_mb, c.total_disk_mb), detail: `${formatMB(c.used_disk_mb)} / ${formatMB(c.total_disk_mb)}` },
+  ]
+})
+
+// Player activity: one bar per hour, scaled to the busiest hour.
+const hourly = computed(() => activity.value?.last_24h ?? [])
+const peak = computed(() => hourly.value.reduce((best, h) => (h.players > best.players ? h : best), { hour: '', players: 0 }))
+const hadPlayers = computed(() => peak.value.players > 0)
+const avgPlayers = computed(() => {
+  if (!hourly.value.length) return 0
+  return Math.round((hourly.value.reduce((sum, h) => sum + h.players, 0) / hourly.value.length) * 10) / 10
+})
+
+function hourLabel(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+// Audit actions are stored as snake_case route names ("post_auth_login").
+function actionLabel(action: string): string {
+  const words = action.replace(/^(get|post|put|patch|delete)_/, '').replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
 </script>
 
 <template>
@@ -85,7 +138,7 @@ const perfBars = [
     <div class="flex items-start justify-between">
       <div>
         <h2 class="text-tp-text font-display font-bold text-3xl">Fleet Overview</h2>
-        <p class="text-tp-muted text-sm mt-1">Real-time diagnostics for your Hytale ecosystem.</p>
+        <p class="text-tp-muted text-sm mt-1">Your servers, nodes and players at a glance.</p>
       </div>
       <div class="text-right">
         <p class="text-tp-text font-mono text-2xl font-semibold tabular-nums">{{ timeDisplay }}</p>
@@ -95,119 +148,112 @@ const perfBars = [
 
     <!-- Stats row -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-      <!-- Total Servers -->
+      <!-- Servers -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Total Servers</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Servers</p>
         <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ totalServers }}</p>
         <div class="flex items-center gap-1.5 mt-2">
-          <span class="material-symbols-outlined text-tp-tertiary text-sm">trending_up</span>
-          <p class="text-tp-tertiary text-xs">All systems monitored</p>
+          <span :class="['material-symbols-outlined text-sm', onlineServers > 0 ? 'text-tp-success' : 'text-tp-muted']">play_circle</span>
+          <p class="text-tp-muted text-xs">{{ onlineServers }} running</p>
         </div>
       </div>
 
-      <!-- Global Nodes -->
-      <div class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Global Nodes</p>
-        <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ nodes.length > 0 ? String(nodes.length).padStart(2, '0') : '00' }}</p>
+      <!-- Nodes (admins) -->
+      <div v-if="cluster" class="bg-tp-surface2 rounded-xl p-6">
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Nodes</p>
+        <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ cluster.total_nodes }}</p>
         <div class="flex items-center gap-1.5 mt-2">
-          <span class="material-symbols-outlined text-tp-success text-sm">check_circle</span>
-          <p class="text-tp-success text-xs">{{ onlineNodes }} operational</p>
+          <span :class="['material-symbols-outlined text-sm', offlineNodes > 0 ? 'text-tp-warning' : 'text-tp-success']">
+            {{ offlineNodes > 0 ? 'warning' : 'check_circle' }}
+          </span>
+          <p :class="['text-xs', offlineNodes > 0 ? 'text-tp-warning' : 'text-tp-success']">
+            {{ cluster.online_nodes }} online<template v-if="offlineNodes > 0">, {{ offlineNodes }} offline</template>
+          </p>
+        </div>
+      </div>
+      <div v-else class="bg-tp-surface2 rounded-xl p-6">
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Stopped</p>
+        <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ totalServers - onlineServers }}</p>
+        <div class="flex items-center gap-1.5 mt-2">
+          <span class="material-symbols-outlined text-tp-muted text-sm">stop_circle</span>
+          <p class="text-tp-muted text-xs">Servers not running</p>
         </div>
       </div>
 
-      <!-- Active Players -->
+      <!-- Players -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Active Players</p>
-        <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ serversList.reduce((sum) => sum, 0) }}</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Players online</p>
+        <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ activity ? activity.online_players : '—' }}</p>
         <div class="flex items-center gap-1.5 mt-2">
           <span class="material-symbols-outlined text-tp-accent text-sm">group</span>
-          <p class="text-tp-muted text-xs">Across all servers</p>
+          <p class="text-tp-muted text-xs">Across your servers</p>
         </div>
       </div>
     </div>
 
     <!-- Charts row -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      <!-- Server Performance (bar chart) -->
-      <div class="bg-tp-surface2 rounded-xl p-6">
-        <div class="flex items-start justify-between mb-1">
-          <div>
-            <h3 class="text-tp-text font-display font-semibold text-lg">Server Performance</h3>
-            <p class="text-tp-muted text-xs mt-0.5">Real-time CPU/RAM telemetry</p>
-          </div>
-          <div class="flex items-center gap-4 text-xs">
-            <div class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-sm bg-tp-primary" />
-              <span class="text-tp-muted">CPU</span>
+    <div :class="['grid grid-cols-1 gap-5', cluster ? 'lg:grid-cols-2' : '']">
+      <!-- Node resources (admins) -->
+      <div v-if="cluster" class="bg-tp-surface2 rounded-xl p-6">
+        <h3 class="text-tp-text font-display font-semibold text-lg">Node Resources</h3>
+        <p class="text-tp-muted text-xs mt-0.5">Last reported usage, summed over all nodes</p>
+        <div class="space-y-5 mt-6">
+          <div v-for="bar in resourceBars" :key="bar.label">
+            <div class="flex items-center justify-between text-xs mb-1.5">
+              <span class="text-tp-muted">{{ bar.label }}</span>
+              <span class="text-tp-text font-mono tabular-nums">{{ bar.detail }}</span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-2.5 h-2.5 rounded-sm bg-tp-tertiary" />
-              <span class="text-tp-muted">RAM</span>
+            <div class="h-2.5 bg-tp-surface-highest rounded-full overflow-hidden">
+              <div
+                :class="['h-full rounded-full transition-all duration-500', bar.value >= 90 ? 'bg-tp-danger' : bar.value >= 75 ? 'bg-tp-warning' : 'progress-fill']"
+                :style="{ width: bar.value + '%' }"
+              />
             </div>
           </div>
         </div>
-
-        <!-- Bar chart -->
-        <div class="flex items-end gap-3 h-40 mt-6 mb-4">
-          <div v-for="bar in perfBars" :key="bar.label" class="flex-1 flex items-end gap-1">
-            <div class="flex-1 bg-tp-primary/80 rounded-t transition-all duration-500" :style="{ height: bar.cpu + '%' }" />
-            <div class="flex-1 bg-tp-tertiary/60 rounded-t transition-all duration-500" :style="{ height: bar.ram + '%' }" />
-          </div>
-        </div>
-        <div class="flex gap-3">
-          <div v-for="bar in perfBars" :key="bar.label" class="flex-1 text-center text-[10px] text-tp-outline">{{ bar.label }}</div>
-        </div>
-
-        <!-- Summary stats -->
-        <div class="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-tp-border/30">
-          <div>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Total Allocation</p>
-            <p class="text-tp-text font-display font-bold text-sm mt-1">{{ totalServers > 0 ? '—' : '0' }} / Available</p>
-          </div>
-          <div>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Average CPU</p>
-            <p class="text-tp-text font-display font-bold text-sm mt-1">—</p>
-          </div>
-        </div>
+        <p v-if="cluster.total_nodes === 0" class="text-tp-muted text-xs mt-5">No nodes registered yet.</p>
       </div>
 
-      <!-- Player Activity (line chart placeholder) -->
+      <!-- Player activity -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <div class="flex items-start justify-between mb-1">
-          <div>
-            <h3 class="text-tp-text font-display font-semibold text-lg">Player Activity</h3>
-            <p class="text-tp-muted text-xs mt-0.5">24-hour player concurrency</p>
+        <h3 class="text-tp-text font-display font-semibold text-lg">Player Activity</h3>
+        <p class="text-tp-muted text-xs mt-0.5">Players per hour, last 24 hours</p>
+
+        <div v-if="!activity" class="h-40 mt-6 mb-4 flex items-center justify-center text-tp-muted text-sm">—</div>
+        <div v-else-if="!hadPlayers" class="h-40 mt-6 mb-4 flex flex-col items-center justify-center text-center">
+          <span class="material-symbols-outlined text-3xl text-tp-muted mb-2">bedtime</span>
+          <p class="text-tp-muted text-sm">No players in the last 24 hours.</p>
+        </div>
+        <template v-else>
+          <div class="flex items-end gap-[3px] h-40 mt-6 mb-2">
+            <div
+              v-for="h in hourly"
+              :key="h.hour"
+              class="flex-1 bg-tp-primary/80 rounded-t-sm min-h-[2px]"
+              :style="{ height: (h.players / peak.players) * 100 + '%' }"
+              :title="`${hourLabel(h.hour)}: ${h.players} ${h.players === 1 ? 'player' : 'players'}`"
+            />
           </div>
-          <span class="text-tp-muted text-xs">Last 24 Hours</span>
-        </div>
+          <div class="flex justify-between text-[11px] text-tp-outline font-mono">
+            <span>{{ hourLabel(hourly[0].hour) }}</span>
+            <span>now</span>
+          </div>
+        </template>
 
-        <!-- Line chart placeholder -->
-        <div class="h-40 mt-6 mb-4 flex items-center justify-center">
-          <svg class="w-full h-full" viewBox="0 0 400 150" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#f2c14e" stop-opacity="0.3" />
-                <stop offset="100%" stop-color="#f2c14e" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <path d="M0,120 Q50,110 80,100 T140,80 T200,60 T260,45 T300,55 T340,70 T400,65" fill="none" stroke="#f2c14e" stroke-width="2" />
-            <path d="M0,120 Q50,110 80,100 T140,80 T200,60 T260,45 T300,55 T340,70 T400,65 L400,150 L0,150 Z" fill="url(#lineGrad)" />
-          </svg>
-        </div>
-
-        <!-- Summary stats -->
         <div class="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-tp-border/30">
           <div>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Morning Peak</p>
-            <p class="text-tp-text font-display font-bold text-sm mt-1">0</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Now</p>
+            <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">{{ activity ? activity.online_players : '—' }}</p>
           </div>
           <div>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Evening Peak</p>
-            <p class="text-tp-text font-display font-bold text-sm mt-1">0</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Peak</p>
+            <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">
+              {{ hadPlayers ? `${peak.players} at ${hourLabel(peak.hour)}` : '—' }}
+            </p>
           </div>
           <div>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Avg Session</p>
-            <p class="text-tp-text font-display font-bold text-sm mt-1">—</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Hourly avg</p>
+            <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">{{ activity ? avgPlayers : '—' }}</p>
           </div>
         </div>
       </div>
@@ -268,6 +314,7 @@ const perfBars = [
           v-for="server in serversList.slice(0, 6)"
           :key="server.id"
           :server="server"
+          :players="activity ? (activity.online_by_server[server.id] ?? 0) : undefined"
         />
         <NuxtLink
           v-if="serversList.length > 6"
@@ -289,10 +336,10 @@ const perfBars = [
         <p class="text-tp-muted text-sm font-medium">No recent activity</p>
       </div>
       <div v-else class="bg-tp-surface2 rounded-xl overflow-hidden">
-        <div v-for="(log, i) in activityLogs" :key="log.id" class="flex items-center gap-4 px-5 py-3.5">
+        <div v-for="log in activityLogs" :key="log.id" class="flex items-center gap-4 px-5 py-3.5">
           <div class="w-2 h-2 rounded-full bg-tp-accent shrink-0" />
           <div class="flex-1 min-w-0">
-            <p class="text-tp-text text-sm font-medium">{{ log.action }}</p>
+            <p class="text-tp-text text-sm font-medium">{{ actionLabel(log.action) }}</p>
             <p class="text-tp-muted text-xs">{{ log.target_type }}</p>
           </div>
           <span class="text-tp-outline text-xs shrink-0">{{ new Date(log.created_at).toLocaleString() }}</span>
