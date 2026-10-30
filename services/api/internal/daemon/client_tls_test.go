@@ -253,10 +253,15 @@ func TestPanelTLS_ignoresHostname(t *testing.T) {
 func TestPanelTLS_emptyPeerChainErrors(t *testing.T) {
 	ca := newTestCA(t)
 	cfg := panelTLS(t, ca, testNodeID)
-	if cfg.VerifyPeerCertificate == nil {
-		t.Fatal("no peer verifier set")
+	// The pin lives in VerifyConnection, which (unlike VerifyPeerCertificate)
+	// also runs on resumed sessions.
+	if cfg.VerifyConnection == nil {
+		t.Fatal("no connection verifier set")
 	}
-	if err := cfg.VerifyPeerCertificate(nil, nil); err == nil {
+	if cfg.VerifyPeerCertificate != nil {
+		t.Fatal("verification must not depend on VerifyPeerCertificate")
+	}
+	if err := cfg.VerifyConnection(tls.ConnectionState{}); err == nil {
 		t.Fatal("empty peer chain accepted")
 	}
 	if cfg.MinVersion < tls.VersionTLS12 {

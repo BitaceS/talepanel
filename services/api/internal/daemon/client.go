@@ -170,12 +170,11 @@ func (c *Client) closeIdle() {
 // service names, private IPs or changing FQDNs, while their identity is the
 // node UUID the panel's CA wrote into the CN. Go's built-in verification is
 // therefore disabled (InsecureSkipVerify) and fully replaced by
-// VerifyPeerCertificate, which checks the chain to the panel CA, the validity
-// window, the serverAuth usage and the CN. The panel's client certificate is
+// VerifyConnection, which checks the chain to the panel CA, the validity
+// window, the serverAuth usage and the CN. VerifyConnection (unlike
+// VerifyPeerCertificate) also runs on resumed sessions, so enabling a session
+// cache later cannot bypass the pin. The panel's client certificate is
 // presented for the daemon's side of the mutual authentication.
-//
-// ClientSessionCache is intentionally left nil: VerifyPeerCertificate is not
-// run on resumed sessions, so session resumption must stay off.
 func BuildPanelTLSConfig(caCertPEM, panelCertPEM, panelKeyPEM []byte, expectedCN string) (*tls.Config, error) {
 	if expectedCN == "" {
 		return nil, errors.New("daemon tls: empty expected node CN")
@@ -191,29 +190,21 @@ func BuildPanelTLSConfig(caCertPEM, panelCertPEM, panelKeyPEM []byte, expectedCN
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{clientCert},
-		// Disables only Go's hostname-based verification; VerifyPeerCertificate
+		// Disables only Go's hostname-based verification; VerifyConnection
 		// below re-does the chain check and pins the CN instead.
 		InsecureSkipVerify: true,
-		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			return verifyNodeCert(rawCerts, roots, expectedCN)
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			return verifyNodeCert(cs.PeerCertificates, roots, expectedCN)
 		},
 	}, nil
 }
 
-// verifyNodeCert checks that rawCerts[0] chains to roots (with the remaining
+// verifyNodeCert checks that certs[0] chains to roots (with the remaining
 // certs as intermediates), is valid right now, allows serverAuth and has
 // Subject CN == expectedCN.
-func verifyNodeCert(rawCerts [][]byte, roots *x509.CertPool, expectedCN string) error {
-	if len(rawCerts) == 0 {
+func verifyNodeCert(certs []*x509.Certificate, roots *x509.CertPool, expectedCN string) error {
+	if len(certs) == 0 {
 		return errors.New("daemon tls: no peer certificate")
-	}
-	certs := make([]*x509.Certificate, len(rawCerts))
-	for i, raw := range rawCerts {
-		cert, err := x509.ParseCertificate(raw)
-		if err != nil {
-			return fmt.Errorf("daemon tls: parsing peer certificate: %w", err)
-		}
-		certs[i] = cert
 	}
 	intermediates := x509.NewCertPool()
 	for _, cert := range certs[1:] {
