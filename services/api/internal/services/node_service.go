@@ -258,24 +258,35 @@ func (s *NodeService) DaemonSelfRegister(ctx context.Context, nodeID uuid.UUID, 
 // ─── UpdateNodeHeartbeat ──────────────────────────────────────────────────────
 
 // UpdateNodeHeartbeat refreshes a node's last_heartbeat timestamp and status.
-func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID, req NodeHeartbeatRequest) error {
+//
+// An mTLS advert flips nodes.mtls_enabled only when the advertised cert serial
+// equals the serial POST /nodes/:id/csr recorded at issuance. A daemon holding
+// a certificate this panel did not issue for this node (stale PKI from an old
+// install, another panel's CA) would otherwise get pinned to a cert it never
+// presents and be locked out. Such adverts leave the mTLS state untouched and
+// are reported via mtlsRejected so the caller can log them.
+func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID, req NodeHeartbeatRequest) (mtlsRejected bool, err error) {
 	status := req.Status
 	if status == "" {
 		status = "online"
 	}
 
-	_, err := s.db.Exec(ctx, `
+	var accepted bool
+	err = s.db.QueryRow(ctx, `
 		UPDATE nodes
 		SET status = $1, last_heartbeat = $2,
-		    mtls_enabled   = mtls_enabled OR $4,
-		    cert_serial    = CASE WHEN $4 THEN NULLIF($5, '') ELSE cert_serial END,
-		    cert_not_after = CASE WHEN $4 THEN $6 ELSE cert_not_after END
+		    mtls_enabled   = mtls_enabled OR COALESCE($4 AND cert_serial = NULLIF($5, ''), false),
+		    cert_not_after = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $6 ELSE cert_not_after END
 		WHERE id = $3
-	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter)
-	if err != nil {
-		return fmt.Errorf("updating node heartbeat: %w", err)
+		RETURNING COALESCE($4 AND cert_serial = NULLIF($5, ''), false)
+	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter).Scan(&accepted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNodeNotFound
 	}
-	return nil
+	if err != nil {
+		return false, fmt.Errorf("updating node heartbeat: %w", err)
+	}
+	return req.MTLSReady && !accepted, nil
 }
 
 // ─── SetNodeStatus ────────────────────────────────────────────────────────

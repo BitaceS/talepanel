@@ -186,9 +186,15 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.UpdateNodeHeartbeat(c.Request.Context(), nodeID, req); err != nil {
+	mtlsRejected, err := h.svc.UpdateNodeHeartbeat(c.Request.Context(), nodeID, req)
+	if err != nil {
 		nodeError(c, err)
 		return
+	}
+	if mtlsRejected {
+		h.log.Warn("node advertised an mTLS certificate this panel did not issue to it; staying on legacy transport",
+			zap.String("node_id", nodeID.String()),
+			zap.String("cert_serial", req.CertSerial))
 	}
 
 	// Record metrics for the cluster dashboard time-series chart.
