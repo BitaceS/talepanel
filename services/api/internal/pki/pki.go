@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
@@ -121,7 +122,8 @@ func (ca *CA) parse() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	return cert, key, nil
 }
 
-// sign issues a leaf for pub with the given subject CN and DNS SANs.
+// sign issues a leaf for pub with the given subject CN and SANs. IP literals
+// in sans become IP SANs, everything else DNS SANs.
 func (ca *CA) sign(pub any, cn string, sans []string, validFor time.Duration) ([]byte, string, time.Time, error) {
 	caCert, caKey, err := ca.parse()
 	if err != nil {
@@ -131,11 +133,21 @@ func (ca *CA) sign(pub any, cn string, sans []string, validFor time.Duration) ([
 	if err != nil {
 		return nil, "", time.Time{}, err
 	}
+	var dnsNames []string
+	var ips []net.IP
+	for _, san := range sans {
+		if ip := net.ParseIP(san); ip != nil {
+			ips = append(ips, ip)
+		} else {
+			dnsNames = append(dnsNames, san)
+		}
+	}
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: cn},
-		DNSNames:              sans,
+		DNSNames:              dnsNames,
+		IPAddresses:           ips,
 		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              now.Add(validFor).UTC().Truncate(time.Second), // DER has 1s resolution
 		KeyUsage:              x509.KeyUsageDigitalSignature,
@@ -153,6 +165,12 @@ func (ca *CA) sign(pub any, cn string, sans []string, validFor time.Duration) ([
 // never from the CSR, so a daemon cannot claim another node's identity. Only
 // the CSR's public key is used. The serial is lowercase hex.
 func (ca *CA) SignCSR(csrPEM []byte, cn string, sans []string, validFor time.Duration) ([]byte, string, time.Time, error) {
+	if cn == "" {
+		return nil, "", time.Time{}, errors.New("empty certificate CN")
+	}
+	if validFor <= 0 {
+		return nil, "", time.Time{}, errors.New("certificate validity must be positive")
+	}
 	csr, err := ParseCSR(csrPEM)
 	if err != nil {
 		return nil, "", time.Time{}, err

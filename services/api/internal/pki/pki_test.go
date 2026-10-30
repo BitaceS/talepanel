@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"net"
 	"testing"
 	"time"
 )
@@ -130,5 +131,37 @@ func TestIssueClientCert_chainsToCA(t *testing.T) {
 	}
 	if b, _ := pem.Decode(keyPEM); b == nil {
 		t.Fatal("bad key pem")
+	}
+}
+
+func TestSignCSR_ipSANGoesToIPAddresses(t *testing.T) {
+	ca, _ := GenerateCA()
+	certPEM, _, _, err := ca.SignCSR(newCSR(t, "x"), "cn", []string{"10.1.2.3", "node.example.com", "2001:db8::1"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := parseCert(t, certPEM)
+	if len(c.DNSNames) != 1 || c.DNSNames[0] != "node.example.com" {
+		t.Fatalf("DNSNames = %v", c.DNSNames)
+	}
+	if len(c.IPAddresses) != 2 || !c.IPAddresses[0].Equal(net.ParseIP("10.1.2.3")) || !c.IPAddresses[1].Equal(net.ParseIP("2001:db8::1")) {
+		t.Fatalf("IPAddresses = %v", c.IPAddresses)
+	}
+	if _, err := c.Verify(x509.VerifyOptions{Roots: pool(t, ca), DNSName: "10.1.2.3"}); err != nil {
+		t.Fatalf("verify by IP: %v", err)
+	}
+}
+
+func TestSignCSR_rejectsBadArgs(t *testing.T) {
+	ca, _ := GenerateCA()
+	csr := newCSR(t, "x")
+	if _, _, _, err := ca.SignCSR(csr, "cn", nil, 0); err == nil {
+		t.Fatal("expected error for zero validity")
+	}
+	if _, _, _, err := ca.SignCSR(csr, "cn", nil, -time.Hour); err == nil {
+		t.Fatal("expected error for negative validity")
+	}
+	if _, _, _, err := ca.SignCSR(csr, "", nil, time.Hour); err == nil {
+		t.Fatal("expected error for empty cn")
 	}
 }

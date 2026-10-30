@@ -482,6 +482,8 @@ func SetupRouter(
 		daemonNodeGroup.POST("/:id/register", nodeH.DaemonSelfRegister)
 		// Called by daemon on every heartbeat tick.
 		daemonNodeGroup.POST("/:id/heartbeat", nodeH.NodeHeartbeat)
+		// Daemon submits a CSR on first boot; the panel CA signs it (mTLS).
+		daemonNodeGroup.POST("/:id/csr", handlers.NewNodeCSRHandler(db, appSettingsSvc).SignCSR)
 		// Command queue — daemon polls and acks.
 		daemonNodeGroup.GET("/:id/commands/pending", nodeH.GetPendingCommands)
 		daemonNodeGroup.POST("/:id/commands/:cmd_id/ack", nodeH.AckCommand)
