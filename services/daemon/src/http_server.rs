@@ -3268,5 +3268,17 @@ mod tests {
                 200
             );
         }
+
+        #[test]
+        fn listener_security_debug_redacts_key() {
+            let f = fixture();
+            let sec = ListenerSecurity {
+                pki: Some(f.node.clone()),
+                allow_legacy_bearer: true,
+                require_mtls: false,
+            };
+            let out = format!("{sec:?}");
+            assert!(!out.contains(&f.node.key_pem) && !out.contains("PRIVATE KEY"), "{out}");
+        }
     }
 }

@@ -22,7 +22,7 @@ const KEY_FILE: &str = "node-key.pem";
 const MIN_REMAINING_DAYS: i64 = 30;
 
 /// PEM material for this node plus metadata parsed from the node cert.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LoadedPki {
     pub ca_pem: String,
     pub cert_pem: String,
@@ -31,6 +31,19 @@ pub struct LoadedPki {
     pub not_after: DateTime<Utc>,
     /// Certificate serial as lowercase hex (no leading zeros).
     pub serial: String,
+}
+
+/// Manual impl so the private key never ends up in logs.
+impl std::fmt::Debug for LoadedPki {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedPki")
+            .field("ca_pem", &self.ca_pem)
+            .field("cert_pem", &self.cert_pem)
+            .field("key_pem", &"<redacted>")
+            .field("not_after", &self.not_after)
+            .field("serial", &self.serial)
+            .finish()
+    }
 }
 
 /// Generate a fresh P-256 keypair and a PEM PKCS#10 CSR (CN = node id).
@@ -354,6 +367,22 @@ mod tests {
         write_pki(&dir, &other_ca, &cert, &key.serialize_pem()).unwrap();
         assert!(load_pki(&dir, NODE).unwrap().is_none());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn debug_redacts_private_key() {
+        let (cert, key) = self_signed(NODE, None);
+        let key_pem = key.serialize_pem();
+        let pki = LoadedPki {
+            ca_pem: cert.clone(),
+            cert_pem: cert,
+            key_pem: key_pem.clone(),
+            not_after: Utc::now(),
+            serial: "1".into(),
+        };
+        let out = format!("{pki:?}");
+        assert!(!out.contains(&key_pem) && !out.contains("PRIVATE KEY"), "{out}");
+        assert!(out.contains("<redacted>"));
     }
 
     #[test]
