@@ -157,7 +157,14 @@ async fn main() -> Result<()> {
     };
 
     let http_handle = tokio::spawn(async move {
-        if let Err(err) = http_server::run_http_server(http_state, listen_addr).await {
+        // The PKI bootstrap wires mTLS in at startup (next task); until then
+        // the listener serves the legacy plain-HTTP bearer path only.
+        let security = http_server::ListenerSecurity {
+            pki: None,
+            allow_legacy_bearer: true,
+            require_mtls: false,
+        };
+        if let Err(err) = http_server::run_http_server(http_state, listen_addr, security).await {
             error!(%err, "Local HTTP server exited with error");
         }
     });

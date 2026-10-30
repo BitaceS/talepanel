@@ -19,6 +19,12 @@ axum = { version = "0.7", features = ["json", "macros", "multipart"] }
 tower = { version = "0.4" }
 tower-http = { version = "0.5", features = ["trace", "cors"] }
 
+# mTLS listener: same rustls/ring stack reqwest already pulls (no aws-lc-rs,
+# no second rustls). hyper-util serves each accepted connection to the Router.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"] }
+
 # HTTP client (TalePanel API)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 

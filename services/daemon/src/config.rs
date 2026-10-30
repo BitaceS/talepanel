@@ -104,6 +104,23 @@ pub struct DaemonConfig {
     /// Only TalePanel's own developers should ever switch this on.
     #[serde(default)]
     pub allow_dev_stub: bool,
+
+    /// Directory holding this node's mTLS material (`ca.pem`, `node-cert.pem`,
+    /// `node-key.pem`). Empty in the config file means `{data_root}/pki`;
+    /// `Config::from_file` / `Config::from_env` resolve it.
+    #[serde(default)]
+    pub pki_dir: String,
+
+    /// Keep serving the legacy plaintext HTTP + bearer-token API alongside the
+    /// mTLS listener (same port, first-byte sniffing). On during the
+    /// transition so panels that do not speak mTLS yet keep working.
+    #[serde(default = "DaemonConfig::default_allow_legacy_bearer")]
+    pub allow_legacy_bearer: bool,
+
+    /// Refuse every connection that is not mutually authenticated TLS with a
+    /// panel-CA client certificate. Overrides `allow_legacy_bearer`.
+    #[serde(default)]
+    pub require_mtls: bool,
 }
 
 impl DaemonConfig {
@@ -118,6 +135,12 @@ impl DaemonConfig {
     }
     fn default_env() -> String {
         "development".to_string()
+    }
+    fn default_allow_legacy_bearer() -> bool {
+        true
+    }
+    fn default_pki_dir(data_root: &str) -> String {
+        format!("{}/pki", data_root.trim_end_matches('/'))
     }
 }
 
@@ -194,7 +217,12 @@ impl Config {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Cannot read config file: {path}"))?;
 
-        toml::from_str(&contents).with_context(|| format!("Invalid TOML in config file: {path}"))
+        let mut cfg: Self = toml::from_str(&contents)
+            .with_context(|| format!("Invalid TOML in config file: {path}"))?;
+        if cfg.daemon.pki_dir.is_empty() {
+            cfg.daemon.pki_dir = DaemonConfig::default_pki_dir(&cfg.daemon.data_root);
+        }
+        Ok(cfg)
     }
 
     /// Load configuration entirely from `TALEDAEMON_*` environment variables.
@@ -213,6 +241,9 @@ impl Config {
     ///   TALEDAEMON_METRICS_INTERVAL_MS
     ///   TALEDAEMON_HEARTBEAT_INTERVAL_S
     ///   TALEDAEMON_COMMAND_POLL_INTERVAL_S
+    ///   TALEDAEMON_PKI_DIR              (default `{data_root}/pki`)
+    ///   TALEDAEMON_ALLOW_LEGACY_BEARER  (default true)
+    ///   TALEDAEMON_REQUIRE_MTLS         (default false)
     pub fn from_env() -> Result<Self> {
         let node_id = std::env::var("TALEDAEMON_NODE_ID")
             .context("TALEDAEMON_NODE_ID is required when no config file is present")?;
@@ -262,6 +293,19 @@ impl Config {
             .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
             .unwrap_or(false);
 
+        let pki_dir = std::env::var("TALEDAEMON_PKI_DIR")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| DaemonConfig::default_pki_dir(&data_root));
+
+        let allow_legacy_bearer = std::env::var("TALEDAEMON_ALLOW_LEGACY_BEARER")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+            .unwrap_or(DaemonConfig::default_allow_legacy_bearer());
+
+        let require_mtls = std::env::var("TALEDAEMON_REQUIRE_MTLS")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+            .unwrap_or(false);
+
         Ok(Config {
             daemon: DaemonConfig {
                 node_id,
@@ -273,6 +317,9 @@ impl Config {
                 env,
                 insecure_tls,
                 allow_dev_stub,
+                pki_dir,
+                allow_legacy_bearer,
+                require_mtls,
             },
             resources: ResourcesConfig {
                 max_servers,
@@ -313,6 +360,9 @@ mod tests {
                 env: env.into(),
                 insecure_tls: false,
                 allow_dev_stub,
+                pki_dir: DaemonConfig::default_pki_dir(&DaemonConfig::default_data_root()),
+                allow_legacy_bearer: DaemonConfig::default_allow_legacy_bearer(),
+                require_mtls: false,
             },
             resources: ResourcesConfig::default(),
             hytale: HytaleConfig::default(),
@@ -329,5 +379,46 @@ mod tests {
         assert!(!cfg("PRODUCTION", true).dev_stub_allowed());
         // The only combination that serves a fake server.
         assert!(cfg("development", true).dev_stub_allowed());
+    }
+
+    #[test]
+    fn mtls_settings_default_to_transition_mode() {
+        let dir = std::env::temp_dir().join(format!("tp-cfg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "[daemon]
+node_id = \"n\"
+api_url = \"http://p\"
+node_token = \"t\"
+data_root = \"/data/td/\"
+[resources]
+",
+        )
+        .unwrap();
+        let c = Config::from_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(c.daemon.pki_dir, "/data/td/pki");
+        assert!(c.daemon.allow_legacy_bearer);
+        assert!(!c.daemon.require_mtls);
+
+        std::fs::write(
+            &path,
+            "[daemon]
+node_id = \"n\"
+api_url = \"http://p\"
+node_token = \"t\"
+pki_dir = \"/etc/td/pki\"
+allow_legacy_bearer = false
+require_mtls = true
+[resources]
+",
+        )
+        .unwrap();
+        let c = Config::from_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(c.daemon.pki_dir, "/etc/td/pki");
+        assert!(!c.daemon.allow_legacy_bearer);
+        assert!(c.daemon.require_mtls);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

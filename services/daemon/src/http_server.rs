@@ -8,12 +8,23 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use std::net::SocketAddr;
+use std::time::Duration;
+
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as ConnBuilder;
+use hyper_util::service::TowerToHyperService;
+use rustls::client::danger::HandshakeSignatureValid;
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::server::WebPkiClientVerifier;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
-use tracing::{info, instrument, warn};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
+use tracing::{debug, info, instrument, warn};
 
 use crate::net_monitor::NetMonitor;
+use crate::pki::LoadedPki;
 use crate::process::{hytale::ServerConfig, ProcessManager, ServerStatus};
 
 // ---------------------------------------------------------------------------
@@ -2464,10 +2475,11 @@ pub fn build_router(state: AppState) -> Router {
 ///
 /// This is an infinite future; cancel it (via `tokio::select!` or
 /// `JoinHandle::abort()`) to shut down the server.
-#[instrument(skip(state))]
+#[instrument(skip(state, security))]
 pub async fn run_http_server(
     state: AppState,
     listen_addr: std::net::SocketAddr,
+    security: ListenerSecurity,
 ) -> anyhow::Result<()> {
     let router = build_router(state);
 
@@ -2477,11 +2489,250 @@ pub async fn run_http_server(
 
     info!(%listen_addr, "Local HTTP server listening");
 
-    axum::serve(listener, router)
-        .await
-        .map_err(|e| anyhow::anyhow!("HTTP server error: {e}"))?;
+    serve_listener(listener, router, security).await
+}
 
-    Ok(())
+/// How the local listener authenticates the panel.
+#[derive(Debug, Clone)]
+pub struct ListenerSecurity {
+    /// Node cert/key + panel CA. `None` = no PKI yet, plain HTTP only.
+    pub pki: Option<LoadedPki>,
+    /// Serve plaintext HTTP (bearer token only) next to mTLS.
+    pub allow_legacy_bearer: bool,
+    /// Refuse anything that is not mTLS with a panel client cert.
+    pub require_mtls: bool,
+}
+
+/// Subject CN the panel's mTLS client certificate carries. Node certs come
+/// from the same CA and also have the clientAuth EKU, so chain validation
+/// alone would let one node's key drive every other node's daemon.
+const PANEL_CLIENT_CN: &str = "panel";
+/// First byte of a TLS handshake record (ClientHello).
+const TLS_HANDSHAKE_RECORD: u8 = 0x16;
+/// A fresh connection must send its first byte within this window, so idle
+/// sockets cannot pin a task forever.
+const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Upper bound for completing the TLS handshake.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Serve the router on an already-bound listener.
+///
+/// One port carries both protocols: the first byte of each connection is
+/// peeked. `0x16` (TLS handshake) goes to the rustls acceptor, which demands
+/// a client cert chaining to the panel CA with CN `panel`; anything else is
+/// served as plain HTTP only while the legacy bearer path is allowed and mTLS
+/// is not required, otherwise the connection is closed. Without PKI the
+/// listener serves plain HTTP only (pre-mTLS behaviour) — unless
+/// `require_mtls` is set, which is a startup error rather than a silent
+/// downgrade. The bearer middleware runs on both paths.
+pub async fn serve_listener(
+    listener: TcpListener,
+    router: Router,
+    security: ListenerSecurity,
+) -> anyhow::Result<()> {
+    let acceptor = match &security.pki {
+        Some(pki) => Some(TlsAcceptor::from(Arc::new(build_tls_config(pki)?))),
+        None if security.require_mtls => anyhow::bail!(
+            "require_mtls is set but no node PKI is loaded; refusing to serve plaintext"
+        ),
+        None => {
+            warn!("No node PKI loaded; serving plain HTTP (bearer token) only");
+            None
+        }
+    };
+    let allow_plain =
+        acceptor.is_none() || (security.allow_legacy_bearer && !security.require_mtls);
+    info!(
+        mtls = acceptor.is_some(),
+        legacy_plaintext = allow_plain,
+        "Local HTTP server security mode"
+    );
+
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                // Mirrors axum::serve: back off on e.g. EMFILE instead of spinning.
+                warn!(error = %e, "Accepting connection failed");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        let router = router.clone();
+        let acceptor = acceptor.clone();
+        tokio::spawn(handle_connection(stream, peer, router, acceptor, allow_plain));
+    }
+}
+
+async fn handle_connection(
+    stream: TcpStream,
+    peer: SocketAddr,
+    router: Router,
+    acceptor: Option<TlsAcceptor>,
+    allow_plain: bool,
+) {
+    let mut first = [0u8; 1];
+    let is_tls = match tokio::time::timeout(FIRST_BYTE_TIMEOUT, stream.peek(&mut first)).await {
+        Ok(Ok(0)) => return, // closed before sending anything
+        Ok(Ok(_)) => first[0] == TLS_HANDSHAKE_RECORD,
+        Ok(Err(e)) => {
+            debug!(%peer, error = %e, "Peeking connection failed");
+            return;
+        }
+        Err(_) => {
+            debug!(%peer, "No data within first-byte timeout; closing");
+            return;
+        }
+    };
+
+    match (is_tls, acceptor) {
+        (true, Some(acceptor)) => {
+            let tls = match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await
+            {
+                Ok(Ok(tls)) => tls,
+                Ok(Err(e)) => {
+                    warn!(%peer, error = %e, "mTLS handshake rejected");
+                    return;
+                }
+                Err(_) => {
+                    warn!(%peer, "mTLS handshake timed out");
+                    return;
+                }
+            };
+            serve_connection(TokioIo::new(tls), peer, router).await;
+        }
+        (false, _) if allow_plain => serve_connection(TokioIo::new(stream), peer, router).await,
+        (true, None) => debug!(%peer, "TLS connection but no node PKI loaded; closing"),
+        (false, _) => warn!(%peer, "Plaintext connection refused: mTLS required"),
+    }
+}
+
+async fn serve_connection<I>(io: TokioIo<I>, peer: SocketAddr, router: Router)
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let service = TowerToHyperService::new(router);
+    if let Err(e) = ConnBuilder::new(TokioExecutor::new())
+        .serve_connection(io, service)
+        .await
+    {
+        debug!(%peer, error = %e, "HTTP connection ended with error");
+    }
+}
+
+/// rustls server config: node cert/key as server identity, mandatory client
+/// cert verified by [`PanelClientVerifier`]. The ring provider is passed
+/// explicitly (it is the only one in the tree, shared with reqwest), so no
+/// process-level `CryptoProvider` needs to be installed.
+fn build_tls_config(pki: &LoadedPki) -> anyhow::Result<rustls::ServerConfig> {
+    use anyhow::Context;
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+
+    let mut roots = rustls::RootCertStore::empty();
+    for ca in CertificateDer::pem_slice_iter(pki.ca_pem.as_bytes()) {
+        roots
+            .add(ca.context("parsing panel CA PEM")?)
+            .context("adding panel CA to trust store")?;
+    }
+    if roots.is_empty() {
+        anyhow::bail!("panel CA PEM contains no certificate");
+    }
+    let webpki = WebPkiClientVerifier::builder_with_provider(Arc::new(roots), provider.clone())
+        .build()
+        .context("building client certificate verifier")?;
+
+    let certs = CertificateDer::pem_slice_iter(pki.cert_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .context("parsing node certificate PEM")?;
+    if certs.is_empty() {
+        anyhow::bail!("node certificate PEM contains no certificate");
+    }
+    let key = PrivateKeyDer::from_pem_slice(pki.key_pem.as_bytes())
+        .context("parsing node private key PEM")?;
+
+    rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .context("selecting TLS protocol versions")?
+        .with_client_cert_verifier(Arc::new(PanelClientVerifier { inner: webpki }))
+        .with_single_cert(certs, key)
+        .context("loading node certificate and key")
+}
+
+/// Client verifier = webpki chain validation against the panel CA (expiry,
+/// signature, clientAuth EKU) plus a pin on the leaf's subject CN == `panel`.
+/// The pin runs inside the handshake, so a non-panel cert never reaches HTTP.
+#[derive(Debug)]
+struct PanelClientVerifier {
+    inner: Arc<dyn ClientCertVerifier>,
+}
+
+impl ClientCertVerifier for PanelClientVerifier {
+    fn offer_client_auth(&self) -> bool {
+        true
+    }
+
+    fn client_auth_mandatory(&self) -> bool {
+        true
+    }
+
+    fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
+        self.inner.root_hint_subjects()
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        now: rustls::pki_types::UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error> {
+        self.inner.verify_client_cert(end_entity, intermediates, now)?;
+        match single_common_name(end_entity) {
+            Some(cn) if cn == PANEL_CLIENT_CN => Ok(ClientCertVerified::assertion()),
+            _ => Err(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::ApplicationVerificationFailure,
+            )),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
+/// The subject CN of a DER certificate, or `None` when it is missing,
+/// not a string, or ambiguous (more than one CN attribute).
+fn single_common_name(der: &[u8]) -> Option<String> {
+    let (rest, cert) = x509_parser::parse_x509_certificate(der).ok()?;
+    if !rest.is_empty() {
+        return None;
+    }
+    let mut cns = cert.subject().iter_common_name();
+    let cn = cns.next()?.as_str().ok()?.to_owned();
+    if cns.next().is_some() {
+        return None;
+    }
+    Some(cn)
 }
 
 #[cfg(test)]
@@ -2765,5 +3016,263 @@ mod tests {
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&outside);
         let _ = std::fs::remove_dir_all(&out_dir);
+    }
+
+    // ── mTLS listener ────────────────────────────────────────────────────────
+
+    mod mtls {
+        use super::*;
+        use rcgen::{
+            BasicConstraints, Certificate, CertificateParams, DnType, ExtendedKeyUsagePurpose,
+            IsCa, KeyPair, KeyUsagePurpose,
+        };
+        use std::net::SocketAddr;
+        use std::time::Duration;
+
+        const TOKEN: &str = "node-token-for-mtls-tests";
+        const NODE_ID: &str = "11111111-2222-3333-4444-555555555555";
+        const OTHER_NODE_ID: &str = "99999999-8888-7777-6666-555555555555";
+
+        struct Ca {
+            cert: Certificate,
+            key: KeyPair,
+        }
+
+        fn make_ca(cn: &str) -> Ca {
+            let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+            p.distinguished_name.push(DnType::CommonName, cn);
+            p.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            p.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+            let key = KeyPair::generate().unwrap();
+            let cert = p.self_signed(&key).unwrap();
+            Ca { cert, key }
+        }
+
+        /// Returns `(cert_pem, key_pem)` for a leaf signed by `ca`.
+        fn make_leaf(ca: &Ca, cn: &str, sans: Vec<String>) -> (String, String) {
+            let mut p = CertificateParams::new(sans).unwrap();
+            p.distinguished_name.push(DnType::CommonName, cn);
+            p.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+            // Same EKU set the panel CA puts on every cert it issues.
+            p.extended_key_usages = vec![
+                ExtendedKeyUsagePurpose::ClientAuth,
+                ExtendedKeyUsagePurpose::ServerAuth,
+            ];
+            let key = KeyPair::generate().unwrap();
+            let cert = p.signed_by(&key, &ca.cert, &ca.key).unwrap();
+            (cert.pem(), key.serialize_pem())
+        }
+
+        struct Fixture {
+            ca_pem: String,
+            node: LoadedPki,
+            panel: (String, String),
+            other_node: (String, String),
+            foreign_panel: (String, String),
+        }
+
+        fn fixture() -> Fixture {
+            let ca = make_ca("TalePanel CA");
+            let (cert_pem, key_pem) = make_leaf(&ca, NODE_ID, vec!["127.0.0.1".into()]);
+            // Same subject name as the real CA, different key.
+            let foreign = make_ca("TalePanel CA");
+            Fixture {
+                ca_pem: ca.cert.pem(),
+                node: LoadedPki {
+                    ca_pem: ca.cert.pem(),
+                    cert_pem,
+                    key_pem,
+                    not_after: chrono::Utc::now() + chrono::Duration::days(30),
+                    serial: "1".into(),
+                },
+                panel: make_leaf(&ca, "panel", vec![]),
+                other_node: make_leaf(&ca, OTHER_NODE_ID, vec!["127.0.0.1".into()]),
+                foreign_panel: make_leaf(&foreign, "panel", vec![]),
+            }
+        }
+
+        fn test_state() -> AppState {
+            use crate::config::{Config, DaemonConfig, HytaleConfig, ResourcesConfig};
+            let config = Config {
+                daemon: DaemonConfig {
+                    node_id: NODE_ID.into(),
+                    api_url: "http://127.0.0.1:1".into(),
+                    node_token: TOKEN.into(),
+                    listen_port: 0,
+                    data_root: "/nonexistent".into(),
+                    log_level: "info".into(),
+                    env: "development".into(),
+                    insecure_tls: false,
+                    allow_dev_stub: false,
+                    pki_dir: "/nonexistent/pki".into(),
+                    allow_legacy_bearer: true,
+                    require_mtls: false,
+                },
+                resources: ResourcesConfig::default(),
+                hytale: HytaleConfig::default(),
+            };
+            let api = Arc::new(crate::api_client::ApiClient::new(
+                "http://127.0.0.1:1",
+                TOKEN,
+                NODE_ID,
+                false,
+            ));
+            AppState {
+                process_manager: ProcessManager::new(api, Arc::new(config)),
+                node_id: NODE_ID.into(),
+                node_token: TOKEN.into(),
+                servers_base_dir: "/nonexistent/servers".into(),
+                backups_base_dir: "/nonexistent/backups".into(),
+                net_monitor: NetMonitor::new(),
+            }
+        }
+
+        async fn start(
+            pki: Option<LoadedPki>,
+            allow_legacy_bearer: bool,
+            require_mtls: bool,
+        ) -> SocketAddr {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let security = ListenerSecurity { pki, allow_legacy_bearer, require_mtls };
+            tokio::spawn(serve_listener(listener, build_router(test_state()), security));
+            addr
+        }
+
+        fn tls_client(ca_pem: &str, identity: Option<&(String, String)>) -> reqwest::Client {
+            let mut b = reqwest::Client::builder()
+                .use_rustls_tls()
+                .tls_built_in_root_certs(false)
+                .add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes()).unwrap())
+                .timeout(Duration::from_secs(5));
+            if let Some((cert, key)) = identity {
+                let pem = format!("{key}{cert}");
+                b = b.identity(reqwest::Identity::from_pem(pem.as_bytes()).unwrap());
+            }
+            b.build().unwrap()
+        }
+
+        fn plain_client() -> reqwest::Client {
+            reqwest::Client::builder().timeout(Duration::from_secs(5)).build().unwrap()
+        }
+
+        async fn status(
+            client: &reqwest::Client,
+            url: String,
+            bearer: Option<&str>,
+        ) -> Result<u16, reqwest::Error> {
+            let mut req = client.get(url);
+            if let Some(t) = bearer {
+                req = req.bearer_auth(t);
+            }
+            req.send().await.map(|r| r.status().as_u16())
+        }
+
+        /// A refusal must be an actual connection/handshake failure, not a
+        /// client timeout against a server that merely hangs.
+        fn assert_refused(res: Result<u16, reqwest::Error>, what: &str) {
+            match res {
+                Ok(code) => panic!("{what}: expected refusal, got HTTP {code}"),
+                Err(e) => assert!(!e.is_timeout(), "{what}: timed out instead of refusing: {e}"),
+            }
+        }
+
+        #[tokio::test]
+        async fn mtls_accepts_panel_signed_client() {
+            let f = fixture();
+            let addr = start(Some(f.node.clone()), true, false).await;
+            let c = tls_client(&f.ca_pem, Some(&f.panel));
+
+            assert_eq!(status(&c, format!("https://{addr}/health"), None).await.unwrap(), 200);
+            // The bearer middleware still runs on the mTLS path.
+            let url = format!("https://{addr}/network-stats");
+            assert_eq!(status(&c, url.clone(), Some(TOKEN)).await.unwrap(), 200);
+            assert_eq!(status(&c, url.clone(), None).await.unwrap(), 401);
+            assert_eq!(status(&c, url, Some("wrong")).await.unwrap(), 401);
+        }
+
+        #[tokio::test]
+        async fn mtls_refuses_foreign_client_cert() {
+            let f = fixture();
+            let addr = start(Some(f.node.clone()), true, false).await;
+            let c = tls_client(&f.ca_pem, Some(&f.foreign_panel));
+            assert_refused(
+                status(&c, format!("https://{addr}/network-stats"), Some(TOKEN)).await,
+                "foreign-CA client cert",
+            );
+        }
+
+        #[tokio::test]
+        async fn mtls_refuses_non_panel_cn() {
+            // A genuine cert from the same CA (another node's, with clientAuth
+            // EKU) must not be able to drive this daemon.
+            let f = fixture();
+            let addr = start(Some(f.node.clone()), true, false).await;
+            let c = tls_client(&f.ca_pem, Some(&f.other_node));
+            assert_refused(
+                status(&c, format!("https://{addr}/network-stats"), Some(TOKEN)).await,
+                "same-CA client cert with CN != panel",
+            );
+        }
+
+        #[tokio::test]
+        async fn mtls_refuses_no_client_cert_when_required() {
+            let f = fixture();
+            let addr = start(Some(f.node.clone()), true, true).await;
+
+            // TLS without a client certificate: refused.
+            let anon = tls_client(&f.ca_pem, None);
+            assert_refused(
+                status(&anon, format!("https://{addr}/network-stats"), Some(TOKEN)).await,
+                "TLS without client cert",
+            );
+            // Plain HTTP with a valid bearer: refused because mTLS is required.
+            assert_refused(
+                status(&plain_client(), format!("http://{addr}/health"), Some(TOKEN)).await,
+                "plain HTTP with require_mtls",
+            );
+            // The panel itself still gets through.
+            let panel = tls_client(&f.ca_pem, Some(&f.panel));
+            assert_eq!(
+                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                200
+            );
+
+            // Anonymous TLS is refused in transition mode too: the TLS path
+            // never serves a connection without a client cert.
+            let addr = start(Some(f.node.clone()), true, false).await;
+            assert_refused(
+                status(&anon, format!("https://{addr}/network-stats"), Some(TOKEN)).await,
+                "TLS without client cert (transition mode)",
+            );
+        }
+
+        #[tokio::test]
+        async fn legacy_bearer_served_when_allowed() {
+            let f = fixture();
+            let plain = plain_client();
+
+            // Transition mode: PKI loaded, legacy allowed -> plain HTTP works,
+            // still behind the bearer token.
+            let addr = start(Some(f.node.clone()), true, false).await;
+            assert_eq!(status(&plain, format!("http://{addr}/health"), None).await.unwrap(), 200);
+            let url = format!("http://{addr}/network-stats");
+            assert_eq!(status(&plain, url.clone(), Some(TOKEN)).await.unwrap(), 200);
+            assert_eq!(status(&plain, url, None).await.unwrap(), 401);
+
+            // Legacy switched off -> plain HTTP refused even with the token.
+            let addr = start(Some(f.node.clone()), false, false).await;
+            assert_refused(
+                status(&plain, format!("http://{addr}/network-stats"), Some(TOKEN)).await,
+                "plain HTTP with allow_legacy_bearer=false",
+            );
+
+            // No PKI yet -> plain only, as before mTLS existed.
+            let addr = start(None, true, false).await;
+            assert_eq!(
+                status(&plain, format!("http://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                200
+            );
+        }
     }
 }
