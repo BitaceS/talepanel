@@ -351,8 +351,8 @@ const expandedTalker = ref<string | null>(null)
               <path :d="sparklinePath" fill="none" stroke="currentColor" class="text-tp-primary" stroke-width="0.5" vector-effect="non-scaling-stroke" />
               <defs>
                 <linearGradient id="ppsGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="var(--color-tp-primary, #6366f1)" stop-opacity="0.4" />
-                  <stop offset="100%" stop-color="var(--color-tp-primary, #6366f1)" stop-opacity="0" />
+                  <stop offset="0%" stop-color="var(--color-tp-primary, #f2c14e)" stop-opacity="0.4" />
+                  <stop offset="100%" stop-color="var(--color-tp-primary, #f2c14e)" stop-opacity="0" />
                 </linearGradient>
               </defs>
             </svg>

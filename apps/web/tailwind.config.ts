@@ -15,46 +15,51 @@ export default {
   ],
   theme: {
     extend: {
+      // "Tale" palette, shared with talepanel.com: night stone surfaces,
+      // gold for the one primary action, ember as accent, cream text.
       colors: {
         // Surface hierarchy (deep → shallow)
-        'tp-bg':              '#0b1326',
-        'tp-surface-lowest':  '#060e20',
-        'tp-surface':         '#131b2e',
-        'tp-surface2':        '#171f33',
-        'tp-surface3':        '#222a3d',
-        'tp-surface-highest': '#2d3449',
+        'tp-bg':              '#0e0c14',
+        'tp-surface-lowest':  '#0a0810',
+        'tp-surface':         '#15111c',
+        'tp-surface2':        '#1f1925',
+        'tp-surface3':        '#2a2230',
+        'tp-surface-highest': '#3d3243',
 
         // Borders & outlines
-        'tp-border':    '#424754',
-        'tp-outline':   '#8c909f',
+        'tp-border':    '#3d3243',
+        'tp-outline':   '#8f8274',
 
         // Brand
-        'tp-primary':   '#4d8eff',
-        'tp-accent':    '#adc6ff',
-        'tp-tertiary':  '#89ceff',
+        'tp-primary':   '#f2c14e',
+        'tp-accent':    '#eda05a',
+        'tp-tertiary':  '#dccaa0',
 
         // Semantic status
-        'tp-success': '#22c55e',
-        'tp-warning': '#f59e0b',
-        'tp-danger':  '#ef4444',
-        'tp-error':   '#ffb4ab',
+        'tp-success': '#86c160',
+        'tp-warning': '#e8863b',
+        'tp-danger':  '#d0533f',
+        'tp-error':   '#f0a090',
 
         // Text
-        'tp-text':  '#dae2fd',
-        'tp-muted': '#c2c6d6',
+        'tp-text':  '#efe3c8',
+        'tp-muted': '#b6a998',
 
         // On-primary (text on primary bg)
-        'tp-on-primary': '#001a42',
+        'tp-on-primary': '#2b1e12',
       },
       fontFamily: {
-        sans:    ['Inter', ...defaultTheme.fontFamily.sans],
-        display: ['Manrope', ...defaultTheme.fontFamily.sans],
+        sans:    ['Alegreya Sans', ...defaultTheme.fontFamily.sans],
+        display: ['Alegreya SC', 'Georgia', ...defaultTheme.fontFamily.serif],
         mono:    ['JetBrains Mono', ...defaultTheme.fontFamily.mono],
       },
+      // Squarer corners: carved blocks, not pills.
       borderRadius: {
-        'xl':  '0.75rem',
-        '2xl': '1rem',
-        '3xl': '1.5rem',
+        'md':  '0.1875rem',
+        'lg':  '0.25rem',
+        'xl':  '0.3125rem',
+        '2xl': '0.375rem',
+        '3xl': '0.5rem',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -68,8 +73,8 @@ export default {
         },
       },
       boxShadow: {
-        'glow':    '0 0 20px rgba(77, 142, 255, 0.15)',
-        'glow-lg': '0 0 40px rgba(77, 142, 255, 0.2)',
+        'glow':    '0 0 0 1px rgba(242, 193, 78, 0.35), 0 0 18px rgba(242, 193, 78, 0.12)',
+        'glow-lg': '0 0 0 1px rgba(242, 193, 78, 0.45), 0 0 32px rgba(242, 193, 78, 0.16)',
         'ambient': '0 20px 40px rgba(0, 0, 0, 0.4)',
       },
     },

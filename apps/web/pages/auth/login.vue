@@ -110,7 +110,7 @@ function cancelTotp() {
         {{ totpRequired ? 'Two-factor authentication' : 'Welcome back' }}
       </h2>
       <p class="text-tp-muted text-sm mt-1">
-        {{ totpRequired ? 'Enter the 6-digit code from your authenticator app' : 'Sign in to your command center' }}
+        {{ totpRequired ? 'Enter the 6-digit code from your authenticator app' : 'Sign in to manage your servers' }}
       </p>
     </div>
 
@@ -179,7 +179,7 @@ function cancelTotp() {
           <input
             v-model="form.email"
             type="email"
-            placeholder="commander@hytale.net"
+            placeholder="you@example.com"
             autocomplete="email"
             required
             :class="[
@@ -197,15 +197,14 @@ function cancelTotp() {
       <!-- Password / Access Key -->
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center justify-between">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Access Key</label>
-          <a href="#" class="text-xs text-tp-accent hover:text-tp-primary transition-colors">Lost credentials?</a>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
         </div>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
           <input
             v-model="form.password"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="Enter your access key"
+            placeholder="Your password"
             autocomplete="current-password"
             required
             :class="[
@@ -227,7 +226,7 @@ function cancelTotp() {
         <p v-if="errors.password" class="text-tp-danger text-xs">{{ errors.password }}</p>
       </div>
 
-      <!-- Keep session active -->
+      <!-- Stay signed in -->
       <div class="flex items-center gap-2.5">
         <input
           id="remember-me"
@@ -236,7 +235,7 @@ function cancelTotp() {
           class="w-4 h-4 rounded bg-tp-surface text-tp-primary focus:ring-tp-primary/50 focus:ring-2 focus:outline-none cursor-pointer accent-tp-primary"
         />
         <label for="remember-me" class="text-sm text-tp-muted cursor-pointer select-none">
-          Keep session active
+          Stay signed in
         </label>
       </div>
 
@@ -255,7 +254,7 @@ function cancelTotp() {
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span>INITIATE LINK</span>
+        <span>Sign in</span>
         <span class="material-symbols-outlined text-base">arrow_forward</span>
       </button>
     </form>
@@ -263,26 +262,22 @@ function cancelTotp() {
     <!-- Register link -->
     <div class="mt-5 text-center">
       <p class="text-tp-muted text-sm">
-        New Operator?
+        No account yet?
         <NuxtLink to="/auth/register" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors ml-1">
-          Request Access
+          Create account
         </NuxtLink>
       </p>
     </div>
 
     <!-- Footer links -->
-    <div class="flex items-center justify-center gap-4 mt-6 pt-5">
-      <a href="#" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
-        <span class="material-symbols-outlined text-sm">shield</span>
-        Safety Protocols
+    <div class="flex items-center justify-center gap-4 mt-6 pt-5 border-t border-tp-border/50">
+      <a href="https://talepanel.com/docs/" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
+        <span class="material-symbols-outlined text-sm">menu_book</span>
+        Docs
       </a>
-      <a href="#" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
-        <span class="material-symbols-outlined text-sm">description</span>
-        System Logs
-      </a>
-      <a href="#" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
-        <span class="material-symbols-outlined text-sm">support</span>
-        Support Hub
+      <a href="https://discord.gg/6N8WNrW5WJ" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
+        <span class="material-symbols-outlined text-sm">forum</span>
+        Discord
       </a>
     </div>
   </div>

@@ -111,7 +111,7 @@ onMounted(() => loadSessions())
   <div class="max-w-2xl mx-auto py-8 space-y-8">
     <header>
       <h1 class="text-2xl font-semibold">Security</h1>
-      <p class="text-sm text-gray-500">Two-factor authentication and active sessions.</p>
+      <p class="text-sm text-tp-muted">Two-factor authentication and active sessions.</p>
     </header>
 
     <!-- Toast -->
@@ -126,7 +126,7 @@ onMounted(() => loadSessions())
     </div>
 
     <!-- TOTP card -->
-    <section class="rounded-lg border border-gray-200 p-6 space-y-4">
+    <section class="rounded-lg border border-tp-border p-6 space-y-4">
       <h2 class="text-lg font-medium">Two-factor authentication</h2>
 
       <!-- Already enabled -->
@@ -145,11 +145,11 @@ onMounted(() => loadSessions())
 
       <!-- Not enabled, idle -->
       <div v-else-if="setupState === 'idle'">
-        <p class="text-sm text-gray-600">
+        <p class="text-sm text-tp-muted">
           Add an authenticator app (1Password, Authy, Aegis, Google Authenticator) for an extra login factor.
         </p>
         <button
-          class="mt-3 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+          class="mt-3 rounded-md bg-tp-primary px-3 py-2 text-sm font-semibold text-tp-on-primary hover:brightness-110"
           :disabled="busy"
           @click="startSetup"
         >
@@ -159,22 +159,22 @@ onMounted(() => loadSessions())
 
       <!-- Setup in progress -->
       <div v-else-if="setupState === 'pending' && setupData" class="space-y-4">
-        <p class="text-sm text-gray-700">
+        <p class="text-sm text-tp-text">
           Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.
         </p>
         <img
           :src="`data:image/png;base64,${setupData.qr_code_base64}`"
           alt="TOTP QR code"
-          class="w-48 h-48 border border-gray-200 rounded"
+          class="w-48 h-48 border border-tp-border rounded"
         />
-        <details class="text-sm text-gray-500">
+        <details class="text-sm text-tp-muted">
           <summary class="cursor-pointer">Can't scan? Enter the secret manually</summary>
-          <code class="block mt-2 p-2 bg-gray-100 rounded break-all">{{ setupData.secret }}</code>
+          <code class="block mt-2 p-2 bg-tp-surface2 rounded break-all">{{ setupData.secret }}</code>
         </details>
 
         <div class="flex items-end gap-3">
           <label class="flex-1">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Verification code</span>
+            <span class="block text-sm font-medium text-tp-text mb-1">Verification code</span>
             <input
               v-model="setupCode"
               type="text"
@@ -182,18 +182,18 @@ onMounted(() => loadSessions())
               pattern="[0-9]{6}"
               maxlength="6"
               placeholder="123456"
-              class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-md border border-tp-border bg-tp-surface2 text-tp-text px-3 py-2 text-sm"
             />
           </label>
           <button
-            class="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            class="rounded-md bg-tp-primary px-3 py-2 text-sm font-semibold text-tp-on-primary hover:brightness-110 disabled:opacity-50"
             :disabled="busy || setupCode.length !== 6"
             @click="confirmSetup"
           >
             Confirm
           </button>
           <button
-            class="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            class="rounded-md border border-tp-border px-3 py-2 text-sm"
             :disabled="busy"
             @click="cancelSetup"
           >
@@ -211,16 +211,16 @@ onMounted(() => loadSessions())
     >
       <div class="bg-white rounded-lg p-6 w-96 space-y-4">
         <h3 class="font-medium">Disable 2FA</h3>
-        <p class="text-sm text-gray-600">Enter your password to confirm.</p>
+        <p class="text-sm text-tp-muted">Enter your password to confirm.</p>
         <input
           v-model="disablePassword"
           type="password"
           placeholder="Password"
-          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          class="w-full rounded-md border border-tp-border bg-tp-surface2 text-tp-text px-3 py-2 text-sm"
         />
         <div class="flex justify-end gap-2">
           <button
-            class="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            class="rounded-md border border-tp-border px-3 py-2 text-sm"
             @click="disableOpen = false"
           >
             Cancel
@@ -237,16 +237,16 @@ onMounted(() => loadSessions())
     </div>
 
     <!-- Active sessions -->
-    <section class="rounded-lg border border-gray-200 p-6 space-y-4">
+    <section class="rounded-lg border border-tp-border p-6 space-y-4">
       <h2 class="text-lg font-medium">Active sessions</h2>
-      <p class="text-sm text-gray-500">
+      <p class="text-sm text-tp-muted">
         Each refresh token. Revoke anything you don't recognise.
       </p>
-      <ul v-if="sessions.length" class="divide-y divide-gray-200">
+      <ul v-if="sessions.length" class="divide-y divide-tp-border">
         <li v-for="s in sessions" :key="s.id" class="py-3 flex items-center justify-between">
           <div class="text-sm">
             <div class="font-medium">{{ s.user_agent || 'unknown device' }}</div>
-            <div class="text-gray-500">{{ s.ip_address || '—' }} · {{ new Date(s.created_at).toLocaleString() }}</div>
+            <div class="text-tp-muted">{{ s.ip_address || '—' }} · {{ new Date(s.created_at).toLocaleString() }}</div>
           </div>
           <button
             class="text-sm text-red-600 hover:underline"
@@ -256,7 +256,7 @@ onMounted(() => loadSessions())
           </button>
         </li>
       </ul>
-      <p v-else class="text-sm text-gray-500">No active sessions.</p>
+      <p v-else class="text-sm text-tp-muted">No active sessions.</p>
     </section>
   </div>
 </template>

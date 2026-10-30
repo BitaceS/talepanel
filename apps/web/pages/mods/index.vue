@@ -343,7 +343,7 @@ const isInstalled = (filename: string) =>
                 v-if="mod.source"
                 class="px-1.5 py-0.5 rounded"
                 :class="mod.source === 'curseforge' ? 'bg-orange-500/20 text-orange-300'
-                      : mod.source === 'detected'   ? 'bg-blue-500/20 text-blue-300'
+                      : mod.source === 'detected'   ? 'bg-tp-tertiary/15 text-tp-tertiary'
                       :                               'bg-white/10 text-white/50'"
               >
                 {{ mod.source }}
@@ -505,7 +505,7 @@ const isInstalled = (filename: string) =>
         class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
         @click.self="versionSwitchMod = null"
       >
-        <div class="bg-[#0d1117] border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl mx-4">
+        <div class="bg-tp-surface border border-tp-border rounded-xl p-6 w-full max-w-md shadow-2xl mx-4">
           <h3 class="text-lg font-semibold mb-4 text-tp-text">
             Change version — {{ (versionSwitchMod as typeof modsStore.installed[number]).display_name || (versionSwitchMod as typeof modsStore.installed[number]).filename }}
           </h3>

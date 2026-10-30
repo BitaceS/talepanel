@@ -245,7 +245,7 @@ function nodeStatusColor(status: string) {
             <polyline
               :points="chartPoints"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#f2c14e"
               stroke-width="2"
               stroke-linejoin="round"
               stroke-linecap="round"

@@ -186,11 +186,11 @@ const perfBars = [
           <svg class="w-full h-full" viewBox="0 0 400 150" preserveAspectRatio="none">
             <defs>
               <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#89ceff" stop-opacity="0.3" />
-                <stop offset="100%" stop-color="#89ceff" stop-opacity="0" />
+                <stop offset="0%" stop-color="#f2c14e" stop-opacity="0.3" />
+                <stop offset="100%" stop-color="#f2c14e" stop-opacity="0" />
               </linearGradient>
             </defs>
-            <path d="M0,120 Q50,110 80,100 T140,80 T200,60 T260,45 T300,55 T340,70 T400,65" fill="none" stroke="#89ceff" stroke-width="2" />
+            <path d="M0,120 Q50,110 80,100 T140,80 T200,60 T260,45 T300,55 T340,70 T400,65" fill="none" stroke="#f2c14e" stroke-width="2" />
             <path d="M0,120 Q50,110 80,100 T140,80 T200,60 T260,45 T300,55 T340,70 T400,65 L400,150 L0,150 Z" fill="url(#lineGrad)" />
           </svg>
         </div>

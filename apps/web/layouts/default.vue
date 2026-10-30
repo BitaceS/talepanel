@@ -5,8 +5,11 @@ const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
+// Route names like "servers-id" read badly; fall back to the first path segment.
 const pageTitle = computed(() => {
-  return (route.meta.title as string | undefined) ?? route.name?.toString() ?? 'TalePanel'
+  if (route.meta.title) return route.meta.title as string
+  const first = route.path.split('/').filter(Boolean)[0]
+  return first ? first.replace(/-/g, ' ') : 'Dashboard'
 })
 
 // ── Dropdowns ─────────────────────────────────────────────────────────────────
@@ -82,12 +85,13 @@ function markAllRead() {
 
 // ── Help links ────────────────────────────────────────────────────────────────
 const helpLinks = [
-  { icon: 'menu_book', label: 'Documentation', desc: 'Guides and API reference', href: '#' },
-  { icon: 'school', label: 'Getting Started', desc: 'Quick setup tutorial', href: '#' },
-  { icon: 'forum', label: 'Community', desc: 'Discord and forums', href: '#' },
-  { icon: 'bug_report', label: 'Report a Bug', desc: 'Submit an issue report', href: '#' },
-  { icon: 'support_agent', label: 'Contact Support', desc: 'Get help from our team', href: '#' },
+  { icon: 'menu_book', label: 'Documentation', desc: 'Guides and reference', href: 'https://talepanel.com/docs/' },
+  { icon: 'school', label: 'Getting Started', desc: 'Install and first server', href: 'https://talepanel.com/docs/start/install/' },
+  { icon: 'forum', label: 'Community', desc: 'TalePanel Discord', href: 'https://discord.gg/6N8WNrW5WJ' },
+  { icon: 'bug_report', label: 'Report a Bug', desc: 'Open a GitHub issue', href: 'https://github.com/BitaceS/talepanel/issues' },
 ]
+
+const { info: versionInfo } = useUpdateCheck()
 </script>
 
 <template>
@@ -98,9 +102,9 @@ const helpLinks = [
     <!-- Main content area -->
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <!-- Top bar (glass) -->
-      <header class="sticky top-0 z-30 h-14 glass-panel flex items-center justify-between px-6 shrink-0">
+      <header class="sticky top-0 z-30 h-14 glass-panel border-b flex items-center justify-between px-6 shrink-0">
         <div>
-          <h1 class="text-tp-text font-display font-bold text-lg capitalize">
+          <h1 class="text-tp-text font-display font-bold text-xl capitalize">
             {{ pageTitle }}
           </h1>
         </div>
@@ -203,6 +207,8 @@ const helpLinks = [
                     v-for="link in helpLinks"
                     :key="link.label"
                     :href="link.href"
+                    target="_blank"
+                    rel="noopener"
                     class="flex items-center gap-3 px-4 py-2.5 hover:bg-tp-surface3/50 transition-colors"
                   >
                     <div class="w-8 h-8 bg-tp-surface3 rounded-lg flex items-center justify-center shrink-0">
@@ -218,7 +224,7 @@ const helpLinks = [
                 <div class="px-4 py-3 border-t border-tp-border/20">
                   <div class="flex items-center gap-1.5 text-tp-outline text-[10px]">
                     <span class="material-symbols-outlined text-xs">info</span>
-                    TalePanel v1.0.0
+                    TalePanel {{ versionInfo?.current_version ?? '' }}
                   </div>
                 </div>
               </div>

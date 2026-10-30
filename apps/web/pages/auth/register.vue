@@ -83,8 +83,8 @@ async function onSubmit() {
 <template>
   <div>
     <div class="mb-6">
-      <h2 class="text-tp-text font-display font-bold text-xl">Request Access</h2>
-      <p class="text-tp-muted text-sm mt-1">Create your operator account</p>
+      <h2 class="text-tp-text font-display font-bold text-xl">Create account</h2>
+      <p class="text-tp-muted text-sm mt-1">Join this TalePanel instance</p>
     </div>
 
     <!-- Success -->
@@ -114,7 +114,7 @@ async function onSubmit() {
       <form class="space-y-4" @submit.prevent="onSubmit">
         <!-- Username -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Operator Name</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">person</span>
             <input
@@ -160,7 +160,7 @@ async function onSubmit() {
 
         <!-- Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Access Key</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
@@ -190,13 +190,13 @@ async function onSubmit() {
 
         <!-- Confirm Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Confirm Access Key</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Confirm password</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
               v-model="form.confirm"
               :type="showPassword ? 'text' : 'password'"
-              placeholder="Repeat your access key"
+              placeholder="Repeat your password"
               autocomplete="new-password"
               required
               :class="[
@@ -233,7 +233,7 @@ async function onSubmit() {
 
       <div class="mt-5 text-center">
         <p class="text-tp-muted text-sm">
-          Already an operator?
+          Already have an account?
           <NuxtLink to="/auth/login" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors ml-1">
             Sign in
           </NuxtLink>
@@ -242,13 +242,13 @@ async function onSubmit() {
 
       <!-- Footer links -->
       <div class="flex items-center justify-center gap-4 mt-5 pt-4">
-        <a href="#" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
-          <span class="material-symbols-outlined text-sm">shield</span>
-          Safety Protocols
+        <a href="https://talepanel.com/docs/" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
+          <span class="material-symbols-outlined text-sm">menu_book</span>
+          Docs
         </a>
-        <a href="#" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
-          <span class="material-symbols-outlined text-sm">support</span>
-          Support Hub
+        <a href="https://discord.gg/6N8WNrW5WJ" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
+          <span class="material-symbols-outlined text-sm">forum</span>
+          Discord
         </a>
       </div>
     </template>

@@ -93,20 +93,18 @@ function isActive(to: string): boolean {
 <template>
   <aside
     :class="[
-      'flex flex-col bg-tp-surface glass-panel transition-all duration-300 shrink-0 h-screen sticky top-0',
+      'flex flex-col bg-tp-surface glass-panel border-r transition-all duration-300 shrink-0 h-screen sticky top-0',
       collapsed ? 'w-16' : 'w-64',
     ]"
   >
     <!-- Logo section -->
     <div class="flex items-center h-14 px-4 shrink-0">
       <NuxtLink to="/" class="flex items-center gap-3 min-w-0">
-        <div class="w-8 h-8 bg-tp-primary rounded-lg flex items-center justify-center shrink-0">
-          <span class="material-symbols-outlined text-tp-on-primary text-lg">cloud_queue</span>
-        </div>
+        <img src="/logo.svg" alt="" class="w-8 h-8 shrink-0" />
         <Transition name="fade-width">
           <div v-if="!collapsed" class="flex flex-col min-w-0">
-            <span class="text-tp-text font-display font-bold text-sm leading-none">TalePanel</span>
-            <span class="text-tp-outline text-[10px] leading-none mt-1 uppercase tracking-wider">Ethereal Command</span>
+            <span class="text-tp-text font-display font-bold text-lg leading-none">TalePanel</span>
+            <span class="text-tp-outline font-mono text-[10px] leading-none mt-1 uppercase tracking-wider">Hytale servers</span>
           </div>
         </Transition>
       </NuxtLink>
@@ -120,7 +118,7 @@ function isActive(to: string): boolean {
           v-if="!collapsed"
           class="px-3 pt-5 pb-2 first:pt-0"
         >
-          <span class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest">
+          <span class="text-tp-outline font-mono text-[10px] font-medium uppercase tracking-[0.18em]">
             {{ section.title }}
           </span>
         </div>
@@ -134,14 +132,14 @@ function isActive(to: string): boolean {
           :key="item.to"
           :to="item.to"
           :class="[
-            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150',
+            'nav-item relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-medium transition-all duration-150',
             isActive(item.to)
-              ? 'bg-tp-primary text-tp-on-primary'
-              : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2',
+              ? 'is-active bg-tp-surface2 text-tp-text'
+              : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2/60',
           ]"
           :title="collapsed ? item.label : undefined"
         >
-          <span class="material-symbols-outlined text-xl shrink-0">{{ item.icon }}</span>
+          <span :class="['material-symbols-outlined text-xl shrink-0', isActive(item.to) ? 'text-tp-primary' : '']">{{ item.icon }}</span>
           <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
         </NuxtLink>
       </template>
@@ -163,7 +161,7 @@ function isActive(to: string): boolean {
       <!-- User info -->
       <div
         :class="[
-          'flex items-center gap-2.5 rounded-xl p-2.5 bg-tp-surface2',
+          'flex items-center gap-2.5 rounded-xl p-2.5 bg-tp-surface2 border border-tp-border/60',
           collapsed ? 'justify-center' : '',
         ]"
       >
@@ -197,6 +195,28 @@ function isActive(to: string): boolean {
 </template>
 
 <style scoped>
+/* Active item: gold edge on the left plus the diamond from talepanel.com's menu */
+.nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -0.5rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  background: #f2c14e;
+}
+.nav-item.is-active::after {
+  content: '';
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: #f2c14e;
+  transform: rotate(45deg);
+}
+
 .fade-width-enter-active,
 .fade-width-leave-active {
   transition: opacity 0.2s ease;

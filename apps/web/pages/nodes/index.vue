@@ -669,6 +669,6 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 
 .progress-fill {
-  background: linear-gradient(90deg, #3b82f6, #89ceff);
+  background: linear-gradient(90deg, #e8863b, #f2c14e);
 }
 </style>

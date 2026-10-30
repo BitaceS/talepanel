@@ -1,3 +1,5 @@
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,13 +11,27 @@
   * {
     @apply border-tp-border;
   }
+  /* Fields get a visible edge; the old design relied on tonal shifts only */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    border-width: 1px;
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+  select:focus,
+  textarea:focus {
+    border-color: rgba(242, 193, 78, 0.6);
+  }
+  h1, h2, h3 {
+    letter-spacing: 0.01em;
+  }
 }
 
 @layer components {
   /* Scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #2d3449 transparent;
+    scrollbar-color: #3d3243 transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
@@ -24,50 +40,52 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #2d3449;
+    background-color: #3d3243;
     border-radius: 3px;
   }
 
-  /* Glass effect for floating elements */
+  /* Floating elements: solid stone with a hairline, no blur */
   .glass {
-    background: rgba(19, 27, 46, 0.8);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: #1f1925;
+    border: 1px solid #3d3243;
   }
 
-  /* Glass panel for nav/sidebar */
+  /* Nav/sidebar/top bar */
   .glass-panel {
-    background: rgba(19, 27, 46, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: #120e17;
+    border-color: #2a2230;
   }
 
-  /* CTA gradient (primary → primary-container) */
+  /* Primary action: gold block with a darker lower edge */
   .cta-gradient {
-    background: linear-gradient(135deg, #adc6ff 0%, #4d8eff 100%);
+    background: #f2c14e;
+    box-shadow: inset 0 -2px 0 #a8771f;
   }
 
-  /* Surface tint overlay */
   .surface-tint {
-    background: rgba(173, 198, 255, 0.08);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(242, 193, 78, 0.06);
   }
 
-  /* Ghost border (outline-variant at 15% opacity) */
   .ghost-border {
-    border: 1px solid rgba(66, 71, 84, 0.15);
+    border: 1px solid rgba(61, 50, 67, 0.6);
   }
 
-  /* Progress bar gradient fill */
   .progress-fill {
-    background: linear-gradient(90deg, #adc6ff 0%, #89ceff 100%);
+    background: linear-gradient(90deg, #e8863b 0%, #f2c14e 100%);
   }
 }
 
 @layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Font display for headlines */
   .font-display {
-    font-family: 'Manrope', system-ui, sans-serif;
+    font-family: 'Alegreya SC', Georgia, serif;
+    letter-spacing: 0.01em;
   }
 }
