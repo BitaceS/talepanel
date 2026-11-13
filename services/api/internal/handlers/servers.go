@@ -32,6 +32,8 @@ type ServerHandler struct {
 
 	sessionMu    sync.Mutex
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
+
+	stream streamState // live event stream (server_stream.go)
 }
 
 // maxLogLinesPerPush bounds one daemon log push; the daemon flushes at 500.
@@ -743,42 +745,44 @@ func (h *ServerHandler) GetMetrics(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusOK, h.metricsPayload(c.Request.Context(), server))
+}
+
+// metricsPayload fetches a server's live resource metrics from its daemon.
+// An unreachable daemon yields zeroed metrics with a note rather than an
+// error, so the panel keeps rendering.
+func (h *ServerHandler) metricsPayload(ctx context.Context, server *models.Server) gin.H {
+	zeroed := func(note string) gin.H {
+		return gin.H{
+			"server_id": server.ID,
+			"timestamp": time.Now().UTC(),
+			"cpu":       gin.H{"usage_percent": 0},
+			"memory":    gin.H{"used_mb": 0, "limit_mb": server.RAMLimitMB},
+			"uptime_s":  0,
+			"note":      note,
+		}
+	}
+
 	client, err := h.daemonClient(server.NodeID.String())
 	if err != nil {
 		// Daemon not registered — return zeroed metrics rather than 500
-		c.JSON(http.StatusOK, gin.H{
-			"server_id": serverID,
-			"timestamp": time.Now().UTC(),
-			"cpu":       gin.H{"usage_percent": 0},
-			"memory":    gin.H{"used_mb": 0, "limit_mb": server.RAMLimitMB},
-			"uptime_s":  0,
-			"note":      "daemon not connected",
-		})
-		return
+		return zeroed("daemon not connected")
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	m, err := client.GetServerMetrics(ctx, serverID.String())
+	m, err := client.GetServerMetrics(ctx, server.ID.String())
 	if err != nil {
 		h.log.Warn("failed to fetch metrics from daemon",
-			zap.String("server_id", serverID.String()),
+			zap.String("server_id", server.ID.String()),
 			zap.Error(err),
 		)
-		c.JSON(http.StatusOK, gin.H{
-			"server_id": serverID,
-			"timestamp": time.Now().UTC(),
-			"cpu":       gin.H{"usage_percent": 0},
-			"memory":    gin.H{"used_mb": 0, "limit_mb": server.RAMLimitMB},
-			"uptime_s":  0,
-			"note":      "daemon unreachable",
-		})
-		return
+		return zeroed("daemon unreachable")
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"server_id": serverID,
+	return gin.H{
+		"server_id": server.ID,
 		"timestamp": time.Now().UTC(),
 		"cpu": gin.H{
 			"usage_percent": m.CPUPercent,
@@ -788,7 +792,7 @@ func (h *ServerHandler) GetMetrics(c *gin.Context) {
 			"limit_mb": server.RAMLimitMB,
 		},
 		"uptime_s": m.UptimeS,
-	})
+	}
 }
 
 // ─── Daemon Callbacks ─────────────────────────────────────────────────────────

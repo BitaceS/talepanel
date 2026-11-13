@@ -145,8 +145,13 @@ func normalizeLaunchFlags(flags []string) ([]string, error) {
 
 // ServerService handles all business logic related to game server lifecycle.
 type ServerService struct {
-	db *pgxpool.Pool
+	db     *pgxpool.Pool
+	events *ServerEvents // optional; wakes open event streams
 }
+
+// SetEvents wires the hub that IngestLogs and UpdateServerStatus notify so
+// open event streams pick up new data at once.
+func (s *ServerService) SetEvents(e *ServerEvents) { s.events = e }
 
 // NewServerService constructs a ServerService.
 func NewServerService(db *pgxpool.Pool) *ServerService {
@@ -528,6 +533,7 @@ func (s *ServerService) UpdateServerStatus(ctx context.Context, serverID uuid.UU
 	if err != nil {
 		return err
 	}
+	s.events.Notify(ctx, serverID)
 
 	// Nobody is online on a server that is down.  Close their sessions here, or a
 	// player who was online when the server stopped keeps an open session forever
@@ -606,6 +612,7 @@ func (s *ServerService) IngestLogs(ctx context.Context, serverID uuid.UUID, line
 			return err
 		}
 	}
+	s.events.Notify(ctx, serverID)
 	return nil
 }
 
@@ -634,6 +641,36 @@ func (s *ServerService) insertLogChunk(ctx context.Context, serverID uuid.UUID, 
 		return fmt.Errorf("inserting log lines: %w", err)
 	}
 	return nil
+}
+
+// GetLogsAfter returns up to limit log lines of a server with an id greater
+// than afterID, oldest first. The id (BIGSERIAL) is the event stream's
+// cursor: it only grows, so "id > cursor" neither repeats nor skips lines.
+func (s *ServerService) GetLogsAfter(ctx context.Context, serverID uuid.UUID, afterID int64, limit int) ([]*models.ServerLog, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, server_id, logged_at, level, message
+		FROM server_logs
+		WHERE server_id = $1 AND id > $2
+		ORDER BY id ASC
+		LIMIT $3
+	`, serverID, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying server logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []*models.ServerLog
+	for rows.Next() {
+		l := &models.ServerLog{}
+		if err := rows.Scan(&l.ID, &l.ServerID, &l.LoggedAt, &l.Level, &l.Message); err != nil {
+			return nil, fmt.Errorf("scanning log row: %w", err)
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
 }
 
 // GetLogs returns the most recent log lines for a server.

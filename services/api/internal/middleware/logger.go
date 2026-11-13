@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func GinLogger(logger *zap.Logger) gin.HandlerFunc {
 		requestID := GetRequestID(c)
 
 		if rawQuery != "" {
-			path = path + "?" + rawQuery
+			path = path + "?" + redactQuery(rawQuery)
 		}
 
 		fields := []zap.Field{
@@ -52,4 +53,30 @@ func GinLogger(logger *zap.Logger) gin.HandlerFunc {
 			logger.Info("request completed", fields...)
 		}
 	}
+}
+
+// sensitiveQueryParams are query parameters whose values never reach the
+// request log. "ticket" is the single-use event-stream ticket: dead once
+// used, but a log is no place for a credential either way.
+var sensitiveQueryParams = []string{"ticket", "token", "access_token"}
+
+// redactQuery replaces the values of sensitive query parameters with
+// "REDACTED". A query that cannot be parsed is dropped rather than logged
+// as-is.
+func redactQuery(rawQuery string) string {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return "[unparseable query redacted]"
+	}
+	changed := false
+	for _, k := range sensitiveQueryParams {
+		if _, ok := values[k]; ok {
+			values.Set(k, "REDACTED")
+			changed = true
+		}
+	}
+	if !changed {
+		return rawQuery
+	}
+	return values.Encode()
 }

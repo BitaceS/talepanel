@@ -98,6 +98,12 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	// WriteTimeout is a per-connection deadline. The live event stream
+	// (GET /servers/:id/stream) extends its own deadline after every write
+	// and ends itself after 30 min. Shutdown does not cancel request
+	// contexts, so cancel the worker context on shutdown: open streams watch
+	// it and end, letting Shutdown drain instead of waiting them out.
+	srv.RegisterOnShutdown(workerCancel)
 
 	// Start server in a goroutine so the main goroutine can handle signals.
 	serverErr := make(chan error, 1)

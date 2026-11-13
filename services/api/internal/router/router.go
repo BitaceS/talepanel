@@ -130,6 +130,13 @@ func SetupRouter(
 	serverH := handlers.NewServerHandler(serverSvc, nodeSvc, daemonPool, cfg.DaemonServersDir, log, alertSvc)
 	serverH.SetDatabaseService(dbSvc)
 	serverH.SetNetworkRouting(networkRoutingSvc)
+	// Live event stream: log ingest and status updates wake open streams via
+	// Redis pub/sub (see handlers/server_stream.go).
+	streamTickets := services.NewStreamTicketService(rdb)
+	serverEvents := services.NewServerEvents(rdb, log)
+	go serverEvents.Run(ctx)
+	serverSvc.SetEvents(serverEvents)
+	serverH.SetStreaming(ctx, streamTickets, serverEvents)
 	templateH := handlers.NewServerTemplateHandler(services.NewServerTemplateService(db), log)
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
@@ -236,6 +243,14 @@ func SetupRouter(
 	hytaleGroup.Use(authRequired, generalLimiter)
 	hytaleGroup.GET("/versions", hytaleH.Versions)
 
+	// Live event stream (SSE). EventSource cannot send an Authorization
+	// header, so this route authenticates with a single-use ticket from
+	// POST /servers/:id/stream-ticket instead of AuthRequired; the
+	// per-server permission check is the same as GET /servers/:id/logs.
+	streamGroup := v1.Group("/servers")
+	streamGroup.Use(generalLimiter)
+	streamGroup.GET("/:id/stream", middleware.StreamTicketAuth(db, streamTickets), rsp("server.view"), serverH.StreamEvents)
+
 	serverGroup := v1.Group("/servers")
 	serverGroup.Use(authRequired, generalLimiter)
 	{
@@ -256,6 +271,7 @@ func SetupRouter(
 		serverGroup.POST("/:id/reinstall", rsp("server.manage"), serverH.ReinstallServer)
 		serverGroup.GET("/:id/metrics", rsp("server.view"), serverH.GetMetrics)
 		serverGroup.GET("/:id/logs", rsp("server.view"), serverH.GetLogs)
+		serverGroup.POST("/:id/stream-ticket", rsp("server.view"), serverH.IssueStreamTicket)
 		serverGroup.POST("/:id/console", rsp("server.console"), serverH.SendConsoleCommand)
 		// Migration places a server on another node, spending that node's
 		// capacity — an operator action, not something a server owner decides.
