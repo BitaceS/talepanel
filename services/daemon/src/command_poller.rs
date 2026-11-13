@@ -752,7 +752,18 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
         anyhow::bail!("refusing to delete outside universe/worlds: {}", target.display());
     }
 
-    match tokio::fs::metadata(&target).await {
+    // universe/ and worlds/ are tenant-writable: never delete through a
+    // planted symlink into another server's data. remove_dir_all itself does
+    // not follow symlinks inside the tree.
+    let universe = std::path::Path::new(data_path).join("universe");
+    if !is_real_dir(&universe).await || !is_real_dir(&worlds_root).await {
+        if tokio::fs::symlink_metadata(&worlds_root).await.is_err() {
+            return Ok(false);
+        }
+        anyhow::bail!("universe/worlds is not a real directory");
+    }
+    match tokio::fs::symlink_metadata(&target).await {
+        Ok(md) if md.file_type().is_symlink() => anyhow::bail!("{} is a symbolic link", target.display()),
         Ok(md) if md.is_dir() => {
             tokio::fs::remove_dir_all(&target).await?;
             Ok(true)
@@ -1350,6 +1361,22 @@ mod tests {
             .await
             .expect("absent world must not be an error");
         assert!(!removed);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_world_dir_refuses_a_symlinked_universe() {
+        let root = scratch_dir("delete-linked");
+        let victim = root.join("victim");
+        let victim_world = make_world(&victim, "precious");
+        let data_path = root.join("attacker");
+        std::fs::create_dir_all(&data_path).unwrap();
+        std::os::unix::fs::symlink(victim.join("universe"), data_path.join("universe")).unwrap();
+
+        assert!(delete_world_dir(data_path.to_str().unwrap(), "precious").await.is_err());
+        assert!(victim_world.exists(), "another server's world must survive");
 
         let _ = std::fs::remove_dir_all(&root);
     }

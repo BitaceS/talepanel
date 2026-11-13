@@ -105,7 +105,13 @@ pub async fn run_plugin_scanner(
 /// active world from `{server_dir}/config.json` (`Defaults.World`).
 fn scan_server_worlds(server_dir: &Path) -> (Vec<crate::api_client::ScannedWorld>, String) {
     let mut worlds = Vec::new();
-    let worlds_dir = server_dir.join("universe").join("worlds");
+    let universe = server_dir.join("universe");
+    let worlds_dir = universe.join("worlds");
+    // A symlinked universe/ or worlds/ (e.g. into another server) would make
+    // that server's worlds show up, and be deletable, as this server's.
+    if !is_real_dir(&universe) || !is_real_dir(&worlds_dir) {
+        return (worlds, read_active_world(server_dir));
+    }
     if let Ok(entries) = std::fs::read_dir(&worlds_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
@@ -183,7 +189,8 @@ async fn scan_all_servers(api: &ApiClient, servers_dir: &str) {
 
     for entry in entries.flatten() {
         let entry_path = entry.path();
-        if !entry_path.is_dir() {
+        // file_type does not follow symlinks; a linked server dir is skipped.
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             continue;
         }
 
@@ -233,12 +240,17 @@ fn classify_archive_name(filename: &str) -> Option<(String, bool)> {
     }
 }
 
+/// True if `p` is a directory and not a symlink to one.
+fn is_real_dir(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).map(|m| m.file_type().is_dir()).unwrap_or(false)
+}
+
 fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
     let mut plugins = Vec::new();
 
     for subdir in &["mods", "plugins"] {
         let dir = server_dir.join(subdir);
-        if !dir.exists() || !dir.is_dir() {
+        if !is_real_dir(&dir) {
             continue;
         }
 
@@ -542,6 +554,22 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_mod_and_world_dirs_are_not_scanned() {
+        let victim = scratch_dir("victim-dirs");
+        std::fs::create_dir_all(victim.join("mods")).unwrap();
+        std::fs::create_dir_all(victim.join("universe/worlds/secret")).unwrap();
+        std::fs::write(victim.join("mods/v.jar"), b"PK").unwrap();
+        let d = scratch_dir("linked-dirs");
+        std::os::unix::fs::symlink(victim.join("mods"), d.join("mods")).unwrap();
+        std::os::unix::fs::symlink(victim.join("universe"), d.join("universe")).unwrap();
+        assert!(scan_server_plugins(&d).is_empty(), "plugins seen through a symlinked mods/");
+        assert!(scan_server_worlds(&d).0.is_empty(), "worlds seen through a symlinked universe/");
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&victim);
+    }
+
     #[test]
     fn symlinked_archives_are_not_scanned() {
         let server_dir = scratch_dir("symlink");
