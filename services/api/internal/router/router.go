@@ -116,6 +116,9 @@ func SetupRouter(
 
 	// New services
 	permSvc := services.NewPermissionService(db)
+	serverTaskSvc := services.NewServerTaskService(db, permSvc,
+		services.NewDaemonTaskExecutor(serverSvc, daemonPool), log)
+	go serverTaskSvc.StartScheduler(ctx)
 	profileSvc := services.NewProfileService(db)
 	invSvc := services.NewInvitationService(db)
 	dbSvc := services.NewDatabaseService(db, cfg.MariaDBDSN, cfg.MariaDBHost, cfg.MariaDBPort)
@@ -137,6 +140,7 @@ func SetupRouter(
 	playerH := handlers.NewPlayerHandler(playerSvc, serverSvc, log)
 	networkRoutingH := handlers.NewNetworkRoutingHandler(networkRoutingSvc, log)
 	backupH := handlers.NewBackupHandler(backupSvc, permSvc, log)
+	serverTaskH := handlers.NewServerTaskHandler(serverTaskSvc, log)
 	backupDestH := handlers.NewBackupDestinationHandler(backupDestSvc, log)
 	alertH := handlers.NewAlertHandler(alertSvc, log)
 
@@ -303,6 +307,14 @@ func SetupRouter(
 
 		// Backup schedules (per-server)
 		serverGroup.GET("/:id/backup-schedules", rsp("server.view"), backupH.ListSchedules)
+
+		// Scheduled tasks (restart / console command / broadcast). The task
+		// id is always looked up together with :id, so a task of another
+		// server is a 404 even for someone who manages this one.
+		serverGroup.GET("/:id/tasks", rsp("server.view"), serverTaskH.ListTasks)
+		serverGroup.POST("/:id/tasks", rsp("server.manage"), serverTaskH.CreateTask)
+		serverGroup.PATCH("/:id/tasks/:taskId", rsp("server.manage"), serverTaskH.UpdateTask)
+		serverGroup.DELETE("/:id/tasks/:taskId", rsp("server.manage"), serverTaskH.DeleteTask)
 
 		// Invitations (Phase 3) — managing members is a manage-level action.
 		serverGroup.POST("/:id/invitations", rsp("server.manage"), invH.CreateInvitation)
