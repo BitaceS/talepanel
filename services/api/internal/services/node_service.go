@@ -222,7 +222,7 @@ func (s *NodeService) DaemonSelfRegister(ctx context.Context, nodeID uuid.UUID, 
 		SET total_cpu      = $1,
 		    total_ram_mb   = $2,
 		    total_disk_mb  = $3,
-		    status         = 'online',
+		    status         = CASE WHEN status = 'draining' THEN status ELSE 'online' END,
 		    last_heartbeat = NOW()
 		WHERE id = $4
 	`, req.CPUCores, req.TotalRAMMB, req.TotalDiskMB, nodeID)
@@ -265,6 +265,10 @@ func (s *NodeService) DaemonSelfRegister(ctx context.Context, nodeID uuid.UUID, 
 // install, another panel's CA) would otherwise get pinned to a cert it never
 // presents and be locked out. Such adverts leave the mTLS state untouched and
 // are reported via mtlsRejected so the caller can log them.
+//
+// A node an admin set to "draining" stays draining: the daemon always reports
+// "online", and letting that win would put the node back into scheduling
+// within one heartbeat.
 func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID, req NodeHeartbeatRequest) (mtlsRejected bool, err error) {
 	status := req.Status
 	if status == "" {
@@ -274,7 +278,8 @@ func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID,
 	var accepted bool
 	err = s.db.QueryRow(ctx, `
 		UPDATE nodes
-		SET status = $1, last_heartbeat = $2,
+		SET status = CASE WHEN status = 'draining' THEN status ELSE $1::node_status END,
+		    last_heartbeat = $2,
 		    mtls_enabled   = mtls_enabled OR COALESCE($4 AND cert_serial = NULLIF($5, ''), false),
 		    cert_not_after = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $6 ELSE cert_not_after END
 		WHERE id = $3

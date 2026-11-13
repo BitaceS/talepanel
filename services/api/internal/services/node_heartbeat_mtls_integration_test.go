@@ -99,3 +99,44 @@ func TestHeartbeat_ignoresUnissuedSerial(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// An admin's "draining" must survive the daemon's heartbeats and its
+// self-registration on restart; both always report "online".
+func TestHeartbeat_keepsDrainingStatus(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	id := seedHeartbeatNode(t, pool, nil)
+	svc := NewNodeService(pool)
+
+	if _, err := svc.UpdateNodeHeartbeat(ctx, id, NodeHeartbeatRequest{Status: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetNodeStatus(ctx, id, "draining"); err != nil {
+		t.Fatalf("set draining: %v", err)
+	}
+	if _, err := svc.UpdateNodeHeartbeat(ctx, id, NodeHeartbeatRequest{Status: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DaemonSelfRegister(ctx, id, DaemonSelfRegisterRequest{CPUCores: 2, TotalRAMMB: 2048, TotalDiskMB: 1000}); err != nil {
+		t.Fatalf("self-register: %v", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status::text FROM nodes WHERE id = $1`, id).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "draining" {
+		t.Fatalf("status = %q, want draining", status)
+	}
+
+	// Back to online by the admin: heartbeats keep it online.
+	if err := svc.SetNodeStatus(ctx, id, "online"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateNodeHeartbeat(ctx, id, NodeHeartbeatRequest{Status: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = pool.QueryRow(ctx, `SELECT status::text FROM nodes WHERE id = $1`, id).Scan(&status)
+	if status != "online" {
+		t.Fatalf("status = %q, want online", status)
+	}
+}
