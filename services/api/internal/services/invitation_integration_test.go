@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/BitaceS/talepanel/api/internal/models"
@@ -189,5 +190,32 @@ func TestAcceptInvitation_CappedByInviterAtAcceptTime(t *testing.T) {
 	// The token is single-use.
 	if err := invSvc.AcceptInvitation(ctx, inv.Token, inviteeID, testUserEmail(t, pool, inviteeID)); !errors.Is(err, ErrInvitationUsed) {
 		t.Fatalf("second accept: err = %v, want ErrInvitationUsed", err)
+	}
+}
+
+// The invitee may have typed their address with different case than the
+// inviter; accepting already compares case-insensitively, so listing must too.
+func TestListMyInvitations_IgnoresEmailCase(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	invSvc := NewInvitationService(pool)
+
+	ownerID := seedTestUser(t, pool, "user")
+	inviteeID := seedTestUser(t, pool, "user")
+	serverID := seedTestServer(t, pool, ownerID)
+	owner := &models.User{ID: ownerID, Role: "user"}
+	email := testUserEmail(t, pool, inviteeID)
+
+	if _, err := invSvc.CreateInvitation(ctx, serverID, owner, CreateInvitationRequest{
+		InviteeEmail: strings.ToUpper(email), Role: "viewer",
+	}); err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+	invs, err := invSvc.ListMyInvitations(ctx, email)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(invs) != 1 {
+		t.Fatalf("want 1 invitation for %s, got %d", email, len(invs))
 	}
 }

@@ -130,7 +130,7 @@ func (s *InvitationService) ListMyInvitations(ctx context.Context, email string)
 	rows, err := s.db.Query(ctx, `
 		SELECT `+invitationColumns+`
 		FROM server_invitations
-		WHERE invitee_email = $1 AND status = 'pending' AND expires_at > NOW()
+		WHERE lower(invitee_email) = lower($1) AND status = 'pending' AND expires_at > NOW()
 		ORDER BY created_at DESC
 	`, email)
 	if err != nil {
