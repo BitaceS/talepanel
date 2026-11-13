@@ -47,8 +47,38 @@ pub struct ProcessManager {
     crash_history: DashMap<String, CrashHistory>,
     /// Auto restarts waiting out their backoff, keyed by server_id.
     pending_restarts: DashMap<String, PendingRestart>,
+    /// Servers whose start is in progress (between the duplicate check and
+    /// the insert into `processes`, which spans awaits). Reserving here first
+    /// makes two concurrent starts of one server impossible.
+    starting: Arc<DashMap<String, ()>>,
     /// Lets background tasks (status watcher, restart timer) call back in.
     weak_self: Weak<ProcessManager>,
+}
+
+/// Holds a server's slot in `ProcessManager::starting`; releases it on drop,
+/// on every exit path of a start (success, error, cancellation).
+struct StartReservation {
+    map: Arc<DashMap<String, ()>>,
+    id: String,
+}
+
+impl StartReservation {
+    /// Reserves `id`, or returns `None` if a start for it is already running.
+    fn try_reserve(map: &Arc<DashMap<String, ()>>, id: &str) -> Option<Self> {
+        match map.entry(id.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(_) => None,
+            dashmap::mapref::entry::Entry::Vacant(v) => {
+                v.insert(());
+                Some(Self { map: Arc::clone(map), id: id.to_string() })
+            }
+        }
+    }
+}
+
+impl Drop for StartReservation {
+    fn drop(&mut self) {
+        self.map.remove(&self.id);
+    }
 }
 
 impl ProcessManager {
@@ -61,6 +91,7 @@ impl ProcessManager {
             config,
             crash_history: DashMap::new(),
             pending_restarts: DashMap::new(),
+            starting: Arc::new(DashMap::new()),
             weak_self: weak_self.clone(),
         })
     }
@@ -85,16 +116,25 @@ impl ProcessManager {
     async fn start_process(&self, config: ServerConfig) -> Result<()> {
         let server_id = config.server_id.clone();
 
-        // Guard: refuse to start a duplicate.
+        // Guard: refuse to start a duplicate. The reservation is taken before
+        // any await (session fetch, spawn) and held until the process is in
+        // the registry, so a second start that races this one (double click,
+        // HTTP start + command poller, user start + auto restart) is refused
+        // instead of spawning a second, unmanaged JVM.
+        let Some(_reservation) = StartReservation::try_reserve(&self.starting, &server_id) else {
+            bail!("Server {server_id} is already starting");
+        };
         if self.processes.contains_key(&server_id) {
             bail!("Server {server_id} is already registered in the process manager");
         }
 
-        // Enforce the configured max-server cap.
-        if self.processes.len() >= self.config.resources.max_servers as usize {
+        // Enforce the configured max-server cap, counting starts in progress
+        // (this one included).
+        let in_use = self.processes.len() + self.starting.len();
+        if in_use > self.config.resources.max_servers as usize {
             bail!(
                 "Cannot start server {server_id}: node is at capacity ({} / {} servers)",
-                self.processes.len(),
+                in_use - 1,
                 self.config.resources.max_servers
             );
         }
@@ -1248,5 +1288,23 @@ mod tests {
         assert!(place_local_binaries(&bin, &server).is_err());
         assert!(!elsewhere.join("HytaleServer.jar").exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod start_reservation_tests {
+    use super::StartReservation;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn second_start_of_the_same_server_is_refused_until_the_first_ends() {
+        let map = Arc::new(DashMap::new());
+        let first = StartReservation::try_reserve(&map, "s1").expect("first start reserves");
+        assert!(StartReservation::try_reserve(&map, "s1").is_none(), "concurrent start must be refused");
+        let other = StartReservation::try_reserve(&map, "s2");
+        assert!(other.is_some(), "other servers are independent");
+        drop(first);
+        assert!(StartReservation::try_reserve(&map, "s1").is_some(), "released on drop");
     }
 }
