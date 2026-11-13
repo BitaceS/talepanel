@@ -40,6 +40,11 @@ func NewMultiNotifier(smtp *SMTPNotifier, webhook *WebhookNotifier, discord *Dis
 }
 
 func (m *MultiNotifier) Dispatch(ctx context.Context, payload NotificationPayload, channels []string, targetEmail, webhookURL string) {
+	// Callers pass the HTTP request context, which is cancelled as soon as
+	// the handler returns, i.e. before the goroutines below get to send.
+	// Keep its values but drop the cancellation; the HTTP clients carry
+	// their own timeout.
+	ctx = context.WithoutCancel(ctx)
 	for _, ch := range channels {
 		switch ch {
 		case "email":
