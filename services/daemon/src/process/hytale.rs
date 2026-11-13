@@ -210,26 +210,9 @@ impl HytaleServerProcess {
         target: ServerStatus,
         timeout: std::time::Duration,
     ) -> Result<()> {
-        let mut rx = self.status_tx.subscribe();
-        let deadline = tokio::time::sleep(timeout);
-        tokio::pin!(deadline);
-
-        loop {
-            tokio::select! {
-                _ = &mut deadline => {
-                    bail!(
-                        "Timed out waiting for server {} to reach status {:?}",
-                        self.server_id, target
-                    );
-                }
-                result = rx.changed() => {
-                    result.context("Status watch channel closed")?;
-                    if *rx.borrow() == target {
-                        return Ok(());
-                    }
-                }
-            }
-        }
+        wait_for_status_on(self.status_tx.subscribe(), target, timeout)
+            .await
+            .with_context(|| format!("server {} did not reach status {:?}", self.server_id, target))
     }
 
     fn set_status(&self, s: ServerStatus) {
@@ -992,5 +975,63 @@ mod tests {
         assert_eq!(explain_exit_code(1), None);
         assert_eq!(explain_exit_code(-1), None);
         assert_eq!(explain_exit_code(137), None);
+    }
+}
+
+/// Waits until `rx` holds `target`. Checks the current value first: the
+/// status may already have changed before the caller subscribed (e.g. the
+/// process exited right after `stop` was sent), and `changed()` would then
+/// never fire, turning a finished stop into a 30 s wait and a SIGKILL sent
+/// to a PID that may already belong to another process.
+async fn wait_for_status_on(
+    mut rx: tokio::sync::watch::Receiver<ServerStatus>,
+    target: ServerStatus,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    if *rx.borrow_and_update() == target {
+        return Ok(());
+    }
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => bail!("timed out"),
+            result = rx.changed() => {
+                result.context("Status watch channel closed")?;
+                if *rx.borrow_and_update() == target {
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod wait_for_status_tests {
+    use super::{wait_for_status_on, ServerStatus};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn returns_at_once_when_the_status_is_already_reached() {
+        let (tx, _rx) = tokio::sync::watch::channel(ServerStatus::Running);
+        tx.send_replace(ServerStatus::Stopped);
+        let rx = tx.subscribe();
+        let started = std::time::Instant::now();
+        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5)).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn waits_for_a_later_change_and_times_out_otherwise() {
+        let (tx, _rx) = tokio::sync::watch::channel(ServerStatus::Running);
+        let rx = tx.subscribe();
+        let t = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tx.send_replace(ServerStatus::Stopped);
+            tx
+        });
+        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5)).await.unwrap();
+        let tx = t.await.unwrap();
+        assert!(wait_for_status_on(tx.subscribe(), ServerStatus::Running, Duration::from_millis(50)).await.is_err());
     }
 }
