@@ -198,6 +198,19 @@ func (s *AlertService) ResolveEvent(ctx context.Context, caller *models.User, ev
 	return nil
 }
 
+// alertSubject maps the subject of an alert to the alert_events column it
+// belongs in. Node-level rule types (offline, DDoS and the CPU/RAM/disk
+// thresholds reported by the node heartbeat) carry a node ID; everything else
+// a server ID. alert_events.server_id references servers(id), so storing a
+// node ID there makes the insert fail and the alert never fires.
+func alertSubject(ruleType string, subjectID uuid.UUID) (serverID, nodeID *uuid.UUID) {
+	id := subjectID
+	if alertNodeRuleTypes[ruleType] {
+		return nil, &id
+	}
+	return &id, nil
+}
+
 // EvaluateAndFire checks active alert rules of ruleType, deduplicates within 15 minutes,
 // inserts an alert_event row, and dispatches notifications.
 // value is the metric value for threshold-based rules (0 for binary rules like server_crashed).
@@ -263,13 +276,19 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 
 		// 3. Dedup: skip if unresolved event for same (rule_id, subject_id-matched server/node) in last 15 min.
 		// subject_id maps to either server_id or node_id depending on rule type.
+		// A global rule covers many subjects, so the dedup must be per subject:
+		// otherwise a second node going offline within 15 minutes of the first
+		// would be suppressed.
+		eventServerID, eventNodeID := alertSubject(ruleType, subjectID)
 		var dedupCount int
 		dedupErr := s.db.QueryRow(ctx, `
 			SELECT COUNT(*) FROM alert_events
 			WHERE rule_id = $1
+			  AND server_id IS NOT DISTINCT FROM $2
+			  AND node_id IS NOT DISTINCT FROM $3
 			  AND resolved = false
 			  AND created_at > NOW() - INTERVAL '15 minutes'
-		`, rule.id).Scan(&dedupCount)
+		`, rule.id, eventServerID, eventNodeID).Scan(&dedupCount)
 		if dedupErr != nil {
 			if s.log != nil {
 				s.log.Warn("alert dedup check failed", zap.String("rule_id", rule.id.String()), zap.Error(dedupErr))
@@ -278,16 +297,6 @@ func (s *AlertService) EvaluateAndFire(ctx context.Context, ruleType string, sub
 		}
 		if dedupCount > 0 {
 			continue
-		}
-
-		// 4. Determine subject assignment — server_id or node_id based on rule type.
-		var eventServerID *uuid.UUID
-		var eventNodeID *uuid.UUID
-		switch ruleType {
-		case "node_offline", "ddos":
-			eventNodeID = &subjectID
-		default:
-			eventServerID = &subjectID
 		}
 
 		// Build title and severity.
