@@ -313,7 +313,7 @@ fn build_node_registration(config: &Config) -> NodeRegistration {
             .unwrap_or(1),
     ) as u32;
 
-    let total_ram_mb = sys.total_memory() / 1024; // sysinfo KB → MB
+    let total_ram_mb = heartbeat::bytes_to_mb(sys.total_memory());
 
     let total_disk_mb = disk_total_mb(&config.daemon.data_root);
 

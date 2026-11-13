@@ -80,7 +80,7 @@ async fn send_heartbeat(
     sys.refresh_cpu_usage();
     sys.refresh_memory();
     let host_cpu = sys.global_cpu_info().cpu_usage();
-    let host_ram_used_mb = sys.used_memory() / 1024; // sysinfo KB → MB
+    let host_ram_used_mb = bytes_to_mb(sys.used_memory());
 
     // Report the higher of host CPU or average server CPU so the panel never
     // shows 0% when servers are clearly working (sysinfo lags by one sample).
@@ -97,5 +97,31 @@ async fn send_heartbeat(
 
     if let Err(err) = api_client.heartbeat(node_status, metrics).await {
         warn!(%err, "Heartbeat failed");
+    }
+}
+
+/// sysinfo 0.30 reports memory in bytes (older releases used KiB).
+pub(crate) fn bytes_to_mb(bytes: u64) -> u64 {
+    bytes / (1024 * 1024)
+}
+
+#[cfg(test)]
+mod mem_unit_tests {
+    use super::bytes_to_mb;
+
+    #[test]
+    fn converts_bytes_to_mebibytes() {
+        assert_eq!(bytes_to_mb(0), 0);
+        assert_eq!(bytes_to_mb(8 * 1024 * 1024 * 1024), 8192);
+        assert_eq!(bytes_to_mb(1024 * 1024 - 1), 0);
+    }
+
+    #[test]
+    fn sysinfo_total_memory_is_plausible_in_mb() {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let mb = bytes_to_mb(sys.total_memory());
+        // Any real host has between 64 MiB and 64 TiB of RAM.
+        assert!((64..64 * 1024 * 1024).contains(&mb), "total RAM {mb} MB");
     }
 }
