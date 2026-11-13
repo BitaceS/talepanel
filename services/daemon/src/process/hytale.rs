@@ -751,25 +751,11 @@ impl HytaleServerProcess {
             return ServerMetrics { cpu_percent: 0.0, ram_mb: 0, uptime_s };
         }
 
-        // sysinfo process query — runs on the calling thread (blocking but fast)
-        let (cpu_percent, ram_mb) = tokio::task::spawn_blocking(move || {
-            use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
-            let mut sys = System::new_with_specifics(
-                RefreshKind::new().with_processes(ProcessRefreshKind::new().with_cpu().with_memory()),
-            );
-            let sysinfo_pid = Pid::from(pid as usize);
-            sys.refresh_process_specifics(sysinfo_pid, ProcessRefreshKind::new().with_cpu().with_memory());
-
-            if let Some(proc) = sys.process(sysinfo_pid) {
-                let cpu = proc.cpu_usage();
-                let ram = proc.memory() / 1024 / 1024; // bytes → MB
-                (cpu, ram)
-            } else {
-                (0.0, 0)
-            }
-        })
-        .await
-        .unwrap_or((0.0, 0));
+        // Shared sampler: CPU is measured since the previous call, which a
+        // fresh sysinfo System per call cannot do (it always read 0 %).
+        let (cpu_percent, ram_mb) = tokio::task::spawn_blocking(move || crate::sysmetrics::process_usage(pid))
+            .await
+            .unwrap_or((0.0, 0));
 
         ServerMetrics { cpu_percent, ram_mb, uptime_s }
     }

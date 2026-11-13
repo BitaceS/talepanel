@@ -76,11 +76,11 @@ async fn send_heartbeat(
     };
 
     // Real host-level metrics from sysinfo.
-    let mut sys = sysinfo::System::new();
-    sys.refresh_cpu_usage();
-    sys.refresh_memory();
-    let host_cpu = sys.global_cpu_info().cpu_usage();
-    let host_ram_used_mb = bytes_to_mb(sys.used_memory());
+    // CPU is the usage since the previous heartbeat (shared sampler), not the
+    // average since boot that a fresh System reports.
+    let (host_cpu, host_ram_used_mb) = tokio::task::spawn_blocking(crate::sysmetrics::host_usage)
+        .await
+        .unwrap_or((0.0, 0));
 
     // Report the higher of host CPU or average server CPU so the panel never
     // shows 0% when servers are clearly working (sysinfo lags by one sample).

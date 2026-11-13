@@ -11,6 +11,7 @@ mod pki;
 mod plugin_scanner;
 mod process;
 mod rclone;
+mod sysmetrics;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
