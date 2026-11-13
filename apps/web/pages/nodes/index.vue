@@ -225,7 +225,9 @@ async function submitEdit() {
     const payload: Record<string, unknown> = {}
     if (editForm.name && editForm.name !== node.name) payload.name = editForm.name
     if (editForm.location !== (node.location ?? '')) payload.location = editForm.location
-    if (editForm.max_servers !== node.max_servers) payload.max_servers = editForm.max_servers
+    // UiInput emits strings; the API binds max_servers as an integer.
+    const maxServers = Number(editForm.max_servers)
+    if (maxServers !== node.max_servers) payload.max_servers = maxServers
 
     const data = await api.patch<{ node: Node }>(`/nodes/${node.id}`, payload)
     const idx = nodes.value.findIndex(n => n.id === node.id)
