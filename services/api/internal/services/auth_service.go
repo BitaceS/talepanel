@@ -98,6 +98,11 @@ type LoginResult struct {
 	RequiresTOTP bool         `json:"requires_totp,omitempty"`
 	// PartialToken is a short-lived JWT that authorises the TOTP step only.
 	PartialToken string `json:"partial_token,omitempty"`
+	// UsedRecoveryCode is set by VerifyTOTP when the second factor was a
+	// recovery code instead of a TOTP; RecoveryCodesRemaining is then the
+	// number of unused codes left.
+	UsedRecoveryCode       bool `json:"used_recovery_code,omitempty"`
+	RecoveryCodesRemaining int  `json:"recovery_codes_remaining,omitempty"`
 }
 
 // AuthService implements all authentication and session management logic.
@@ -410,25 +415,47 @@ func (s *AuthService) SetupTOTP(ctx context.Context, userID uuid.UUID) (*TOTPSet
 	}, nil
 }
 
-// ConfirmTOTP validates a code against the pending secret and activates 2FA.
-func (s *AuthService) ConfirmTOTP(ctx context.Context, userID uuid.UUID, code string) error {
+// ConfirmTOTP validates a code against the pending secret, activates 2FA and
+// issues a fresh set of recovery codes. The plaintext codes are returned once
+// and never stored; only their hashes are kept.
+func (s *AuthService) ConfirmTOTP(ctx context.Context, userID uuid.UUID, code string) ([]string, error) {
 	user, err := s.findUserByID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("loading user: %w", err)
+		return nil, fmt.Errorf("loading user: %w", err)
 	}
 	if user.TOTPEnabled {
-		return errors.New("TOTP is already enabled")
+		return nil, errors.New("TOTP is already enabled")
 	}
 	if user.TOTPSecret == "" {
-		return errors.New("no pending TOTP setup — call setup first")
+		return nil, errors.New("no pending TOTP setup — call setup first")
 	}
-	if !totp.Validate(code, user.TOTPSecret) {
-		return ErrTOTPInvalid
+	if !totp.Validate(strings.TrimSpace(code), user.TOTPSecret) {
+		return nil, ErrTOTPInvalid
 	}
-	_, err = s.db.Exec(ctx,
-		`UPDATE users SET totp_enabled = true WHERE id = $1`, userID,
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	ct, err := tx.Exec(ctx,
+		`UPDATE users SET totp_enabled = true WHERE id = $1 AND totp_enabled = false`, userID,
 	)
-	return err
+	if err != nil {
+		return nil, fmt.Errorf("enabling TOTP: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return nil, errors.New("TOTP is already enabled")
+	}
+	codes, err := replaceRecoveryCodes(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return codes, nil
 }
 
 // DisableTOTP turns 2FA off after verifying the user's current password.
@@ -440,16 +467,31 @@ func (s *AuthService) DisableTOTP(ctx context.Context, userID uuid.UUID, passwor
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return ErrInvalidCreds
 	}
-	_, err = s.db.Exec(ctx,
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
 		`UPDATE users SET totp_enabled = false, totp_secret = NULL WHERE id = $1`, userID,
-	)
-	return err
+	); err != nil {
+		return fmt.Errorf("disabling TOTP: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM user_recovery_codes WHERE user_id = $1`, userID,
+	); err != nil {
+		return fmt.Errorf("deleting recovery codes: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // ─── VerifyTOTP ───────────────────────────────────────────────────────────────
 
-// VerifyTOTP validates a TOTP code against the partial token and issues full
-// credentials if successful.
+// VerifyTOTP validates the second login factor against the partial token and
+// issues full credentials if successful. The code is either a 6-digit TOTP or
+// one of the user's single-use recovery codes (dash, case and surrounding
+// whitespace are ignored).
 func (s *AuthService) VerifyTOTP(ctx context.Context, partialTokenStr, code, ip, userAgent string) (*LoginResult, error) {
 	// Parse the partial token — it uses the refresh secret as signing key to
 	// keep it distinct from access tokens.
@@ -492,12 +534,32 @@ func (s *AuthService) VerifyTOTP(ctx context.Context, partialTokenStr, code, ip,
 		return nil, ErrUserInactive
 	}
 
-	// Validate TOTP code.
-	if !totp.Validate(code, user.TOTPSecret) {
+	if !user.TOTPEnabled || user.TOTPSecret == "" {
 		return nil, ErrTOTPInvalid
 	}
 
-	return s.issueFullTokens(ctx, user, ip, userAgent)
+	code = strings.TrimSpace(code)
+	if isTOTPCode(code) {
+		if !totp.Validate(code, user.TOTPSecret) {
+			return nil, ErrTOTPInvalid
+		}
+		return s.issueFullTokens(ctx, user, ip, userAgent)
+	}
+
+	ok, remaining, err := s.redeemRecoveryCode(ctx, user.ID, code, ip)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrTOTPInvalid
+	}
+	result, err := s.issueFullTokens(ctx, user, ip, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	result.UsedRecoveryCode = true
+	result.RecoveryCodesRemaining = remaining
+	return result, nil
 }
 
 // ─── GetMe ────────────────────────────────────────────────────────────────────

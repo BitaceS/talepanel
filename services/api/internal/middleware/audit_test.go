@@ -22,6 +22,13 @@ func TestSanitizePayloadRedactsSetupCode(t *testing.T) {
 	}
 }
 
+func TestSanitizePayloadRedacts2FACodes(t *testing.T) {
+	out := string(sanitizePayload([]byte(`{"code":"abcde-fgh23","partial_token":"eyJhbGciOi.x.y","password":"pw"}`)))
+	if strings.Contains(out, "abcde-fgh23") || strings.Contains(out, "eyJhbGciOi") {
+		t.Fatalf("2FA code or partial token not redacted: %s", out)
+	}
+}
+
 func TestSanitizePayloadRedactsIntegrationSecrets(t *testing.T) {
 	out := string(sanitizePayload([]byte(`{"api_key":"cf-key-123","host":"smtp.example.com","password":"smtp-pass"}`)))
 	if strings.Contains(out, "cf-key-123") || strings.Contains(out, "smtp-pass") {

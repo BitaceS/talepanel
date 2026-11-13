@@ -48,6 +48,13 @@ func TestDisableUser2FA(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_recovery_codes (user_id, code_hash)
+		SELECT $1, 'hash-' || g FROM generate_series(1, 3) AS g`,
+		id,
+	); err != nil {
+		t.Fatalf("seed recovery codes: %v", err)
+	}
 
 	// Email lookup is case-insensitive (CITEXT).
 	res, err := disableUser2FA(ctx, pool, "CLI-2FA-"+id.String()+"@test.local", true)
@@ -66,6 +73,12 @@ func TestDisableUser2FA(t *testing.T) {
 	}
 	if enabled || secret != nil {
 		t.Fatalf("2FA still set: enabled=%v secret=%v", enabled, secret)
+	}
+
+	var codes int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM user_recovery_codes WHERE user_id = $1`, id).Scan(&codes)
+	if codes != 0 {
+		t.Fatalf("%d recovery codes left", codes)
 	}
 
 	var open int

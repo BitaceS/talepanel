@@ -18,9 +18,9 @@ import (
 var errUserNotFound = errors.New("no user with that email")
 
 // adminDisable2FACmd turns off TOTP 2FA for one account. It is the recovery
-// path for a user who lost their authenticator device: TalePanel has no
-// backup codes yet, so an operator with shell access to the panel host
-// resets 2FA here and the user enrols a new device after signing in.
+// path for a user who lost both their authenticator device and their
+// recovery codes: an operator with shell access to the panel host resets
+// 2FA here and the user enrols a new device after signing in.
 func adminDisable2FACmd() *cobra.Command {
 	var email string
 	var revokeSessions bool
@@ -75,8 +75,9 @@ type disable2FAResult struct {
 	SessionsRevoked int64
 }
 
-// disableUser2FA clears the TOTP secret of the account with the given
-// (already lower-cased) email and records the change in the audit log.
+// disableUser2FA clears the TOTP secret and the recovery codes of the account
+// with the given (already lower-cased) email and records the change in the
+// audit log, all in one transaction.
 // Optionally it revokes all of the user's sessions as well.
 func disableUser2FA(ctx context.Context, pool *pgxpool.Pool, email string, revokeSessions bool) (*disable2FAResult, error) {
 	tx, err := pool.Begin(ctx)
@@ -106,6 +107,12 @@ func disableUser2FA(ctx context.Context, pool *pgxpool.Pool, email string, revok
 			res.UserID,
 		); err != nil {
 			return nil, fmt.Errorf("update user: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM user_recovery_codes WHERE user_id = $1`,
+			res.UserID,
+		); err != nil {
+			return nil, fmt.Errorf("delete recovery codes: %w", err)
 		}
 	}
 

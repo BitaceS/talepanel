@@ -31,7 +31,12 @@ var sensitiveFields = map[string]struct{}{
 	"access_token":     {},
 	"secret":           {},
 	"setup_code":       {},
-	"api_key":          {},
+	// 2FA codes: "code" carries a TOTP or a single-use recovery code
+	// (/auth/totp/verify, /auth/totp/confirm, /auth/2fa/recovery-codes);
+	// partial_token is the short-lived credential for the TOTP step.
+	"code":          {},
+	"partial_token": {},
+	"api_key":       {},
 	// Backup destination credentials (OAuth tokens, keys, passwords).
 	"secrets": {},
 	// Alert webhook URLs (Discord, generic) embed their credential in the

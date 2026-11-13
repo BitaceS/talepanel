@@ -244,7 +244,8 @@ func (h *AuthHandler) ConfirmTOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.ConfirmTOTP(c.Request.Context(), user.ID, req.Code); err != nil {
+	codes, err := h.svc.ConfirmTOTP(c.Request.Context(), user.ID, req.Code)
+	if err != nil {
 		if errors.Is(err, services.ErrTOTPInvalid) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid TOTP code"})
 			return
@@ -252,7 +253,67 @@ func (h *AuthHandler) ConfirmTOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "2FA enabled"})
+	// The plaintext recovery codes are in this response only; the server
+	// keeps nothing but their hashes.
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"message": "2FA enabled", "recovery_codes": codes})
+}
+
+// ─── Recovery codes ───────────────────────────────────────────────────────────
+
+type regenerateRecoveryCodesRequest struct {
+	Password string `json:"password" binding:"required"`
+	Code     string `json:"code"     binding:"required"`
+}
+
+// RegenerateRecoveryCodes handles POST /auth/2fa/recovery-codes — replaces
+// all recovery codes after re-auth with password and a current TOTP code.
+func (h *AuthHandler) RegenerateRecoveryCodes(c *gin.Context) {
+	user, ok := middleware.GetUserFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	var req regenerateRecoveryCodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	codes, err := h.svc.RegenerateRecoveryCodes(c.Request.Context(), user.ID, req.Password, req.Code)
+	if err != nil {
+		// 403, not 401: the session is valid, only the re-auth failed. The
+		// web client treats a 401 as an expired access token (refresh,
+		// retry, then sign out), which would resend the password and log
+		// the user out over a typo.
+		switch {
+		case errors.Is(err, services.ErrInvalidCreds):
+			c.JSON(http.StatusForbidden, gin.H{"error": "password incorrect"})
+		case errors.Is(err, services.ErrTOTPInvalid):
+			c.JSON(http.StatusForbidden, gin.H{"error": "invalid TOTP code"})
+		case errors.Is(err, services.ErrTOTPNotEnabled):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "2FA is not enabled"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate recovery codes"})
+		}
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"recovery_codes": codes})
+}
+
+// RecoveryCodeStatus handles GET /auth/2fa/recovery-codes/status.
+func (h *AuthHandler) RecoveryCodeStatus(c *gin.Context) {
+	user, ok := middleware.GetUserFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	st, err := h.svc.GetRecoveryCodeStatus(c.Request.Context(), user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load recovery code status"})
+		return
+	}
+	c.JSON(http.StatusOK, st)
 }
 
 type disableTOTPRequest struct {
@@ -311,10 +372,15 @@ func (h *AuthHandler) VerifyTOTP(c *gin.Context) {
 	}
 
 	h.setRefreshCookie(c, result.RefreshToken)
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"access_token": result.AccessToken,
 		"user":         result.User,
-	})
+	}
+	if result.UsedRecoveryCode {
+		resp["used_recovery_code"] = true
+		resp["recovery_codes_remaining"] = result.RecoveryCodesRemaining
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // ─── Activity ─────────────────────────────────────────────────────────────

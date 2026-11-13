@@ -200,6 +200,8 @@ func SetupRouter(
 			authProtected.POST("/totp/setup", authH.SetupTOTP)
 			authProtected.POST("/totp/confirm", authH.ConfirmTOTP)
 			authProtected.POST("/totp/disable", authH.DisableTOTP)
+			authProtected.POST("/2fa/recovery-codes", authH.RegenerateRecoveryCodes)
+			authProtected.GET("/2fa/recovery-codes/status", authH.RecoveryCodeStatus)
 
 			// Profile
 			authProtected.GET("/profile", profileH.GetProfile)
