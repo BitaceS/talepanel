@@ -94,10 +94,10 @@ async function installMod(mod: CFMod) {
   }
 }
 
-async function removeMod(filename: string) {
+async function removeMod(filename: string, dir: 'mods' | 'plugins' = 'mods') {
   if (!selectedServerId.value) return
   try {
-    await modsStore.remove(selectedServerId.value, filename)
+    await modsStore.remove(selectedServerId.value, filename, dir)
     showToast('Mod removed')
   } catch {
     showToast(modsStore.error ?? 'Remove failed', 'error')
@@ -113,7 +113,7 @@ async function toggleMod(serverId: string, mod: typeof modsStore.installed[numbe
   const scope = mod.mod_dir === 'plugins' ? 'plugins' : 'mods'
   try {
     const api = useApi()
-    await api.patch(`/servers/${serverId}/${scope}/${encodeURIComponent(mod.filename)}/toggle`, {
+    await api.patch(`/servers/${serverId}/${scope}/${encodeURIComponent(mod.filename)}/toggle?dir=${scope}`, {
       enabled: !mod.is_present,
     })
     await modsStore.fetchInstalled(serverId)
@@ -330,7 +330,7 @@ const isInstalled = (filename: string) =>
                   size="sm"
                   :loading="modsStore.removingFilename === mod.filename"
                   :disabled="!!modsStore.removingFilename"
-                  @click="removeMod(mod.filename)"
+                  @click="removeMod(mod.filename, mod.mod_dir || 'mods')"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
                 </UiButton>

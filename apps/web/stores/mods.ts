@@ -80,13 +80,15 @@ export const useModsStore = defineStore('mods', {
       }
     },
 
-    async remove(serverId: string, filename: string): Promise<void> {
+    // dir is the row's mod_dir: the same filename may exist in mods/ and
+    // plugins/, and the API refuses to guess (409) when it is ambiguous.
+    async remove(serverId: string, filename: string, dir: 'mods' | 'plugins' = 'mods'): Promise<void> {
       this.removingFilename = filename
       this.error = null
       try {
         const api = useApi()
-        await api.delete(`/servers/${serverId}/mods/${encodeURIComponent(filename)}`)
-        this.installed = this.installed.filter(m => m.filename !== filename)
+        await api.delete(`/servers/${serverId}/mods/${encodeURIComponent(filename)}?dir=${dir}`)
+        this.installed = this.installed.filter(m => !(m.filename === filename && (m.mod_dir || 'mods') === dir))
       } catch (err: unknown) {
         const e = err as { data?: { error?: string }; message?: string }
         this.error = e.data?.error ?? e.message ?? 'Remove failed'

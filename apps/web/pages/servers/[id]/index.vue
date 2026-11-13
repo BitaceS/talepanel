@@ -604,9 +604,9 @@ async function installMod(mod: CFMod) {
   }
 }
 
-async function removeMod(filename: string, displayName: string) {
+async function removeMod(filename: string, displayName: string, dir: 'mods' | 'plugins' = 'mods') {
   try {
-    await modsStore.remove(serverId.value, filename)
+    await modsStore.remove(serverId.value, filename, dir)
     showToast(`${displayName} removed`)
   } catch {
     showToast(modsStore.error ?? 'Remove failed', 'error')
@@ -1557,7 +1557,7 @@ const sidebarMods = computed(() => {
                   variant="danger"
                   size="sm"
                   :loading="modsStore.removingFilename === mod.filename"
-                  @click="removeMod(mod.filename, mod.display_name)"
+                  @click="removeMod(mod.filename, mod.display_name, mod.mod_dir || 'mods')"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
                 </UiButton>
