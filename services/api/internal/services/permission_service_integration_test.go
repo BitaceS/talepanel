@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 // seedTestServer inserts a node + server owned by ownerID and returns the

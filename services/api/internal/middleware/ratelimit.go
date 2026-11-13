@@ -41,7 +41,7 @@ func RateLimit(rdb *redis.Client, requestsPerMin int, devMode bool) gin.HandlerF
 		}
 
 		now := time.Now()
-		windowMinute := now.Unix() / 60                 // current 1-minute bucket
+		windowMinute := now.Unix() / 60                              // current 1-minute bucket
 		windowExpiry := time.Duration(60-now.Second()) * time.Second // seconds until next minute
 
 		key := fmt.Sprintf("ratelimit:%s:%d", ip, windowMinute)
@@ -87,4 +87,3 @@ func incrementRateLimit(ctx context.Context, rdb *redis.Client, key string, ttl 
 
 	return incrCmd.Val(), nil
 }
-

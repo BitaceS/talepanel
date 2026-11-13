@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 const (

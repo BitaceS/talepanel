@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 func testUserEmail(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) string {

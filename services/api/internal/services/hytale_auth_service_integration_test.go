@@ -14,11 +14,11 @@ import (
 
 // fakeHytale imitates the OAuth, account-data and sessions hosts on one server.
 type fakeHytale struct {
-	mu            sync.Mutex
-	authorized    bool   // device code approved by the user yet?
-	refreshToken  string // the currently valid refresh token
-	refreshCalls  int
-	sessionsMade  int
+	mu             sync.Mutex
+	authorized     bool   // device code approved by the user yet?
+	refreshToken   string // the currently valid refresh token
+	refreshCalls   int
+	sessionsMade   int
 	lastSessionFor string
 }
 
@@ -33,7 +33,7 @@ func (f *fakeHytale) handler(t *testing.T) http.Handler {
 			"device_code": "dev-123", "user_code": "ABCD-1234",
 			"verification_uri":          "https://accounts.hytale.com/device",
 			"verification_uri_complete": "https://accounts.hytale.com/device?user_code=ABCD-1234",
-			"expires_in": 900, "interval": 5,
+			"expires_in":                900, "interval": 5,
 		})
 	})
 	mux.HandleFunc("/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,9 @@ func (f *fakeHytale) handler(t *testing.T) http.Handler {
 	mux.HandleFunc("/game-session/new", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		var body struct{ UUID string `json:"uuid"` }
+		var body struct {
+			UUID string `json:"uuid"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.sessionsMade++
 		f.lastSessionFor = body.UUID

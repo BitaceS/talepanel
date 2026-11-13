@@ -3,9 +3,9 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/BitaceS/talepanel/api/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/BitaceS/talepanel/api/internal/services"
 )
 
 // RequirePermission aborts the request with 403 if the authenticated user

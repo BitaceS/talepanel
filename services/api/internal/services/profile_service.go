@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/BitaceS/talepanel/api/internal/models"
 )
 
 // ProfileService manages user profiles and notification preferences.

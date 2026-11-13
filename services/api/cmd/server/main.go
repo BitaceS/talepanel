@@ -14,10 +14,10 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/BitaceS/talepanel/api/internal/config"
 	"github.com/BitaceS/talepanel/api/internal/db"
 	"github.com/BitaceS/talepanel/api/internal/router"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -181,4 +181,3 @@ func cleanupOnce(pool *pgxpool.Pool, log *zap.Logger) {
 		log.Info("session cleanup", zap.Int64("removed", n))
 	}
 }
-

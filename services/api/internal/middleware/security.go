@@ -62,4 +62,3 @@ func GetRequestID(c *gin.Context) string {
 func respondError(c *gin.Context, status int, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": message})
 }
-

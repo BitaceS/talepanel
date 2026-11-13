@@ -62,58 +62,58 @@ type User struct {
 
 // Session represents an active refresh-token session stored in the database.
 type Session struct {
-	ID         uuid.UUID `json:"id"`
-	UserID     uuid.UUID `json:"user_id"`
-	TokenHash  string    `json:"-"`
-	IPAddress  string    `json:"ip_address"`
-	UserAgent  string    `json:"user_agent"`
-	CreatedAt  time.Time `json:"created_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	Revoked    bool      `json:"revoked"`
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	TokenHash string    `json:"-"`
+	IPAddress string    `json:"ip_address"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Revoked   bool      `json:"revoked"`
 }
 
 // Node represents a physical or virtual daemon host that runs game servers.
 type Node struct {
-	ID              uuid.UUID       `json:"id"`
-	Name            string          `json:"name"`
-	FQDN            string          `json:"fqdn"`
-	PublicAddress   *string         `json:"public_address,omitempty"`
-	Port            int             `json:"port"`
-	Location        *string         `json:"location,omitempty"`
-	CertThumbprint  *string         `json:"cert_thumbprint,omitempty"`
-	TotalCPU        int             `json:"total_cpu"`
-	TotalRAMMB      int             `json:"total_ram_mb"`
-	TotalDiskMB     int             `json:"total_disk_mb"`
-	MaxServers      int             `json:"max_servers"`
-	Status          string          `json:"status"`
-	LastHeartbeat   *time.Time      `json:"last_heartbeat,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	Metadata        json.RawMessage `json:"metadata,omitempty"`
-	MTLSEnabled     bool            `json:"mtls_enabled"`
-	CertSerial      *string         `json:"cert_serial,omitempty"`
-	CertNotAfter    *time.Time      `json:"cert_not_after,omitempty"`
+	ID             uuid.UUID       `json:"id"`
+	Name           string          `json:"name"`
+	FQDN           string          `json:"fqdn"`
+	PublicAddress  *string         `json:"public_address,omitempty"`
+	Port           int             `json:"port"`
+	Location       *string         `json:"location,omitempty"`
+	CertThumbprint *string         `json:"cert_thumbprint,omitempty"`
+	TotalCPU       int             `json:"total_cpu"`
+	TotalRAMMB     int             `json:"total_ram_mb"`
+	TotalDiskMB    int             `json:"total_disk_mb"`
+	MaxServers     int             `json:"max_servers"`
+	Status         string          `json:"status"`
+	LastHeartbeat  *time.Time      `json:"last_heartbeat,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	MTLSEnabled    bool            `json:"mtls_enabled"`
+	CertSerial     *string         `json:"cert_serial,omitempty"`
+	CertNotAfter   *time.Time      `json:"cert_not_after,omitempty"`
 }
 
 // Server represents a managed Hytale game server instance.
 type Server struct {
-	ID             uuid.UUID       `json:"id"`
-	Name           string          `json:"name"`
-	NodeID         uuid.UUID       `json:"node_id"`
-	OwnerID        uuid.UUID       `json:"owner_id"`
-	Status         string          `json:"status"`
-	HytaleVersion  string          `json:"hytale_version"`
-	CPULimit       int             `json:"cpu_limit"`
-	RAMLimitMB     int             `json:"ram_limit_mb"`
-	DiskLimitMB    int             `json:"disk_limit_mb"`
-	Port           int             `json:"port"`
-	DataPath       string          `json:"data_path"`
-	AutoRestart    bool            `json:"auto_restart"`
-	CrashLimit     int             `json:"crash_limit"`
-	CrashWindowS   int             `json:"crash_window_s"`
-	ActiveWorld    string          `json:"active_world"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	ID            uuid.UUID       `json:"id"`
+	Name          string          `json:"name"`
+	NodeID        uuid.UUID       `json:"node_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	Status        string          `json:"status"`
+	HytaleVersion string          `json:"hytale_version"`
+	CPULimit      int             `json:"cpu_limit"`
+	RAMLimitMB    int             `json:"ram_limit_mb"`
+	DiskLimitMB   int             `json:"disk_limit_mb"`
+	Port          int             `json:"port"`
+	DataPath      string          `json:"data_path"`
+	AutoRestart   bool            `json:"auto_restart"`
+	CrashLimit    int             `json:"crash_limit"`
+	CrashWindowS  int             `json:"crash_window_s"`
+	ActiveWorld   string          `json:"active_world"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
 
 	// Joined from the nodes table — populated by GetServer so the web UI
 	// can render the public connect address (<node_fqdn>:<port>) without

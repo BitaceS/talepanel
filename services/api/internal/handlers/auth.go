@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/BitaceS/talepanel/api/internal/middleware"
 	"github.com/BitaceS/talepanel/api/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -21,8 +21,8 @@ const (
 
 // AuthHandler groups all authentication-related HTTP handlers.
 type AuthHandler struct {
-	svc        *services.AuthService
-	jwtSecret  string
+	svc          *services.AuthService
+	jwtSecret    string
 	secureCookie bool
 }
 
@@ -384,9 +384,9 @@ func (h *AuthHandler) setRefreshCookie(c *gin.Context, token string) {
 		token,
 		refreshCookieMaxAge,
 		refreshCookiePath,
-		"",    // domain — empty means same-origin
+		"", // domain — empty means same-origin
 		h.secureCookie,
-		true,  // httpOnly
+		true, // httpOnly
 	)
 	// Enforce SameSite=Strict manually because gin's SetCookie does not expose it.
 	// Overwrite the Set-Cookie header with the SameSite attribute appended.

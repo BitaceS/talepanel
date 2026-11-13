@@ -35,11 +35,11 @@ import (
 // ServerConfig is the payload sent to the daemon when starting a server.
 // Must match hytale::ServerConfig in services/daemon/src/process/hytale.rs
 type ServerConfig struct {
-	ServerID   string  `json:"server_id"`
-	Name       string  `json:"name"`
-	DataPath   string  `json:"data_path"`
-	Port       uint16  `json:"port"`
-	RAMLimitMB uint32  `json:"ram_limit_mb"`
+	ServerID   string `json:"server_id"`
+	Name       string `json:"name"`
+	DataPath   string `json:"data_path"`
+	Port       uint16 `json:"port"`
+	RAMLimitMB uint32 `json:"ram_limit_mb"`
 	// CPU limit in percent of one core (100 = one full core, 250 = two and a
 	// half cores). 0 = unlimited. Enforced by the daemon via cgroup v2 cpu.max.
 	CPULimit float32 `json:"cpu_limit"`
