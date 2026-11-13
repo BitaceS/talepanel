@@ -27,6 +27,7 @@ type ServerHandler struct {
 	log            *zap.Logger
 	alertSvc       *services.AlertService
 	hytaleAuth     *services.HytaleAuthService // optional; nil = servers start unauthenticated
+	dbSvc          *services.DatabaseService   // optional; drops a server's MariaDB database on delete
 
 	sessionMu    sync.Mutex
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
@@ -59,6 +60,12 @@ func (h *ServerHandler) allowGameSession(serverID uuid.UUID) bool {
 	}
 	h.lastSessions[serverID] = now
 	return true
+}
+
+// SetDatabaseService lets server deletion drop the server's MariaDB database
+// and user, which the cascade on server_databases cannot reach.
+func (h *ServerHandler) SetDatabaseService(dbSvc *services.DatabaseService) {
+	h.dbSvc = dbSvc
 }
 
 // SetHytaleAuth enables minting Hytale game sessions for daemon server starts.
@@ -279,9 +286,24 @@ func (h *ServerHandler) DeleteServer(c *gin.Context) {
 		)
 	}
 
+	// Remember the server's MariaDB database: the server_databases row goes
+	// with the server (cascade), the MariaDB database and user do not.
+	var serverDB *models.ServerDatabase
+	if h.dbSvc != nil {
+		serverDB, _ = h.dbSvc.GetCredentials(c.Request.Context(), serverID)
+	}
+
 	if err := h.svc.DeleteServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
 		serverError(c, err)
 		return
+	}
+
+	// Only after the delete was authorised and done. Best-effort.
+	if serverDB != nil {
+		if derr := h.dbSvc.DropProvisioned(serverDB); derr != nil {
+			h.log.Warn("delete: dropping server database failed (non-fatal)",
+				zap.String("server_id", serverID.String()), zap.Error(derr))
+		}
 	}
 
 	resp := gin.H{"message": "server deleted"}

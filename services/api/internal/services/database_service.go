@@ -62,7 +62,9 @@ func (s *DatabaseService) CreateDatabase(ctx context.Context, serverID uuid.UUID
 		return nil, fmt.Errorf("provisioning MySQL database: %w", err)
 	}
 
-	// Record in PostgreSQL.
+	// Record in PostgreSQL. If that fails, drop what was just provisioned:
+	// CREATE DATABASE has no IF NOT EXISTS, so a leftover would make every
+	// retry fail for good.
 	sdb := &models.ServerDatabase{}
 	err = s.db.QueryRow(ctx, `
 		INSERT INTO server_databases (server_id, db_name, db_user, db_password, host, port)
@@ -72,6 +74,7 @@ func (s *DatabaseService) CreateDatabase(ctx context.Context, serverID uuid.UUID
 	).Scan(&sdb.ID, &sdb.ServerID, &sdb.DBName, &sdb.DBUser, &sdb.DBPassword,
 		&sdb.Host, &sdb.Port, &sdb.CreatedAt)
 	if err != nil {
+		_ = s.dropMySQL(dbName, dbUser)
 		return nil, fmt.Errorf("recording database: %w", err)
 	}
 
@@ -145,6 +148,16 @@ func (s *DatabaseService) DeleteDatabase(ctx context.Context, serverID uuid.UUID
 	return nil
 }
 
+// DropProvisioned drops the MariaDB database and user described by sdb. Used
+// when the server itself is deleted and its server_databases row cascades
+// away with it.
+func (s *DatabaseService) DropProvisioned(sdb *models.ServerDatabase) error {
+	if sdb == nil || s.mysqlDSN == "" {
+		return nil
+	}
+	return s.dropMySQL(sdb.DBName, sdb.DBUser)
+}
+
 // ── MySQL helpers ──────────────────────────────────────────────────────────────
 
 func (s *DatabaseService) provisionMySQL(dbName, dbUser, dbPassword string) error {
@@ -174,9 +187,17 @@ func (s *DatabaseService) provisionMySQL(dbName, dbUser, dbPassword string) erro
 		{"flushing privileges", "FLUSH PRIVILEGES"},
 	}
 
-	for _, stmt := range statements {
+	for i, stmt := range statements {
 		// The statement text holds the password, so it never goes into the error.
 		if _, err := conn.Exec(stmt.sql); err != nil {
+			// Undo only what this call created: a database or user that
+			// already existed (step failed) belongs to someone else.
+			if i >= 1 {
+				_, _ = conn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName))
+			}
+			if i >= 2 {
+				_, _ = conn.Exec(fmt.Sprintf("DROP USER IF EXISTS '%s'@'%%'", dbUser))
+			}
 			return fmt.Errorf("%s: %w", stmt.desc, err)
 		}
 	}
