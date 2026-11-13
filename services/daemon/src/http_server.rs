@@ -1902,12 +1902,20 @@ fn write_backup_archive(
 /// Return a readable plaintext archive path for `src`. If `src` is encrypted,
 /// decrypt it into `scratch_dir` and return a guard that removes the temp when
 /// dropped. A plaintext archive is read in place (guard `None`).
+///
+/// The panel sends a key only for backups it recorded as encrypted, so a key
+/// plus an unencrypted archive means the file was swapped (e.g. by someone
+/// holding the off-site storage credential). Restoring it would extract
+/// unauthenticated content, mods included, so it is refused.
 fn open_plaintext_archive(
     src: &std::path::Path,
     key: Option<&[u8; 32]>,
     scratch_dir: &std::path::Path,
 ) -> Result<(PathBuf, Option<TempArchive>), String> {
     if !archive_is_encrypted(src).map_err(|e| format!("read archive: {e}"))? {
+        if key.is_some() {
+            return Err("this backup was recorded as encrypted, but the archive is not; refusing to use it".to_string());
+        }
         return Ok((src.to_path_buf(), None));
     }
     let key = key.ok_or_else(|| "this backup is encrypted; a key is required to restore it".to_string())?;
@@ -2849,6 +2857,10 @@ mod tests {
             open_plaintext_archive(&plain_archive, None, &dir.join("scratch3")).expect("open plain");
         assert!(guard2.is_none(), "plaintext archive is read in place");
         assert_eq!(p2, plain_archive);
+
+        // A plaintext archive where the panel expects an encrypted one (it
+        // sent a key) was swapped and must not be restored.
+        assert!(open_plaintext_archive(&plain_archive, Some(&key), &dir.join("scratch4")).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
