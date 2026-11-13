@@ -74,7 +74,10 @@ func newStreamFixture(t *testing.T) *streamFixture {
 		middleware.StreamTicketAuth(pool, f.tickets),
 		middleware.RequireServerPermission(permSvc, "server.view"),
 		h.StreamEvents)
-	f.srv = httptest.NewServer(r)
+	f.srv = httptest.NewUnstartedServer(r)
+	// Like cmd/server's WriteTimeout, only short: the stream must outlive it.
+	f.srv.Config.WriteTimeout = time.Second
+	f.srv.Start()
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -245,7 +248,9 @@ func TestStreamEmitsNewLogLinesAndStatus(t *testing.T) {
 		t.Fatalf("initial status %q", st.data)
 	}
 
-	// A line ingested now arrives as a log event.
+	// A line ingested now arrives as a log event, also after the server's
+	// WriteTimeout has passed (the stream extends its own deadline).
+	time.Sleep(1500 * time.Millisecond)
 	f.ingest(t, "live line")
 	if got := logMessage(t, next(t, events, "log", 5*time.Second)); got != "live line" {
 		t.Fatalf("live line %q", got)
