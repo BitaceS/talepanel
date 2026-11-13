@@ -31,7 +31,7 @@ func isSafePlayerName(name string) bool { return playerNameRe.MatchString(name) 
 
 // PlayerSession represents a single login/logout session for a player.
 type PlayerSession struct {
-	JoinAt    time.Time  `json:"join_at"`
+	JoinedAt  time.Time  `json:"joined_at"`
 	LeftAt    *time.Time `json:"left_at"`
 	DurationS *int64     `json:"duration_s"`
 }
@@ -471,7 +471,7 @@ func (s *PlayerService) GetPlayerSessions(ctx context.Context, serverID, playerI
 	for rows.Next() {
 		var ps PlayerSession
 		var durationS *int32
-		if err := rows.Scan(&ps.JoinAt, &ps.LeftAt, &durationS); err != nil {
+		if err := rows.Scan(&ps.JoinedAt, &ps.LeftAt, &durationS); err != nil {
 			return nil, fmt.Errorf("scanning session row: %w", err)
 		}
 		if durationS != nil {
