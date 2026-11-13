@@ -4,7 +4,7 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-A new look for the panel, an optional game-style theme, and a dashboard that only shows real numbers.
+Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a try-it-locally demo, a new look with an optional game theme, and a long list of fixes.
 
 ### Added
 - Theme switch in the user menu (top right): **Classic** or **Game**. The choice is stored per browser. Classic is the default.
@@ -13,11 +13,11 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 - 2FA recovery codes. Enabling 2FA now shows ten single-use recovery codes (with Copy and Download .txt); each one signs you in once in place of the authenticator code ("Use a recovery code" on the 2FA login step, dash and case don't matter). Settings → Security shows how many are left and can generate a new set (asks for your password and an authenticator code; the old codes stop working). New endpoints `POST /api/v1/auth/2fa/recovery-codes` and `GET /api/v1/auth/2fa/recovery-codes/status`; the confirm response carries `recovery_codes`. Migration 044 adds the `user_recovery_codes` table. Users who enabled 2FA before this release have no codes yet and can generate them under Settings → Security.
 - Optional `ADMIN_IP_ALLOWLIST` (comma-separated IPs/CIDRs) restricts `/api/v1/admin/*` and the admin node routes to known addresses. Empty (the default) changes nothing; a malformed value stops the API at startup.
 - GitHub issue forms (bug report, feature request), contact links and a pull request template.
+- `examples/demo/run-demo.sh`: the whole stack on your own machine with simulated Hytale servers (players join and chat, console commands work), three servers from templates and two schedules, so the panel can be tried without a VPS or a Hytale download. `examples/api/talepanel.sh`: a small API client for scripts and cron jobs.
 - Server templates: the create-server form starts with template cards and a "Blank" option. Five built-in templates ship with the panel (migration 045): Survival small (2–10 players, 3 GB RAM), Survival community (10–40 players, 6 GB RAM), Creative / build server (4 GB RAM), Minigame lobby (network hub) and Testing / modding sandbox (pre-release, `--accept-early-plugins`). A template only fills in defaults; values entered in the form win, and the same rules apply as for settings chosen by hand: `--allow-op` still needs an admin, a network role still needs the `network.manage` permission. Built-in templates are read-only.
 - Admin → Templates: create custom templates, save an existing server's settings as a template, delete custom templates. API: `GET /api/v1/server-templates`, `POST`/`PATCH`/`DELETE /api/v1/admin/server-templates`, `POST /api/v1/admin/server-templates/from-server/:id`; `POST /api/v1/servers` accepts `template_id` and now also `crash_limit`, `crash_window_s`, `launch_flags` and `network_role`.
 - `GET /api/v1/servers/activity`: players online right now (per server and in total) and the number of players per hour over the last 24 hours, limited to the servers the caller can see. Counted from the player sessions the panel already records.
 - Scheduled server tasks: a **Schedules** tab on the server page runs restarts (optionally with an in-game warning 1–15 minutes beforehand), console commands and broadcast messages on a cron schedule, with presets for hourly, every 6 hours, daily 04:00 and weekly. Tasks run only while the server is running, at most every 5 minutes, and with the console role of the user who saved them: if that user loses access to the server or the role a command needs, the run is skipped and the reason shown. API: `GET`/`POST /api/v1/servers/:id/tasks`, `PATCH`/`DELETE /api/v1/servers/:id/tasks/:taskId`.
-
 - Live console: log lines, status changes and metrics now reach the server page over Server-Sent Events instead of being polled every second. A reconnect resumes after the last line shown, so nothing is lost or shown twice; streams end after 30 minutes and reconnect on their own. If the stream cannot connect three times in a row the page falls back to polling; the console header shows **Live** or **Polling** (click it to retry). API: `POST /api/v1/servers/:id/stream-ticket` returns a single-use ticket (valid 30 s) and `GET /api/v1/servers/:id/stream?ticket=…[&after=<log id>]` streams `log`, `status` and `metrics` events (permission `server.view`, at most 10 open streams per user). The access token is never put in a URL, and the request log redacts `ticket` query parameters. The Caddy template keeps the stream out of gzip.
 
 ### Changed
@@ -43,6 +43,16 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 - Deleting a user who still owns servers returned 500; it now returns 409 with an explanation.
 - Invitations sent with different upper/lower case in the email address did not appear under "My invitations".
 - The daemon held an internal lock while writing to a server's console, which could stall other servers' start/stop while one server hung.
+- Removing a plugin, or a disabled mod (`.disabled`), deleted the panel entry but left the file on disk, and the next scan added it back. With the same file name in `mods/` and `plugins/`, toggling flipped both entries. Mod routes take `?dir=mods|plugins` now.
+- Two starts of the same server at nearly the same time (double click, a user start racing an auto restart) could launch two processes on the same data.
+- Downloading a large file from the file manager read it whole into the node's memory; downloads are streamed now.
+- Stopping a server that exited right after the stop command waited the full 30 s timeout and then sent a kill signal.
+- A failed MariaDB database creation left a half-created database behind that blocked every retry, and deleting a server left its MariaDB database and user behind.
+- Entering a wrong password or 2FA code when confirming or turning off 2FA signed the user out.
+- The server page showed "0/64" players; it shows the players online now.
+- Warnings and SEVERE lines from the Hytale server showed as INFO in the console, while a chat line containing "exception" showed as an error.
+- Server headers showed "vrelease"; patchlines are shown as "Release" / "Pre-release".
+- Ban, unban and whitelist returned raw internal error text with HTTP 400.
 - The dashboard displayed made-up numbers: a fixed weekly CPU/RAM chart, a drawn player curve, "N operational" even for offline nodes, "0 players" on every server card, and four sample notifications.
 - The RAM bars in the server list were filled with random values. The list now shows the configured RAM limit.
 - Console output contained raw ANSI colour codes from the Hytale server, shown as `[m` noise. They are now stripped.
@@ -53,10 +63,12 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 - The panel stack now sets `TRUSTED_PROXIES` for Caddy. Before, the API saw every request as coming from Caddy: all users shared one login rate limit (one client could lock everyone out) and audit log entries had Caddy's IP.
 - Restoring an encrypted backup refuses an archive that is not encrypted. Someone with write access to the off-site storage could otherwise swap in an unauthenticated zip (e.g. with a malicious mod).
 - Alert webhook URLs (which contain their credential) are redacted from the audit log.
+- The node daemon no longer follows a symlinked `mods/`, `plugins/`, `universe/` or `worlds/` directory when scanning, toggling, removing or deleting, and file reads and downloads open the file without following a symlink swapped in after the path check. A server's files could otherwise reach into another server's data.
 - 2FA recovery codes are stored only as SHA-256 hashes and spent atomically, so the same code cannot sign in twice, even in parallel. Every use is audit-logged (without the code). Disabling 2FA, by the user or with `tale-cli admin disable-2fa`, deletes them.
 - The request audit log now redacts `code` (TOTP and recovery codes) and `partial_token` from `/auth/totp/*` bodies; before, the TOTP codes and the 5-minute partial login token were stored in plain text.
 
 ### Build
+- CI runs `gofmt`, ESLint (`@nuxt/eslint`, new), `cargo fmt --check` and the daemon's test suite. The daemon was reformatted once with `cargo fmt`.
 - Release images are built per architecture on native GitHub runners (amd64 and arm64) instead of under QEMU emulation, with a build cache and timeouts. The v0.12.0-beta release hung for hours in the emulated arm64 web build. A release can be re-run for an existing tag from the Actions tab.
 
 ## [0.12.0-beta] — 2026-10-30
