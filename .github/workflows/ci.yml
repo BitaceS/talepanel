@@ -25,6 +25,13 @@ jobs:
           cache: true
           cache-dependency-path: services/api/go.sum
 
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt -w on:"; echo "$unformatted"; exit 1
+          fi
+
       - name: go vet
         run: go vet ./...
 
@@ -75,6 +82,9 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
 
       - run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Typecheck
         run: npm run typecheck
