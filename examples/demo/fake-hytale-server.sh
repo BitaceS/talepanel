@@ -12,6 +12,14 @@
 log() { printf '[%s INFO] %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf '[%s WARN] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
+# The daemon passes --bind 0.0.0.0:<port> like for the real server.
+BIND="0.0.0.0:5520"
+prev=""
+for arg in "$@"; do
+  [ "$prev" = "--bind" ] && BIND="$arg"
+  prev="$arg"
+done
+
 log "[HytaleServer] Starting Hytale Server (demo build, simulated)"
 log "[HytaleServer] Arguments: $*"
 sleep 1
@@ -22,7 +30,7 @@ log "[PluginManager] Loaded 2 plugins: TalePanelNetwork, DemoWarps"
 log "[Universe] Loading world 'default'"
 sleep 1
 log "[World|default] Generated spawn chunks in 640ms"
-log "[ServerManager] Listening on 0.0.0.0:${SERVER_PORT:-5520} (QUIC/UDP)"
+log "[ServerManager] Listening on $BIND (QUIC/UDP)"
 log "[HytaleServer] Hytale Server Booted! [Multiplayer] in 3.8s"
 
 # Background: players come and go, chat a little.
