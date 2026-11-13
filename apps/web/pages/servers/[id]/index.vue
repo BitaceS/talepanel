@@ -717,34 +717,11 @@ async function deleteCmd(cmdId: string) {
   if (!gameCmdStore.error) showToast('Command removed')
 }
 
-// ── Plugin Commands (scan installed mods) ───────────────────────────────────
-const pluginCommands = computed(() => {
-  // Generate command suggestions based on installed mods
-  return modsStore.installed.map(mod => ({
-    modName: mod.display_name || mod.filename.replace(/\.[^.]+$/, ''),
-    modId: mod.id,
-    commands: [
-      { name: `${mod.display_name || mod.filename.replace(/\.[^.]+$/, '')} Help`, template: `${mod.filename.replace(/\.[^.]+$/, '')} help`, description: `Show help for ${mod.display_name || mod.filename}` },
-      { name: `${mod.display_name || mod.filename.replace(/\.[^.]+$/, '')} Reload`, template: `${mod.filename.replace(/\.[^.]+$/, '')} reload`, description: `Reload ${mod.display_name || mod.filename} config` },
-    ]
-  }))
-})
-
 watch(activeTab, (tab) => {
   if (tab === 'game-control') {
     modsStore.fetchInstalled(serverId.value)
   }
 })
-
-async function runPluginCommand(template: string) {
-  try {
-    await api.post(`/servers/${serverId.value}/game-commands/execute`, {
-      command_template: template,
-      params: {},
-    })
-    showToast(`Sent: ${template}`)
-  } catch { showToast('Failed to send command', 'error') }
-}
 
 // ── Databases ────────────────────────────────────────────────────────────────
 // Each server has at most one MariaDB database; name/user/password are
