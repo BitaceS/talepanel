@@ -347,8 +347,16 @@ async function fetchMetrics() {
     const data = await api.get<Metrics>(`/servers/${serverId.value}/metrics`)
     metrics.value = data
   } catch { /* silent */ }
-  void fetchOnlinePlayers()
 }
+
+// Online players come from the session table, not from the stream or the
+// metrics: refresh them on their own, slower timer in every mode.
+let onlinePlayersTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  void fetchOnlinePlayers()
+  onlinePlayersTimer = setInterval(fetchOnlinePlayers, 15000)
+})
+onUnmounted(() => clearInterval(onlinePlayersTimer))
 
 // The stream pushes metrics every 5 s; poll only as the fallback.
 watch(() => stream.metrics.value, (m) => {
