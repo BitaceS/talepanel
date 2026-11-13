@@ -155,7 +155,7 @@ func (h *PlayerHandler) BanPlayer(c *gin.Context) {
 	}
 
 	if err := h.playerSvc.BanPlayer(c.Request.Context(), serverID, playerID, caller.ID, req.Reason); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.respondPlayerError(c, err, "ban player")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "player banned"})
@@ -171,7 +171,7 @@ func (h *PlayerHandler) UnbanPlayer(c *gin.Context) {
 		return
 	}
 	if err := h.playerSvc.UnbanPlayer(c.Request.Context(), serverID, playerID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.respondPlayerError(c, err, "unban player")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "player unbanned"})
@@ -196,7 +196,7 @@ func (h *PlayerHandler) SetWhitelist(c *gin.Context) {
 		return
 	}
 	if err := h.playerSvc.SetWhitelist(c.Request.Context(), serverID, playerID, req.Whitelisted); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.respondPlayerError(c, err, "update whitelist")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "whitelist updated"})
@@ -382,4 +382,18 @@ func (h *PlayerHandler) GetPlayerSessions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
+}
+
+// respondPlayerError maps player service errors to HTTP responses without
+// leaking internal (database, daemon) error text to the client.
+func (h *PlayerHandler) respondPlayerError(c *gin.Context, err error, action string) {
+	switch {
+	case errors.Is(err, services.ErrPlayerNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
+	case errors.Is(err, services.ErrUnsafePlayerName):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	default:
+		h.log.Error("player action failed", zap.String("action", action), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not " + action})
+	}
 }
