@@ -313,8 +313,17 @@ func (s *ModService) SwitchModVersion(ctx context.Context, callerRole string, se
 	}
 	defer tx.Rollback(ctx)
 
-	// Delete old mod DB row.
-	_, err = tx.Exec(ctx, `DELETE FROM server_mods WHERE server_id = $1 AND filename = $2`, serverID, oldFilename)
+	// Delete old mod DB row, keeping its CurseForge project ID: the new row
+	// belongs to the same project, and without it the panel can neither list
+	// the mod's other versions again nor recognise it as installed.
+	var cfModID *int
+	err = tx.QueryRow(ctx, `
+		WITH d AS (
+			DELETE FROM server_mods WHERE server_id = $1 AND filename = $2
+			RETURNING cf_mod_id
+		)
+		SELECT max(cf_mod_id) FROM d
+	`, serverID, oldFilename).Scan(&cfModID)
 	if err != nil {
 		return fmt.Errorf("switch mod version: delete old: %w", err)
 	}
@@ -336,9 +345,9 @@ func (s *ModService) SwitchModVersion(ctx context.Context, callerRole string, se
 
 	// Insert new mod row.
 	_, err = tx.Exec(ctx, `
-		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_file_id, source, is_present)
-		VALUES ($1, $2, $3, $4, $5, $6, 'curseforge', true)
-	`, serverID, newFilename, req.DisplayName, req.Version, req.FileURL, req.FileID)
+		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_mod_id, cf_file_id, source, is_present)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'curseforge', true)
+	`, serverID, newFilename, req.DisplayName, req.Version, req.FileURL, cfModID, req.FileID)
 	if err != nil {
 		return fmt.Errorf("switch mod version: insert new mod: %w", err)
 	}
