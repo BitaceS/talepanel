@@ -289,7 +289,7 @@ func TestCommandTaskSkippedWhenCreatorLosesPermission(t *testing.T) {
 	got := reloadTask(t, svc, serverID, task.ID)
 	if got.LastStatus == nil || *got.LastStatus != models.TaskStatusSkipped || got.LastError == nil ||
 		*got.LastError != "skipped: task creator no longer allowed (this command needs the moderator role)" {
-		t.Fatalf("demoted: status=%v error=%v", got.LastStatus, deref(got.LastError))
+		t.Fatalf("demoted: status=%v error=%v", got.LastStatus, strOrEmpty(got.LastError))
 	}
 
 	// Removed from the server altogether: skipped too.
@@ -305,7 +305,7 @@ func TestCommandTaskSkippedWhenCreatorLosesPermission(t *testing.T) {
 	}
 	got = reloadTask(t, svc, serverID, task.ID)
 	if got.LastStatus == nil || *got.LastStatus != models.TaskStatusSkipped {
-		t.Fatalf("removed member: status=%v error=%v", got.LastStatus, deref(got.LastError))
+		t.Fatalf("removed member: status=%v error=%v", got.LastStatus, strOrEmpty(got.LastError))
 	}
 
 	// Creator deleted: created_by is NULLed and the task is skipped.
@@ -325,7 +325,7 @@ func TestCommandTaskSkippedWhenCreatorLosesPermission(t *testing.T) {
 	}
 }
 
-func deref(s *string) string {
+func strOrEmpty(s *string) string {
 	if s == nil {
 		return "<nil>"
 	}
