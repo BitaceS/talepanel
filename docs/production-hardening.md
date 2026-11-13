@@ -28,7 +28,7 @@
 - [ ] **Strict CORS** — set CORS_ORIGINS to exact production domain only, remove localhost
 - [ ] **Remove health endpoint info leakage** — `/health/ready` should not expose DB details in production
 - [ ] **Tune rate limits** — 10 req/min for auth may be too loose for a public-facing panel
-- [ ] **Add IP allowlist for admin routes** — restrict `/admin/*` to known IPs
+- [x] **Add IP allowlist for admin routes** — set `ADMIN_IP_ALLOWLIST=203.0.113.7,10.8.0.0/24` in the panel `.env` (empty = off)
 - [ ] **Enable request size limits** — prevent large payload DoS (`gin` MaxMultipartMemory)
 - [ ] **Add API versioning headers** — `X-API-Version` response header
 

@@ -62,7 +62,7 @@ These are on the roadmap but not yet implemented. Operators should know:
 - No certificate revocation lists and no automatic renewal while running: node and panel certificates are valid for 2 years and renewed on a restart within 30 days of expiry. Rotating the panel CA is not supported yet.
 - No process isolation per Hytale server. Every server managed by a single daemon runs under the same Linux user. A malicious server operator with shell access via plugins could interfere with others. Run one daemon per trust boundary for now.
 - No 2FA backup codes. If a user loses their TOTP device, an operator disables 2FA for them on the panel host: `docker compose run --rm api tale-cli admin disable-2fa --email user@example.com` (add `--revoke-sessions` to sign them out everywhere). The change is written to the audit log.
-- No IP allowlist for admin routes. If your threat model requires it, put `/api/v1/admin/*` behind a VPN or an additional Caddy `@allowed` matcher.
+- Admin routes are reachable from any address by default. Set `ADMIN_IP_ALLOWLIST` (comma-separated IPs/CIDRs) in the panel `.env` to restrict `/api/v1/admin/*` and the node management routes (`/api/v1/nodes`, not the daemon's own endpoints); requests from other addresses get 403. The client address is taken from `X-Forwarded-For` only for `TRUSTED_PROXIES` (the panel compose trusts the private Docker ranges, i.e. Caddy).
 - Automated test coverage is growing but incomplete. The injection-relevant paths (SQL identifiers, path confinement, archive extraction, SSRF filter, console input) have unit tests; the rest is reviewed by hand. It's a beta — treat it like one.
 
 These are tracked with the `roadmap:v1.1` label on GitHub.

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -49,6 +50,11 @@ type Config struct {
 	// trust none — the direct connection address is used, so a client cannot
 	// spoof its IP to evade rate limiting or poison audit logs.
 	TrustedProxies []string
+
+	// AdminIPAllowlist restricts /api/v1/admin/* to these client addresses
+	// (ADMIN_IP_ALLOWLIST, comma-separated IPs/CIDRs). Empty = no restriction.
+	// The client address is resolved with TrustedProxies.
+	AdminIPAllowlist []netip.Prefix
 
 	// Daemon
 	// DaemonServersDir is the base path on daemon nodes where server data lives.
@@ -205,6 +211,16 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// ADMIN_IP_ALLOWLIST — optional; a malformed value fails startup rather
+	// than silently leaving the admin API open.
+	if raw := os.Getenv("ADMIN_IP_ALLOWLIST"); strings.TrimSpace(raw) != "" {
+		allow, err := ParseIPAllowlist(raw)
+		if err != nil {
+			return nil, fmt.Errorf("ADMIN_IP_ALLOWLIST: %w", err)
+		}
+		cfg.AdminIPAllowlist = allow
+	}
+
 	// DAEMON_SERVERS_DIR — base directory path used by daemon nodes for server data.
 	// The API appends /{server_id} to construct each server's data_path.
 	cfg.DaemonServersDir = os.Getenv("DAEMON_SERVERS_DIR")
@@ -274,4 +290,32 @@ func isPlaceholderSecret(v string) bool {
 		return true
 	}
 	return false
+}
+
+// ParseIPAllowlist parses a comma-separated list of IP addresses and CIDR
+// prefixes ("203.0.113.7, 10.8.0.0/24, 2001:db8::/32"). A bare address is
+// treated as a single-host prefix. An empty string yields an empty list.
+func ParseIPAllowlist(raw string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for part := range strings.SplitSeq(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.Contains(part, "/") {
+			p, err := netip.ParsePrefix(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q: %w", part, err)
+			}
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IP %q: %w", part, err)
+		}
+		a = a.Unmap()
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }

@@ -109,6 +109,8 @@ services:
       # Caddy: all users share one auth rate limit and the audit log records
       # Caddy's IP. Caddy itself ignores X-Forwarded-For sent by clients.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+      # Optional: restrict /api/v1/admin/* to these IPs/CIDRs (comma-separated).
+      ADMIN_IP_ALLOWLIST: ${ADMIN_IP_ALLOWLIST:-}
     networks:
       - talepanel
     extra_hosts:

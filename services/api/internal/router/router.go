@@ -371,7 +371,7 @@ func SetupRouter(
 	// Admin — requires admin role, general rate limit
 	adminH := handlers.NewAdminHandler(authSvc, nodeSvc, permSvc, updateSvc, log)
 	adminGroup := v1.Group("/admin")
-	adminGroup.Use(authRequired, middleware.RequireRole(models.RoleAdmin), generalLimiter)
+	adminGroup.Use(middleware.RequireIPAllowlist(cfg.AdminIPAllowlist), authRequired, middleware.RequireRole(models.RoleAdmin), generalLimiter)
 	{
 		adminGroup.POST("/users", adminH.CreateUser)
 		adminGroup.GET("/users", adminH.ListUsers)
@@ -467,7 +467,7 @@ func SetupRouter(
 
 	// Nodes — requires admin role, general rate limit
 	nodeGroup := v1.Group("/nodes")
-	nodeGroup.Use(authRequired, middleware.RequireRole(models.RoleAdmin), generalLimiter)
+	nodeGroup.Use(middleware.RequireIPAllowlist(cfg.AdminIPAllowlist), authRequired, middleware.RequireRole(models.RoleAdmin), generalLimiter)
 	{
 		nodeGroup.GET("", nodeH.ListNodes)
 		nodeGroup.POST("", nodeH.RegisterNode)
