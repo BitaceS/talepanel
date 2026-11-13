@@ -32,6 +32,13 @@ func TestSanitizePayloadRedactsIntegrationSecrets(t *testing.T) {
 	}
 }
 
+func TestSanitizePayloadRedactsWebhookURL(t *testing.T) {
+	out := string(sanitizePayload([]byte(`{"type":"server_crashed","webhook_url":"https://discord.com/api/webhooks/1/s3cr3t"}`)))
+	if strings.Contains(out, "s3cr3t") {
+		t.Fatalf("webhook URL not redacted: %s", out)
+	}
+}
+
 func TestSanitizePayloadStripsNULAndRedactsNested(t *testing.T) {
 	body := []byte(`{"name":"a\u0000b","nested":{"password":"x","list":["c\u0000d",{"token":"t"}]},"k\u0000ey":1}`)
 	out := string(sanitizePayload(body))

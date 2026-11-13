@@ -34,6 +34,9 @@ var sensitiveFields = map[string]struct{}{
 	"api_key":          {},
 	// Backup destination credentials (OAuth tokens, keys, passwords).
 	"secrets": {},
+	// Alert webhook URLs (Discord, generic) embed their credential in the
+	// URL: anyone who reads it can post to the channel.
+	"webhook_url": {},
 }
 
 // multiSlash collapses consecutive slashes and trailing slashes for
