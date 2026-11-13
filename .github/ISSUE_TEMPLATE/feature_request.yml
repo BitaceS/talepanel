@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an idea or improvement for TalePanel.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [roadmap](https://github.com/BitaceS/talepanel/blob/main/docs/ROADMAP.md) first — your idea may already be planned.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you are trying to do with your Hytale server(s) and what is missing or annoying today.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working in the panel.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / other panels
+      description: Workarounds you use today, or how other panels handle this.

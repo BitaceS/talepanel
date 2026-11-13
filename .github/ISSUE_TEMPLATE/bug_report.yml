@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in TalePanel (panel, API, daemon or installer) does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security issues must not be reported here** — email the address in [SECURITY.md](https://github.com/BitaceS/talepanel/blob/main/SECURITY.md) instead.
+  - type: input
+    id: version
+    attributes:
+      label: TalePanel version
+      description: Shown in the help menu of the panel, or the release tag / commit you installed.
+      placeholder: v0.12.0-beta
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Web panel
+        - API
+        - Daemon (node)
+        - Installer (install.sh)
+        - Network mod
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS / distro of panel and node, single host or separate, Hytale server version.
+      placeholder: Ubuntu 24.04, panel + daemon on one host, HytaleServer 0.6.8
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output of `docker compose logs api`, `docker compose logs daemon` or the browser console. Remove tokens, passwords and IPs you don't want to share.
+      render: shell

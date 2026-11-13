@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/BitaceS/talepanel/blob/main/SECURITY.md
+    about: Please report security issues privately by email, not as a public issue.
+  - name: Questions & help (Discord)
+    url: https://discord.gg/6N8WNrW5WJ
+    about: Setup questions and help with running a Hytale server.
+  - name: Documentation
+    url: https://talepanel.com/docs/
+    about: Install guide and reference.
