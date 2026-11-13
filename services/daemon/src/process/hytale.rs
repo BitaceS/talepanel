@@ -466,10 +466,15 @@ impl HytaleServerProcess {
 
         // ── Startup timeout watchdog ──────────────────────────────────────────
         // If the server doesn't reach Running within the configured timeout,
-        // report a startup failure.
+        // kill it: the exit watcher then reports the crash (and the restart
+        // policy applies). Only flipping the status to Crashed made the
+        // manager drop the entry while the JVM kept running, unmanaged: stop
+        // and kill no longer reached it and the next start launched a second
+        // JVM on the same data directory.
         let status_tx_wd = Arc::clone(&status_tx);
         let server_id_wd = server_id.clone();
         let log_tx_wd = self.log_tx.clone();
+        let pid_wd = Arc::clone(&self.pid);
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(startup_timeout)).await;
             if *status_tx_wd.borrow() == ServerStatus::Starting {
@@ -478,11 +483,17 @@ impl HytaleServerProcess {
                     timestamp: chrono::Utc::now(),
                     level: "ERROR".to_string(),
                     message: format!(
-                        "Server did not reach ready state within {}s — check your JAR and Assets.zip",
+                        "Server did not reach ready state within {}s — stopping it. Check your JAR and Assets.zip, or raise startup_timeout_s",
                         startup_timeout
                     ),
                 });
-                status_tx_wd.send_replace(ServerStatus::Crashed);
+                let wd_pid = pid_wd.load(Ordering::SeqCst);
+                if wd_pid == pid && pid != 0 {
+                    kill_pid(pid);
+                } else {
+                    // No process of ours to kill (already gone or replaced).
+                    status_tx_wd.send_replace(ServerStatus::Crashed);
+                }
             }
         });
 
