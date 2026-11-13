@@ -22,6 +22,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,6 +75,34 @@ type ProvisionRequest struct {
 type ActionResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+// decodeActionResponse reads an ActionResponse. Most daemon error paths
+// answer {"error": "..."} instead of {"success": false, "message": "..."},
+// and axum's own rejections (bad body, bad path) are plain text; both used
+// to surface as an empty reason or a JSON decode error. The daemon's text is
+// now carried into Message so callers and logs see the real cause.
+func decodeActionResponse(resp *http.Response) (ActionResponse, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return ActionResponse{}, fmt.Errorf("daemon: read response: %w", err)
+	}
+	var parsed struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		if resp.StatusCode >= 400 {
+			return ActionResponse{Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}, nil
+		}
+		return ActionResponse{}, fmt.Errorf("daemon: decode response: %w", err)
+	}
+	result := ActionResponse{Success: parsed.Success, Message: parsed.Message}
+	if result.Message == "" {
+		result.Message = parsed.Error
+	}
+	return result, nil
 }
 
 // ServerStatus is returned by GET /servers/:id/status
@@ -686,9 +715,9 @@ func (c *Client) postAction(ctx context.Context, path string, body any) error {
 	}
 	defer resp.Body.Close()
 
-	var result ActionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("daemon: decode response: %w", err)
+	result, err := decodeActionResponse(resp)
+	if err != nil {
+		return err
 	}
 
 	if !result.Success || (resp.StatusCode >= 400) {
@@ -786,9 +815,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query map[s
 	}
 	defer resp.Body.Close()
 
-	var result ActionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("daemon: decode response: %w", err)
+	result, err := decodeActionResponse(resp)
+	if err != nil {
+		return err
 	}
 
 	if !result.Success || (resp.StatusCode >= 400) {
