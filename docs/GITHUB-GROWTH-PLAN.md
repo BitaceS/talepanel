@@ -175,3 +175,18 @@ Siehe [`docs/ROADMAP.md`](ROADMAP.md): WebSocket-Konsole, Auto-Update mit Kanal 
 - `.github/ISSUE_TEMPLATE/` (Bug-Report, Feature-Request, Kontaktlinks inkl. Security und Discord), `.github/PULL_REQUEST_TEMPLATE.md`.
 - `docs/ROADMAP.md` mit priorisiertem Backlog.
 - **Kein** `FUNDING.yml`: im Repo existiert kein Spenden-Link. Falls gewünscht: GitHub Sponsors / Ko-fi einrichten 🔧 und dann `.github/FUNDING.yml` anlegen.
+
+## 6. Weiterführende Pläne
+
+Die folgenden Dateien bauen auf diesem Plan auf und verweisen mit „GP x.y“ auf seine Abschnitte, statt sie zu wiederholen:
+
+| Datei | Inhalt |
+|---|---|
+| [`marketing/LAUNCH-PLAN.md`](marketing/LAUNCH-PLAN.md) | 30/60/90-Tage-Plan bis v1.0 mit Wochenaufgaben, Kennzahlen, Launch-Tag-Checklisten für v0.13 und v1.0, Hytale-Zeitleiste fürs Timing, Kanal-Regeln, Schmerzpunkte der Server-Owner |
+| [`marketing/CONTENT-CALENDAR.md`](marketing/CONTENT-CALENDAR.md) | 12 Wochen Inhalte: Artikel, Community-Post, Video/GIF, Release – mit Titeln und Ziel-Keywords |
+| [`marketing/SEO-KEYWORDS.md`](marketing/SEO-KEYWORDS.md) | Keyword-Cluster (EN/DE) mit Suchabsicht, Titel und Meta-Beschreibungen für talepanel.com, interne Verlinkung (vertieft 3.12) |
+| [`marketing/COMPARISON.md`](marketing/COMPARISON.md) | Fairer Funktionsvergleich mit Quellen (vertieft 3.13 „Vergleichsseiten“), Vorlage für eine Docs-Seite |
+| [`marketing/USE-CASES.md`](marketing/USE-CASES.md) | Sechs Personas mit echten Befehlen, zugleich Landing-Page-Text |
+| [`marketing/posts/`](marketing/posts/) | Fertige Post-Entwürfe (Englisch, mit deutschen Hinweisen): r/selfhosted, r/Hytale, Discord, dev.to-Artikel zu mTLS, Show HN, Product Hunt, X/Bluesky (setzt 3.10 um) |
+
+Aktualisierung zu 3.8: Das erste Release (v0.9.0-beta) ist vom 17.04.2026, die „älter als 4 Monate“-Bedingung von awesome-selfhosted ist also seit 17.08.2026 erfüllt.
