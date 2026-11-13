@@ -1,6 +1,6 @@
 # TalePanel Roadmap
 
-_Last updated: 2026-11-13 (after v0.12.0-beta + unreleased work on `main`)._
+_Last updated: 2026-11-13 (second pass: templates, schedules, SSE console, recovery codes, demo)._
 
 This is the long version of the roadmap table in the [README](../README.md#roadmap). Effort is a rough estimate for one developer who knows the codebase: **S** ≤ 1 day, **M** 2–5 days, **L** 1–3 weeks, **XL** more.
 
@@ -34,7 +34,13 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Issue forms + PR template | Community files for contributors. |
 | Live console, logs, status and metrics over SSE | Roadmap "Now" #1. `GET /servers/:id/stream` with single-use tickets (`POST /servers/:id/stream-ticket`), Redis pub/sub wake-ups, Postgres as catch-up source (`Last-Event-ID` / `?after=`), polling fallback in the panel. Go unit + integration tests. |
 
-Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-13.md`.
+| 2FA recovery codes | 10 single-use codes, SHA-256 hashed, atomic spend, audit-logged; Settings → Security shows the remaining count and regenerates. |
+| Server templates | 5 built-in templates (migration 045) + custom ones in Admin → Templates and "save server as template". Templates can't bypass permission rules. |
+| Scheduled server tasks | Restart (with in-game warning), console command, broadcast on cron; runs with the creator's current permissions; `FOR UPDATE SKIP LOCKED` claim. |
+| Local demo + API example | `examples/demo/run-demo.sh` (full stack, simulated Hytale servers, seeded data), `examples/demo/screenshots.mjs`, `examples/api/talepanel.sh`. |
+| ESLint + format checks in CI | `@nuxt/eslint`, `gofmt`, `cargo fmt --check`, daemon tests in CI. |
+
+Plus about 40 bug fixes (all review findings from the night run included); see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-13.md`.
 
 ---
 
@@ -45,11 +51,14 @@ Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-1
 | # | Item | Why | Effort |
 |---|---|---|---|
 | 1 | ~~**WebSocket/SSE console, logs and metrics**~~ | Done (unreleased): Server-Sent Events stream for logs, status and metrics; the panel falls back to polling when the stream cannot connect. Commands keep using POST. | — |
-| 2 | **Fix the remaining review findings** (see handoff: mod `mod_dir` handling in toggle/remove, concurrent start race in the daemon, streamed file downloads, `remove_mod` for `plugins/` and `.disabled` files) | Real bugs with a known fix; small enough to batch into a patch release. | M |
-| 3 | **ESLint for the web panel** (`@nuxt/eslint`, add `npm run lint` to CI) | `npm run lint` exists but there is no config, so it fails; CI does not run it. Cheap safety net. | S |
-| 4 | **`cargo fmt` once, then enforce in CI** | ~350 formatting hunks in the daemon today; one mechanical commit when no branch is open, then `cargo fmt --check` in CI. Same for `gofmt -l`. | S |
-| 5 | ~~**2FA backup codes**~~ | Done (unreleased): 10 single-use recovery codes, SHA-256 hashed, shown once on enable, accepted in the TOTP step, regenerable under Settings → Security. | — |
-| 6 | **Server templates / "eggs light"** | Planned in the README. Save a server's settings (RAM, CPU, flags, mods list, config files) as a template and create new servers from it. Competitors offer one-click modpacks. | M |
+| 2 | ~~**Fix the remaining review findings**~~ | Done: mod `dir` handling, start race, streamed downloads, symlinked dirs, `wait_for_status`, MariaDB cleanup. | — |
+| 3 | ~~**ESLint for the web panel**~~ | Done: `@nuxt/eslint`, lint in CI (0 errors; ~28 warnings left to clean up). | — |
+| 4 | ~~**`cargo fmt` once, then enforce in CI**~~ | Done, plus `gofmt` and the daemon tests in CI. | — |
+| 5 | ~~**2FA backup codes**~~ | Done (unreleased). | — |
+| 6 | ~~**Server templates**~~ | Done (unreleased). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
+| 7 | **Release v0.13.0-beta** | Everything above is unreleased. Ship it with the screenshots and the demo; see `docs/marketing/LAUNCH-PLAN.md`. | S |
+| 8 | **Docker-only demo** (`docker compose -f examples/demo/compose.yml up`) | The demo needs Go, Rust and Node today. A compose file using the released images with `TALEDAEMON_ALLOW_DEV_STUB=1` would make "try it" a one-liner for everyone. Needs the images from v0.13. | S–M |
+| 9 | **Per-server process isolation, step 1** (dedicated UID per server) | Biggest open security gap; see Next #7. | L |
 
 ### Next
 
@@ -57,7 +66,7 @@ Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-1
 |---|---|---|---|
 | 7 | **Per-server process isolation** (own UID per server, then per-server container) | The biggest open security gap (`SECURITY.md`): every game server runs as root in the daemon container and can read the node token, the node's TLS key and other servers' files. Step 1: run each JVM under a dedicated unprivileged UID with `chown`ed data dir; step 2: optional container per server. | L |
 | 8 | **Auto-update of the Hytale server per server with a channel (Release / Pre-release)** | Ketbome and Stormster advertise it; the panel already knows the newest build per patchline (`/hytale/versions`). Scheduled update with player warning + backup first. | M |
-| 9 | **Scheduled tasks beyond backups** (restart, command, broadcast) | Standard in Pterodactyl, VoxelDash, KyuubiSoft. The cron parser and scheduler exist for backups and can be generalised. | M |
+| 9 | ~~**Scheduled tasks beyond backups**~~ | Done (unreleased): restart, command, broadcast. | — |
 | 10 | **Login notification emails** (new device / IP) | Open box in `production-hardening.md`; SMTP is already configurable. | S–M |
 | 11 | **API keys for automation** (scoped, hashed) | Pterodactyl's client API is a reason hosters choose it; KyuubiSoft advertises API keys. `security-architecture.md` already mentions hashed API keys. | M |
 | 12 | **Performance graphs per server** (CPU, RAM, players over time) | Metrics are collected (and now correct); the node has `node_metrics`, servers need a small time series + chart. | M |
