@@ -88,7 +88,7 @@ func main() {
 	// ── Session cleanup worker ────────────────────────────────────────────────
 	// Runs every 6 hours, removes sessions whose expires_at is more than 30
 	// days in the past.  Prevents unbounded growth of the sessions table.
-	go runSessionCleanup(pool, log)
+	go runSessionCleanup(workerCtx, pool, log)
 
 	// ── HTTP Server ────────────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -155,24 +155,28 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 	return zapCfg.Build()
 }
 
-// runSessionCleanup periodically purges expired session rows.  Runs for the
-// lifetime of the process; cancellation happens implicitly when the process
-// exits.
-func runSessionCleanup(pool *pgxpool.Pool, log *zap.Logger) {
+// runSessionCleanup periodically purges expired session rows until ctx is
+// cancelled on shutdown.
+func runSessionCleanup(ctx context.Context, pool *pgxpool.Pool, log *zap.Logger) {
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 
 	// Run once on startup so a panel that's been offline for a while catches
 	// up immediately rather than waiting 6 hours.
-	cleanupOnce(pool, log)
+	cleanupOnce(ctx, pool, log)
 
-	for range ticker.C {
-		cleanupOnce(pool, log)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanupOnce(ctx, pool, log)
+		}
 	}
 }
 
-func cleanupOnce(pool *pgxpool.Pool, log *zap.Logger) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func cleanupOnce(parent context.Context, pool *pgxpool.Pool, log *zap.Logger) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	ct, err := pool.Exec(ctx, `
