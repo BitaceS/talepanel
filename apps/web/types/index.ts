@@ -38,6 +38,32 @@ export interface Server {
   require_referral?: boolean
 }
 
+// Settings a server template presets. Every field is optional; a missing one
+// falls back to the panel's default when the server is created.
+export interface ServerTemplateSettings {
+  hytale_version?: string
+  ram_limit_mb?: number
+  cpu_limit?: number
+  disk_limit_mb?: number
+  auto_restart?: boolean
+  crash_limit?: number
+  crash_window_s?: number
+  launch_flags?: string[]
+  network_role?: 'hub' | 'gamemode' | 'none' | null
+}
+
+export interface ServerTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string // Material Symbols name
+  is_builtin: boolean
+  created_by: string | null
+  settings: ServerTemplateSettings
+  created_at: string
+  updated_at: string
+}
+
 export interface Node {
   id: string
   name: string

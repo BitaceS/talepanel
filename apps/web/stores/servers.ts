@@ -1,8 +1,11 @@
 import { defineStore } from 'pinia'
 import type { Server } from '~/types'
 
+// With template_id the template's settings fill every field left out here;
+// fields that are sent win over the template.
 interface CreateServerPayload {
   name: string
+  template_id?: string
   hytale_version?: string
   ram_limit_mb?: number | null
   cpu_limit?: number | null

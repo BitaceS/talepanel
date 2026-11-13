@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useServersStore } from '~/stores/servers'
+import { useServerTemplatesStore } from '~/stores/serverTemplates'
 import type { Server as ServerType } from '~/types'
 
 definePageMeta({
@@ -8,6 +9,7 @@ definePageMeta({
 })
 
 const serversStore = useServersStore()
+const templatesStore = useServerTemplatesStore()
 const api = useApi()
 const { theme } = useTheme()
 
@@ -41,22 +43,55 @@ const createError = ref('')
 
 const createForm = reactive({
   name: '',
+  template_id: null as string | null,
   hytale_version: 'latest',
   ram_limit_mb: undefined as string | number | undefined, // UiInput emits strings
   cpu_limit: undefined as string | number | undefined,
   auto_restart: false,
 })
 
+// Templates are optional: if they cannot be loaded the form still works blank.
+async function loadTemplates() {
+  try {
+    await templatesStore.fetchTemplates()
+  } catch {
+    // keep the Blank option only
+  }
+}
+
+const selectedTemplate = computed(() =>
+  templatesStore.templates.find(t => t.id === createForm.template_id) ?? null)
+
+// Choosing a template pre-fills the form; the server also applies the
+// template's other settings (disk, crash limits, launch flags, network role)
+// that the form does not show. Fields sent with the request win.
+watch(() => createForm.template_id, () => {
+  const s = selectedTemplate.value?.settings
+  createForm.hytale_version = s?.hytale_version === 'pre-release' ? 'pre-release' : 'latest'
+  createForm.ram_limit_mb = s?.ram_limit_mb ?? undefined
+  createForm.cpu_limit = s?.cpu_limit ?? undefined
+  createForm.auto_restart = s?.auto_restart ?? false
+})
+
+function parseOptionalInt(v: string | number | undefined): number | undefined {
+  if (v === undefined || v === '') return undefined
+  const n = parseInt(String(v), 10)
+  return Number.isNaN(n) ? undefined : n
+}
+
 async function submitCreate() {
   if (!createForm.name.trim()) return
   createLoading.value = true
   createError.value = ''
   try {
+    const cpu = parseOptionalInt(createForm.cpu_limit)
     await serversStore.createServer({
       name: createForm.name.trim(),
+      template_id: createForm.template_id ?? undefined,
       hytale_version: createForm.hytale_version || 'latest',
-      ram_limit_mb: createForm.ram_limit_mb ? parseInt(String(createForm.ram_limit_mb), 10) : undefined,
-      cpu_limit: createForm.cpu_limit ? parseInt(String(createForm.cpu_limit), 10) : undefined,
+      ram_limit_mb: parseOptionalInt(createForm.ram_limit_mb) || undefined,
+      // An emptied CPU field means unlimited (0), also over a template's limit.
+      cpu_limit: cpu ?? (createForm.template_id ? 0 : undefined),
       auto_restart: createForm.auto_restart,
     })
     showCreateModal.value = false
@@ -71,6 +106,7 @@ async function submitCreate() {
 
 function resetForm() {
   createForm.name = ''
+  createForm.template_id = null
   createForm.hytale_version = 'latest'
   createForm.ram_limit_mb = undefined
   createForm.cpu_limit = undefined
@@ -82,6 +118,7 @@ function openModal() {
   resetForm()
   showCreateModal.value = true
   loadPatchlines()
+  loadTemplates()
 }
 
 // Filtering
@@ -473,12 +510,21 @@ onMounted(() => {
     <UiModal
       :open="showCreateModal"
       title="Create New Server"
-      size="md"
+      size="lg"
       @close="showCreateModal = false"
     >
       <form class="space-y-4" @submit.prevent="submitCreate">
         <div v-if="createError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
           {{ createError }}
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <span class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Template</span>
+          <ServerTemplatePicker v-model="createForm.template_id" :templates="templatesStore.templates" />
+          <p v-if="selectedTemplate" class="text-tp-muted text-xs">
+            Fills in the fields below. Disk size, crash limits, launch flags and network role also come from the
+            template. Anything you change here wins.
+          </p>
         </div>
 
         <UiInput v-model="createForm.name" label="Server Name" placeholder="My Hytale Server" :required="true" />
