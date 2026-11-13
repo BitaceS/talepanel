@@ -1095,19 +1095,13 @@ async fn read_file(
             .into_response();
     }
 
-    // Check file size before reading.
-    let metadata = match tokio::fs::metadata(&target).await {
-        Ok(m) => m,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("failed to read file metadata: {e}")})),
-            )
-                .into_response();
-        }
+    // Open without following a symlink swapped in after the path check and
+    // take the size from the opened handle, then read at most the limit.
+    let (file, len) = match open_regular_nofollow(target).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
     };
-
-    if metadata.len() > FILE_SIZE_LIMIT {
+    if len > FILE_SIZE_LIMIT {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("file exceeds maximum size of {} bytes", FILE_SIZE_LIMIT)})),
@@ -1115,11 +1109,27 @@ async fn read_file(
             .into_response();
     }
 
-    match tokio::fs::read_to_string(&target).await {
-        Ok(content) => Json(FileContentResponse { content }).into_response(),
-        Err(e) => (
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::with_capacity(len as usize);
+    if let Err(e) = file.take(FILE_SIZE_LIMIT + 1).read_to_end(&mut buf).await {
+        return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("failed to read file: {e}")})),
+        )
+            .into_response();
+    }
+    if buf.len() as u64 > FILE_SIZE_LIMIT {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": format!("file exceeds maximum size of {} bytes", FILE_SIZE_LIMIT)})),
+        )
+            .into_response();
+    }
+    match String::from_utf8(buf) {
+        Ok(content) => Json(FileContentResponse { content }).into_response(),
+        Err(_) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "file is not valid UTF-8 text"})),
         )
             .into_response(),
     }
@@ -1599,22 +1609,48 @@ async fn download_file(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "download".to_string());
 
-    match tokio::fs::read(&target).await {
-        Ok(data) => {
-            let headers = [
-                (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
-                (
-                    axum::http::header::CONTENT_DISPOSITION,
-                    content_disposition_attachment(&file_name),
-                ),
-            ];
-            (headers, data).into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("failed to read file: {e}")})),
+    // Open without following a symlink planted after the path check, and
+    // stream the file instead of reading it whole (worlds and Assets.zip are
+    // gigabytes).
+    let (file, len) = match open_regular_nofollow(target).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    stream_file_response(file, Some(len), "application/octet-stream", &file_name, None)
+}
+
+/// Opens `path` for reading with O_NOFOLLOW and checks, on the opened handle,
+/// that it is a regular file. Returns the file and its length.
+async fn open_regular_nofollow(
+    path: PathBuf,
+) -> Result<(tokio::fs::File, u64), axum::response::Response> {
+    let opened = tokio::task::spawn_blocking(move || {
+        let f = safe_fs::open_nofollow(&path)?;
+        let md = f.metadata()?;
+        Ok::<_, std::io::Error>((f, md))
+    })
+    .await;
+    match opened {
+        Ok(Ok((f, md))) if md.is_file() => Ok((tokio::fs::File::from_std(f), md.len())),
+        Ok(Ok(_)) => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "file not found"}))).into_response()),
+        Ok(Err(e)) if e.raw_os_error() == Some(libc::ELOOP) => Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "symbolic links are not allowed"})),
         )
-            .into_response(),
+            .into_response()),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "file not found"}))).into_response())
+        }
+        Ok(Err(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("failed to open file: {e}")})),
+        )
+            .into_response()),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("open task failed: {e}")})),
+        )
+            .into_response()),
     }
 }
 
@@ -2108,15 +2144,29 @@ async fn stream_archive(
     backup_id: &str,
     owned_tmp: Option<TempArchive>,
 ) -> axum::response::Response {
-    use tokio::io::AsyncReadExt;
-
-    let mut file = match tokio::fs::File::open(path).await {
+    let file = match tokio::fs::File::open(path).await {
         Ok(f) => f,
         Err(e) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to read archive: {e}")}))).into_response()
         }
     };
     let len = file.metadata().await.map(|m| m.len()).ok();
+    stream_file_response(file, len, "application/zip", &format!("{backup_id}.zip"), owned_tmp)
+}
+
+/// Streams `file` as an attachment in 256 KiB chunks, so large files never
+/// sit in memory. `keep` is held until the stream ends (e.g. a temp file
+/// that must outlive the response).
+fn stream_file_response(
+    mut file: tokio::fs::File,
+    len: Option<u64>,
+    content_type: &'static str,
+    file_name: &str,
+    keep: Option<TempArchive>,
+) -> axum::response::Response {
+    use tokio::io::AsyncReadExt;
+
+    let owned_tmp = keep;
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(8);
     tokio::spawn(async move {
         let _keep = owned_tmp;
@@ -2139,8 +2189,8 @@ async fn stream_archive(
     let body = axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
     let mut resp = axum::response::Response::new(body);
     let headers = resp.headers_mut();
-    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/zip"));
-    if let Ok(v) = axum::http::HeaderValue::from_str(&content_disposition_attachment(&format!("{backup_id}.zip"))) {
+    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static(content_type));
+    if let Ok(v) = axum::http::HeaderValue::from_str(&content_disposition_attachment(file_name)) {
         headers.insert(axum::http::header::CONTENT_DISPOSITION, v);
     }
     if let Some(len) = len {
@@ -3452,6 +3502,57 @@ mod tests {
                 .filter(|e| e.file_name().to_string_lossy().starts_with(".import-"))
                 .collect();
             assert!(leftovers.is_empty(), "temp archive left behind");
+            let _ = std::fs::remove_dir_all(&base);
+        }
+
+        #[tokio::test]
+        async fn download_streams_large_files_and_read_returns_text() {
+            let base = super::scratch_dir("download");
+            let root = base.join(super::SID);
+            std::fs::create_dir_all(&root).unwrap();
+            let big: Vec<u8> = (0..(3 * 1024 * 1024 + 17)).map(|i| (i % 251) as u8).collect();
+            std::fs::write(root.join("big.bin"), &big).unwrap();
+            std::fs::write(root.join("config.json"), b"{\"MaxPlayers\": 20}").unwrap();
+
+            let mut state = test_state();
+            state.servers_base_dir = base.to_string_lossy().into_owned();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let security = ListenerSecurity { pki: None, allow_legacy_bearer: true, require_mtls: false };
+            tokio::spawn(serve_listener(listener, build_router(state), security));
+            let c = plain_client();
+
+            let resp = c
+                .get(format!("http://{addr}/servers/{}/files/download?path=big.bin", super::SID))
+                .bearer_auth(TOKEN)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status().as_u16(), 200);
+            assert_eq!(
+                resp.headers().get("content-length").and_then(|v| v.to_str().ok()),
+                Some(big.len().to_string().as_str())
+            );
+            let body = resp.bytes().await.unwrap();
+            assert!(body.as_ref() == big.as_slice(), "downloaded bytes differ");
+
+            let resp = c
+                .get(format!("http://{addr}/servers/{}/files/content?path=config.json", super::SID))
+                .bearer_auth(TOKEN)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status().as_u16(), 200);
+            let v: serde_json::Value = resp.json().await.unwrap();
+            assert_eq!(v["content"], "{\"MaxPlayers\": 20}");
+
+            let resp = c
+                .get(format!("http://{addr}/servers/{}/files/download?path=missing.bin", super::SID))
+                .bearer_auth(TOKEN)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status().as_u16(), 404);
             let _ = std::fs::remove_dir_all(&base);
         }
     }
