@@ -150,3 +150,47 @@ func seedServerWithLimits(t *testing.T, pool *pgxpool.Pool, ownerID uuid.UUID) u
 	}
 	return id
 }
+
+// An invited server admin holds server.manage on that server, so the route
+// lets them in; the service must not reject them for not being the owner.
+// A viewer and a stranger stay forbidden.
+func TestUpdateServer_InvitedServerAdminMayUpdate(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+	invSvc := NewInvitationService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	memberAdminID := seedTestUser(t, pool, models.RoleUser)
+	viewerID := seedTestUser(t, pool, models.RoleUser)
+	strangerID := seedTestUser(t, pool, models.RoleUser)
+	serverID := seedServerWithLimits(t, pool, ownerID)
+	owner := &models.User{ID: ownerID, Role: models.RoleUser}
+
+	for userID, role := range map[uuid.UUID]string{memberAdminID: "admin", viewerID: "viewer"} {
+		inv, err := invSvc.CreateInvitation(ctx, serverID, owner, CreateInvitationRequest{
+			InviteeEmail: testUserEmail(t, pool, userID), Role: role,
+		})
+		if err != nil {
+			t.Fatalf("create %s invitation: %v", role, err)
+		}
+		if err := invSvc.AcceptInvitation(ctx, inv.Token, userID, testUserEmail(t, pool, userID)); err != nil {
+			t.Fatalf("accept %s invitation: %v", role, err)
+		}
+	}
+
+	srv, err := svc.UpdateServer(ctx, serverID, memberAdminID, models.RoleUser, UpdateServerRequest{Name: ptr("renamed-by-member")})
+	if err != nil {
+		t.Fatalf("invited server admin: %v", err)
+	}
+	if srv.Name != "renamed-by-member" {
+		t.Fatalf("name = %q", srv.Name)
+	}
+
+	if _, err := svc.UpdateServer(ctx, serverID, viewerID, models.RoleUser, UpdateServerRequest{Name: ptr("x")}); !errors.Is(err, ErrServerForbidden) && !errors.Is(err, ErrServerNotFound) {
+		t.Fatalf("viewer: err = %v, want forbidden", err)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, strangerID, models.RoleUser, UpdateServerRequest{Name: ptr("x")}); err == nil {
+		t.Fatal("stranger could update the server")
+	}
+}

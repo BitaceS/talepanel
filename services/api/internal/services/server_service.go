@@ -304,9 +304,19 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 		return nil, err
 	}
 
-	// Only the owner, admins, or higher may update.
+	// The owner, cluster staff, and members holding server.manage on this
+	// server (e.g. an invited server admin) may update. The route checks the
+	// same permission; this keeps the service safe for other callers.
+	// Admin-only fields are checked separately below.
 	if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) && server.OwnerID != userID {
-		return nil, ErrServerForbidden
+		ok, err := NewPermissionService(s.db).HasServerPermission(ctx,
+			&models.User{ID: userID, Role: role}, serverID, "server.manage")
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, ErrServerForbidden
+		}
 	}
 
 	// Build dynamic SET clause.
