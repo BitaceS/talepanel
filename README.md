@@ -13,6 +13,17 @@ Built by [BitaceS](https://github.com/BitaceS) · AGPL-3.0 · free, forever
 
 > If TalePanel is useful to you, a ⭐ on GitHub helps other Hytale server owners find it.
 
+<p align="center">
+  <img src="docs/images/classic-dashboard.png" alt="TalePanel dashboard: servers, nodes, players online, node resources and player activity" width="49%">
+  <img src="docs/images/server-console.png" alt="Live console of a Hytale server in TalePanel" width="49%">
+</p>
+<p align="center">
+  <img src="docs/images/game-servers.png" alt="Optional game theme: the server list as a pixel-art server select" width="49%">
+  <img src="docs/images/create-from-template.png" alt="Creating a Hytale server from a template" width="49%">
+</p>
+
+**Try it in five minutes, without a server:** [`examples/demo`](examples/demo/) runs the whole panel on your machine with simulated Hytale servers.
+
 ---
 
 ## What is TalePanel?
@@ -28,12 +39,13 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 | | |
 |---|---|
 | **Install** | One command (`install.sh --quick`), automatic HTTPS via Let's Encrypt, no domain needed (`sslip.io`) |
-| **Servers** | Create / start / stop / restart / kill, live console (SSE), RAM + CPU limits, auto restart after crashes |
+| **Servers** | Create from templates, start / stop / restart / kill, live console (SSE), RAM + CPU limits, auto restart after crashes |
+| **Automation** | Scheduled restarts (with in-game warning), console commands and broadcasts; scheduled backups; API for scripts ([example](examples/api/)) |
 | **Hytale-native** | Launch flags, auth modes, exit codes, Release / Pre-release builds, Hytale account link (OAuth device flow) |
 | **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
 | **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
 | **Scale** | Multi-node with one-time enrollment tokens, mutual TLS between panel and nodes, network mod with `/play` handoff |
-| **Security** | 2FA, RBAC per server, audit log, rate limiting, no default accounts |
+| **Security** | 2FA with recovery codes, RBAC per server, audit log, rate limiting, optional admin IP allowlist, no default accounts |
 | **Alerts** | Discord, webhook and email |
 | **Stack** | Go API, Rust daemon, Nuxt 3 web panel, PostgreSQL, Redis |
 
@@ -75,7 +87,8 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 
 **Shipped and working against real Hytale servers:**
 
-- **Servers** — create, start, stop, restart, kill, resource limits, per-server member roles.
+- **Servers** — create (blank or from a template: survival, community survival, creative, network lobby, modding sandbox, or your own), start, stop, restart, kill, resource limits, per-server member roles.
+- **Schedules** — restarts (with an optional in-game warning), console commands and broadcasts on a cron schedule, run with the permissions of the user who saved them.
 - **Live console + logs** — command input and log tail. Log lines, status changes and metrics (every 5 s) are pushed to the browser over Server-Sent Events (`GET /api/v1/servers/:id/stream`); commands still go out as plain POSTs. If the stream cannot connect (three failed attempts, e.g. a proxy that buffers responses) the page falls back to the old polling (logs ~1 s, metrics ~5 s, status 4–15 s); the console header shows **Live** or **Polling**.
 - **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
 - **Worlds** — list, switch and delete the worlds the Hytale server created. TalePanel does not generate worlds itself.
@@ -84,7 +97,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
 - **Backups** — create/restore/download/schedule a Zip snapshot of a server. The archive is written on the node; optionally the node also uploads it off-site with rclone to **OneDrive, Google Drive, Dropbox, S3-compatible storage (AWS, Wasabi, R2), Backblaze B2, SFTP or WebDAV/Nextcloud**, with upload status, retention and "keep local copy" per destination. Archives are encrypted (ChaCha20-Poly1305) on the node before they are written, under a panel-managed key.
 - **Players** — list, kick, ban, whitelist.
-- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest), RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure.
+- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest) with single-use recovery codes, RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure.
 - **Install** — one script for panel or daemon, automatic Let's Encrypt TLS, works without a domain via `sslip.io`.
 
 **Not there yet (roadmap, tracked publicly):**
@@ -462,11 +475,14 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |
 | mTLS panel ↔ daemon | Shipped (v0.12) |
 | Alerts via Discord, webhook and email | Shipped |
-| Admin IP allowlist, `tale-cli admin disable-2fa` | Unreleased |
-| Per-server process isolation | Next |
-| Meaningful test coverage (Go + Rust) | Ongoing |
-| Server templates | Unreleased |
 | Live console, logs, status and metrics over SSE (polling as fallback) | Unreleased |
+| Server templates (5 built-in + your own) | Unreleased |
+| Scheduled restarts, commands and broadcasts | Unreleased |
+| 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` | Unreleased |
+| Local demo with simulated servers (`examples/demo`) | Unreleased |
+| Per-server process isolation | Next |
+| Auto-update per server with Release / Pre-release channel | Next |
+| Meaningful test coverage (Go + Rust) | Ongoing |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
