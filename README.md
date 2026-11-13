@@ -463,6 +463,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |
 | mTLS panel ↔ daemon | Shipped (v0.12) |
 | Alerts via Discord, webhook and email | Shipped |
+| Admin IP allowlist, `tale-cli admin disable-2fa` | Unreleased |
 | WebSocket/SSE streaming instead of polling | Next |
 | Per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
