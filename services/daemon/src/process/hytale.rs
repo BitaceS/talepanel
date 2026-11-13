@@ -789,6 +789,13 @@ fn is_dev_stub_script(dev_stub_allowed: bool, head: Option<&[u8]>) -> bool {
 
 /// Classify a log line level from its text content.
 fn classify_level(line: &str) -> String {
+    // Hytale (java.util.logging style) puts the level at the end of the
+    // leading bracket: "[2026/01/13 21:03:12   WARN] [World|default] ...".
+    // That header is authoritative; a chat line that merely contains
+    // "exception" must not turn red.
+    if let Some(level) = header_level(line) {
+        return level.to_string();
+    }
     let upper = line.to_ascii_uppercase();
     if upper.contains("[ERROR]")
         || upper.contains("ERROR:")
@@ -800,6 +807,19 @@ fn classify_level(line: &str) -> String {
         "WARN".to_string()
     } else {
         "INFO".to_string()
+    }
+}
+
+/// The level from a leading "[... LEVEL]" log header, if there is one.
+fn header_level(line: &str) -> Option<&'static str> {
+    let rest = line.trim_start().strip_prefix('[')?;
+    let inner = &rest[..rest.find(']')?];
+    let token = inner.split_whitespace().last()?.to_ascii_uppercase();
+    match token.as_str() {
+        "SEVERE" | "ERROR" | "FATAL" => Some("ERROR"),
+        "WARN" | "WARNING" => Some("WARN"),
+        "INFO" | "CONFIG" | "FINE" | "FINER" | "FINEST" | "DEBUG" | "TRACE" => Some("INFO"),
+        _ => None,
     }
 }
 
@@ -1083,5 +1103,38 @@ mod wait_for_status_tests {
         )
         .await
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod classify_level_tests {
+    use super::classify_level;
+
+    #[test]
+    fn uses_the_level_from_the_log_header() {
+        assert_eq!(
+            classify_level("[2026/01/13 21:03:12   WARN] [World|default] Can't keep up!"),
+            "WARN"
+        );
+        assert_eq!(
+            classify_level("[2026/01/13 21:03:12 SEVERE] [HytaleServer] Crash"),
+            "ERROR"
+        );
+        assert_eq!(
+            classify_level("[21:03:12 INFO] [Chat] <Bob> got an exception lol"),
+            "INFO"
+        );
+        assert_eq!(classify_level("[21:03:12 WARN] something"), "WARN");
+    }
+
+    #[test]
+    fn falls_back_to_keywords_without_a_header() {
+        assert_eq!(
+            classify_level("java.lang.NullPointerException: boom"),
+            "ERROR"
+        );
+        assert_eq!(classify_level("WARNING: low memory"), "WARN");
+        assert_eq!(classify_level("[Universe|P] Adding player 'x (y)"), "INFO");
+        assert_eq!(classify_level("plain text"), "INFO");
     }
 }
