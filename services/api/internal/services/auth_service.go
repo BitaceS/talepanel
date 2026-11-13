@@ -571,6 +571,9 @@ var (
 	// ErrLastOwner: the change would leave the installation without an
 	// active owner.
 	ErrLastOwner = errors.New("cannot remove the last active owner")
+	// ErrUserOwnsServers: servers.owner_id has no ON DELETE action, so a user
+	// who still owns servers cannot be deleted.
+	ErrUserOwnsServers = errors.New("user still owns servers; delete them or transfer ownership first")
 )
 
 // adminTargetChange runs fn in a transaction after enforcing the owner
@@ -664,6 +667,15 @@ func (s *AuthService) DeleteUser(ctx context.Context, callerRole string, targetI
 			return targetRole == models.RoleOwner && active
 		},
 		func(tx pgx.Tx) error {
+			var ownsServers bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM servers WHERE owner_id = $1)`, targetID,
+			).Scan(&ownsServers); err != nil {
+				return fmt.Errorf("checking owned servers: %w", err)
+			}
+			if ownsServers {
+				return ErrUserOwnsServers
+			}
 			if _, err := tx.Exec(ctx, `UPDATE sessions SET revoked = true WHERE user_id = $1`, targetID); err != nil {
 				return fmt.Errorf("revoking sessions: %w", err)
 			}

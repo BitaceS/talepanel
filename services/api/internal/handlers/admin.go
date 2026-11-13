@@ -199,7 +199,7 @@ func (h *AdminHandler) respondUserChangeError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrOwnerProtected):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-	case errors.Is(err, services.ErrLastOwner):
+	case errors.Is(err, services.ErrLastOwner), errors.Is(err, services.ErrUserOwnsServers):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	default:
 		h.log.Error("admin user change failed", zap.Error(err))

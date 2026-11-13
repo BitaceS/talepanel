@@ -86,3 +86,23 @@ func TestLastOwnerCannotBeRemoved(t *testing.T) {
 		t.Fatalf("delete non-owner: %v", err)
 	}
 }
+
+// servers.owner_id has no ON DELETE action; deleting a user who still owns a
+// server used to fail with an FK violation (HTTP 500).
+func TestDeleteUserWhoOwnsServersIsRefused(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewAuthService(pool, nil, nil)
+
+	user := seedTestUser(t, pool, models.RoleUser)
+	seedTestServer(t, pool, user)
+
+	if err := svc.DeleteUser(ctx, models.RoleAdmin, user); !errors.Is(err, ErrUserOwnsServers) {
+		t.Fatalf("delete server owner: err=%v, want ErrUserOwnsServers", err)
+	}
+
+	lonely := seedTestUser(t, pool, models.RoleUser)
+	if err := svc.DeleteUser(ctx, models.RoleAdmin, lonely); err != nil {
+		t.Fatalf("delete user without servers: %v", err)
+	}
+}
