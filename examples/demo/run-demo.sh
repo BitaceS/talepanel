@@ -33,6 +33,9 @@ stop_all() {
       rm -f "$STATE/$name.pid"
     fi
   done
+  # The daemon leaves game servers running when it exits (as on a real node,
+  # where a daemon update must not kill them); stop the simulated ones too.
+  pkill -f "$STATE/node/servers/.*/HytaleServer.jar" 2>/dev/null || true
   log "stopped (state kept in $STATE; delete it for a fresh demo)"
 }
 
