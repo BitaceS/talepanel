@@ -2,18 +2,20 @@
 import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
-  Plug, Save, ExternalLink, Mail, Send, KeyRound, Lock, Copy, RotateCw,
+  Plug, Save, ExternalLink, Mail, Send, KeyRound, Lock, Copy, RotateCw, LayoutTemplate,
 } from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
+import { useServerTemplatesStore } from '~/stores/serverTemplates'
 
 definePageMeta({ title: 'Admin Panel', middleware: 'auth' })
 
 const api = useApi()
 const authStore = useAuthStore()
+const templatesStore = useServerTemplatesStore()
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const activeTab = ref<'users' | 'nodes' | 'logs' | 'integrations'>('users')
+const activeTab = ref<'users' | 'nodes' | 'templates' | 'logs' | 'integrations'>('users')
 
 // ── Integrations ─────────────────────────────────────────────────────────────
 interface CurseForgeStatus { configured: boolean; preview: string }
@@ -49,7 +51,7 @@ async function saveCurseForgeKey() {
   }
 }
 
-function onTabChange(key: 'users' | 'nodes' | 'logs' | 'integrations') {
+function onTabChange(key: 'users' | 'nodes' | 'templates' | 'logs' | 'integrations') {
   activeTab.value = key
   if (key === 'integrations') {
     fetchCurseForgeStatus()
@@ -694,6 +696,7 @@ async function submitCreateUser() {
         v-for="tab in [
           { key: 'users', label: 'Users', icon: Users, count: users.length },
           { key: 'nodes', label: 'Nodes', icon: Network, count: nodes.length },
+          { key: 'templates', label: 'Templates', icon: LayoutTemplate, count: templatesStore.templates.length },
           { key: 'logs', label: 'Activity Logs', icon: Activity, count: activityLogs.length },
           { key: 'integrations', label: 'Integrations', icon: Plug, count: 0 },
         ]"
@@ -704,7 +707,7 @@ async function submitCreateUser() {
             ? 'bg-tp-primary text-white shadow-sm'
             : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2',
         ]"
-        @click="onTabChange(tab.key as 'users' | 'nodes' | 'logs' | 'integrations')"
+        @click="onTabChange(tab.key as 'users' | 'nodes' | 'templates' | 'logs' | 'integrations')"
       >
         <component :is="tab.icon" class="w-4 h-4" />
         {{ tab.label }}
@@ -966,6 +969,11 @@ async function submitCreateUser() {
         </div>
       </div>
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         TEMPLATES TAB
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <AdminServerTemplatesPanel v-else-if="activeTab === 'templates'" @toast="showToast" />
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          INTEGRATIONS TAB
