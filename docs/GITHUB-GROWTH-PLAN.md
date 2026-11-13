@@ -80,7 +80,7 @@ Settings → General → Social preview. Spezifikation:
 #### 3.5 README-Titel und Intro ✅
 Umgesetzt: H1 „TalePanel — open-source Hytale server panel“, Untertitel mit „Hytale server panel“ und „self-hosted Hytale server management“, Badges (Release, CI, Lizenz, Sterne, Discord), Stern-Bitte, „At a glance“-Tabelle, die Begriffe „Hytale server manager“ und „Hytale hosting panel“ im ersten Absatz, Link auf `docs/ROADMAP.md`.
 
-**Noch offen (Owner):** echte Screenshots. Lege 2–3 Bilder unter `docs/images/` ab (Dashboard, Konsole, Server-Auswahl im Game-Theme) und binde sie direkt unter der Badge-Zeile ein. Screenshots sind laut GitHub-/Google-Erfahrung einer der stärksten Gründe für Sterne. Ich habe keine Platzhalter eingefügt, weil im Repo keine Bilder existieren.
+**Screenshots ✅:** 9 echte Screenshots aus der lokalen Demo liegen unter `docs/images/` (Dashboard klassisch + Game-Theme, Server-Auswahl, Live-Konsole, Spieler, Zeitpläne, Vorlagen-Dialog, Login); vier davon stehen direkt unter den Badges. Neu erzeugen: `examples/demo/run-demo.sh` starten, dann `node examples/demo/screenshots.mjs`. **Noch offen (Owner):** ein 20–30-Sekunden-GIF/Video (Server aus Vorlage anlegen → starten → Live-Konsole) – am einfachsten per Bildschirmaufnahme der Demo.
 
 #### 3.6 Erste Sterne 🔧
 Sterne sind der Haupt-Rankingfaktor. Ohne Tricks (keine Stern-Tauschbörsen – das verstößt gegen GitHub-ToS):
@@ -174,6 +174,7 @@ Siehe [`docs/ROADMAP.md`](ROADMAP.md): WebSocket-Konsole, Auto-Update mit Kanal 
 - README: Keyword-Intro, Badges, Feature-Tabelle, Roadmap-Link, veraltete Angaben korrigiert.
 - `.github/ISSUE_TEMPLATE/` (Bug-Report, Feature-Request, Kontaktlinks inkl. Security und Discord), `.github/PULL_REQUEST_TEMPLATE.md`.
 - `docs/ROADMAP.md` mit priorisiertem Backlog.
+- `docs/images/` mit echten Screenshots, `examples/demo` (Panel ohne Server ausprobieren) als „Try it“-Einstieg für README, Reddit und Show HN.
 - **Kein** `FUNDING.yml`: im Repo existiert kein Spenden-Link. Falls gewünscht: GitHub Sponsors / Ko-fi einrichten 🔧 und dann `.github/FUNDING.yml` anlegen.
 
 ## 6. Weiterführende Pläne
