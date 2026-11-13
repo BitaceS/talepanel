@@ -44,12 +44,22 @@ const MAX_ERROR_LEN: usize = 2000;
 #[derive(Debug, Clone, Deserialize)]
 pub struct RemoteSpec {
     pub backend: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub options: BTreeMap<String, String>,
-    /// Option keys rclone stores obscured (passwords).
-    #[serde(default)]
+    /// Option keys rclone stores obscured (passwords). Older panels send
+    /// `null` when there are none, so null is read as an empty list.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub obscure: Vec<String>,
     pub base_path: String,
+}
+
+/// Deserialises a JSON `null` as the type's default value.
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
 pub type ConfigUpdates = BTreeMap<String, String>;
@@ -892,6 +902,18 @@ mod tests {
         assert!(remote_object_path("ok", "../srv", "b.zip").is_err());
         assert!(remote_object_path("ok", "srv", "-b.zip").is_err());
         assert_eq!(remote_arg("a/b"), "tp:a/b");
+    }
+
+    #[test]
+    fn spec_accepts_null_obscure_and_options() {
+        let spec: RemoteSpec = serde_json::from_str(
+            r#"{"backend":"s3","options":null,"obscure":null,"base_path":"tp"}"#,
+        )
+        .expect("null lists must deserialize");
+        assert!(spec.obscure.is_empty());
+        assert!(spec.options.is_empty());
+        let spec: RemoteSpec = serde_json::from_str(r#"{"backend":"s3","base_path":"tp"}"#).unwrap();
+        assert!(spec.obscure.is_empty());
     }
 
     #[test]

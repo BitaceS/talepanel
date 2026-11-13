@@ -360,7 +360,7 @@ func splitDestinationOptions(p *DestinationProvider, options, secrets, existingS
 // the map sent to the daemon, plus the list of keys rclone wants obscured.
 func (p *DestinationProvider) rcloneOptions(plain, secrets map[string]string) (map[string]string, []string) {
 	out := map[string]string{}
-	var obscure []string
+	obscure := []string{} // never nil: the daemon rejects "obscure": null
 	for _, f := range p.Fields {
 		v := plain[f.Key]
 		if f.Secret {

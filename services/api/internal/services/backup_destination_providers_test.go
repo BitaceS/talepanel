@@ -171,3 +171,14 @@ func TestProvidersHaveNoDangerousFields(t *testing.T) {
 		}
 	}
 }
+
+// The daemon deserialises obscure as Vec<String>; a JSON null makes every
+// backup upload/test/restore for providers without obscured fields fail.
+func TestRcloneOptionsObscureNeverNil(t *testing.T) {
+	for _, p := range DestinationProviders() {
+		_, obscure := p.rcloneOptions(nil, nil)
+		if obscure == nil {
+			t.Errorf("%s: obscure is nil, would marshal as null", p.ID)
+		}
+	}
+}
