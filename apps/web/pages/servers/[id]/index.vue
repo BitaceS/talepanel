@@ -39,7 +39,24 @@ onMounted(async () => {
 
 const server = computed(() => serversStore.currentServer)
 
+// ── Live stream (SSE) ─────────────────────────────────────────────────────────
+// Logs, status and metrics arrive over one Server-Sent Events stream. If it
+// cannot connect (3 failed attempts in a row) the composable reports
+// 'polling' and the HTTP polling loops below take over again.
+const stream = useServerStream(serverId)
+const streamLive = computed(() => stream.mode.value === 'live')
+const streamPolling = computed(() => stream.mode.value === 'polling')
+
+// A status event only carries the status; refetch the server so the rest
+// (updated_at, last_exit_code, ...) matches.
+watch(() => stream.status.value, (status) => {
+  if (status && server.value && status !== server.value.status) {
+    serversStore.fetchServer(serverId.value).catch(() => { /* silent */ })
+  }
+})
+
 // ── Status polling ────────────────────────────────────────────────────────────
+// Fallback while the live stream is not connected.
 // While the status is transitional (installing/starting/stopping) we poll fast
 // (4s) so the Start/Stop buttons unlock the moment the daemon reports the next
 // stable status.  While stable we still poll, just slowly (15s), so spontaneous
@@ -62,8 +79,8 @@ function stopStatusPolling() {
   if (statusTimer) { clearInterval(statusTimer); statusTimer = null; statusTimerInterval = 0 }
 }
 
-watch(() => server.value?.status, (status) => {
-  if (!status) { stopStatusPolling(); return }
+watch([() => server.value?.status, streamLive], ([status, live]) => {
+  if (!status || live) { stopStatusPolling(); return }
   ensureStatusPolling(transitionalStatuses.has(status) ? 4000 : 15000)
 }, { immediate: true })
 
@@ -311,7 +328,7 @@ interface Metrics {
 }
 
 const metrics = ref<Metrics | null>(null)
-let metricsTimer: ReturnType<typeof setInterval>
+let metricsTimer: ReturnType<typeof setInterval> | undefined
 
 // Players online right now, from the sessions the panel records (the same
 // source as the dashboard). The players store holds everyone ever seen.
@@ -333,13 +350,21 @@ async function fetchMetrics() {
   void fetchOnlinePlayers()
 }
 
-watch(activeTab, (tab) => {
-  if (tab === 'overview') {
+// The stream pushes metrics every 5 s; poll only as the fallback.
+watch(() => stream.metrics.value, (m) => {
+  if (m && !streamPolling.value) metrics.value = { ...m, cpu: { ...m.cpu }, memory: { ...m.memory } }
+})
+
+watch([activeTab, streamPolling], ([tab, polling]) => {
+  clearInterval(metricsTimer)
+  metricsTimer = undefined
+  if (tab === 'overview' && polling) {
     fetchMetrics()
     metricsTimer = setInterval(fetchMetrics, 5000)
-  } else {
-    clearInterval(metricsTimer)
   }
+}, { immediate: true })
+
+watch(activeTab, (tab) => {
   if (tab === 'worlds') worldsStore.fetchWorlds(serverId.value)
   if (tab === 'players') playersStore.fetchPlayers(serverId.value)
   if (tab === 'databases') fetchDatabases()
@@ -376,8 +401,7 @@ interface LogLine {
 
 const logs = ref<LogLine[]>([])
 const consoleEl = ref<HTMLElement | null>(null)
-let logsTimer: ReturnType<typeof setInterval>
-let lastLogId = 0
+let logsTimer: ReturnType<typeof setInterval> | undefined
 const userScrolledUp = ref(false)
 
 function onConsoleScroll() {
@@ -445,10 +469,6 @@ async function fetchLogs() {
   try {
     const data = await api.get<{ logs: LogLine[] }>(`/servers/${serverId.value}/logs`)
     logs.value = data.logs ?? []
-    const lastLog = logs.value.at(-1)
-    if (lastLog) {
-      lastLogId = lastLog.id
-    }
     await nextTick()
     if (!userScrolledUp.value) {
       scrollConsoleToBottom()
@@ -462,12 +482,27 @@ function scrollConsoleToBottom() {
   }
 }
 
-watch(activeTab, (tab) => {
-  if (tab === 'console') {
+async function scrollConsoleIfFollowing() {
+  await nextTick()
+  if (!userScrolledUp.value) scrollConsoleToBottom()
+}
+
+// Live: the stream's lines are the console. Polling fallback: fetchLogs.
+watch(() => stream.logs.value, (lines) => {
+  if (streamPolling.value) return
+  logs.value = [...lines]
+  if (activeTab.value === 'console') scrollConsoleIfFollowing()
+})
+
+watch([activeTab, streamPolling], ([tab, polling]) => {
+  clearInterval(logsTimer)
+  logsTimer = undefined
+  if (tab !== 'console') return
+  if (polling) {
     fetchLogs()
     logsTimer = setInterval(fetchLogs, 1000)
   } else {
-    clearInterval(logsTimer)
+    scrollConsoleIfFollowing()
   }
 })
 
@@ -1398,7 +1433,29 @@ const sidebarMods = computed(() => {
           <!-- Terminal header -->
           <div class="flex items-center gap-2 px-1">
             <span class="w-2 h-2 rounded-full bg-tp-tertiary animate-pulse" />
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">LIVE TERMINAL OUTPUT</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">TERMINAL OUTPUT</span>
+            <span
+              v-if="streamLive"
+              class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-tertiary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-tertiary"
+              title="Streaming live from the server (Server-Sent Events)"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-tp-tertiary" /> Live
+            </span>
+            <button
+              v-else-if="streamPolling"
+              type="button"
+              class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-warning hover:bg-tp-warning/20 transition-colors"
+              title="Live stream unavailable, refreshing every second. Click to retry the live stream."
+              @click="stream.restart()"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-tp-warning" /> Polling
+            </button>
+            <span
+              v-else
+              class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-surface2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-outline"
+            >
+              <Loader2 class="w-3 h-3 animate-spin" /> Connecting
+            </span>
           </div>
 
           <!-- Log viewer -->
