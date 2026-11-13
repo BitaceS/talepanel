@@ -473,9 +473,13 @@ done
     /// Forward a console command to the specified running server.
     #[instrument(skip(self), fields(server_id, cmd))]
     pub async fn send_command(&self, server_id: &str, cmd: &str) -> Result<()> {
+        // Clone the Arc out of the map: holding the DashMap guard across the
+        // stdin write would block every insert/remove on that shard (and the
+        // tokio worker) while a hung JVM's stdin pipe is full.
         let process = self
             .processes
             .get(server_id)
+            .map(|p| Arc::clone(p.value()))
             .ok_or_else(|| anyhow::anyhow!("Server {server_id} is not managed by this node"))?;
 
         process.send_command(cmd).await
