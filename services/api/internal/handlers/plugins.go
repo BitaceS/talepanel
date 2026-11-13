@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/BitaceS/talepanel/api/internal/middleware"
@@ -119,13 +118,8 @@ func (h *PluginHandler) TogglePlugin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, req.Enabled); err != nil {
-		switch {
-		case errors.Is(err, services.ErrModNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "plugin not found"})
-		case errors.Is(err, services.ErrServerNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
-		default:
+	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, c.Query("dir"), req.Enabled); err != nil {
+		if !respondModLookupError(c, err, "plugin not found") {
 			h.log.Error("toggle plugin failed", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "toggle failed"})
 		}

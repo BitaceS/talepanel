@@ -35,8 +35,11 @@ type ModHandler struct {
 	log     *zap.Logger
 }
 
-func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService, daemons *daemon.ClientPool) *ModHandler {
-	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc, daemons: daemons, log: zap.NewNop()}
+func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService, daemons *daemon.ClientPool, log *zap.Logger) *ModHandler {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	return &ModHandler{modSvc: modSvc, cfSvc: cfSvc, daemons: daemons, log: log}
 }
 
 // ─── CurseForge proxy ─────────────────────────────────────────────────────────
@@ -113,7 +116,8 @@ func (h *ModHandler) InstallMod(c *gin.Context) {
 		case errors.Is(err, services.ErrServerNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			h.log.Error("install mod failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not install mod"})
 		}
 		return
 	}
@@ -133,14 +137,10 @@ func (h *ModHandler) RemoveMod(c *gin.Context) {
 		return
 	}
 
-	if err := h.modSvc.RemoveMod(c.Request.Context(), serverID, filename); err != nil {
-		switch {
-		case errors.Is(err, services.ErrModNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "mod not found"})
-		case errors.Is(err, services.ErrServerNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.modSvc.RemoveMod(c.Request.Context(), serverID, filename, c.Query("dir")); err != nil {
+		if !respondModLookupError(c, err, "mod not found") {
+			h.log.Error("remove mod failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not remove mod"})
 		}
 		return
 	}
@@ -169,13 +169,8 @@ func (h *ModHandler) ToggleMod(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, req.Enabled); err != nil {
-		switch {
-		case errors.Is(err, services.ErrModNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "mod not found"})
-		case errors.Is(err, services.ErrServerNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
-		default:
+	if err := h.modSvc.ToggleMod(c.Request.Context(), serverID, filename, c.Query("dir"), req.Enabled); err != nil {
+		if !respondModLookupError(c, err, "mod not found") {
 			h.log.Error("toggle mod failed", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "toggle failed"})
 		}
@@ -285,4 +280,22 @@ func (h *ModHandler) UploadMod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"filename": filename, "display_name": displayName})
+}
+
+// respondModLookupError writes the response for the lookup errors of the
+// mod/plugin file routes and reports whether it did.
+func respondModLookupError(c *gin.Context, err error, notFound string) bool {
+	switch {
+	case errors.Is(err, services.ErrModNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": notFound})
+	case errors.Is(err, services.ErrServerNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+	case errors.Is(err, services.ErrModAmbiguous):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrInvalidModDir):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		return false
+	}
+	return true
 }

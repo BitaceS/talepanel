@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/BitaceS/talepanel/api/internal/models"
@@ -79,5 +80,70 @@ func TestSwitchModVersion_KeepsCurseForgeProjectID(t *testing.T) {
 	}
 	if cfModID == nil || *cfModID != 4242 {
 		t.Fatalf("cf_mod_id = %v, want 4242", cfModID)
+	}
+}
+
+// The same filename can exist in mods/ and plugins/. Toggle and remove must
+// act on exactly one of them and tell the daemon which directory to use.
+func TestModFileOps_UseTheRowsDirectory(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewModService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	serverID := seedTestServer(t, pool, ownerID)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM node_commands WHERE server_id = $1`, serverID)
+	})
+	for _, dir := range []string{"mods", "plugins"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO server_mods (server_id, filename, display_name, download_url, source, is_present, mod_dir)
+			VALUES ($1, 'shared.jar', 'Shared', '', 'detected', true, $2)`, serverID, dir); err != nil {
+			t.Fatalf("seed %s: %v", dir, err)
+		}
+	}
+
+	if err := svc.ToggleMod(ctx, serverID, "shared.jar", "", false); !errors.Is(err, ErrModAmbiguous) {
+		t.Fatalf("toggle without dir: err=%v, want ErrModAmbiguous", err)
+	}
+	if err := svc.RemoveMod(ctx, serverID, "shared.jar", "bogus"); !errors.Is(err, ErrInvalidModDir) {
+		t.Fatalf("remove with bad dir: err=%v, want ErrInvalidModDir", err)
+	}
+
+	if err := svc.ToggleMod(ctx, serverID, "shared.jar", "plugins", false); err != nil {
+		t.Fatalf("toggle plugins: %v", err)
+	}
+	present := func(dir string) bool {
+		var p bool
+		if err := pool.QueryRow(ctx,
+			`SELECT is_present FROM server_mods WHERE server_id = $1 AND filename = 'shared.jar' AND mod_dir = $2`,
+			serverID, dir).Scan(&p); err != nil {
+			t.Fatalf("load %s: %v", dir, err)
+		}
+		return p
+	}
+	if present("plugins") || !present("mods") {
+		t.Fatal("toggle flipped the wrong row")
+	}
+
+	if err := svc.RemoveMod(ctx, serverID, "shared.jar", "plugins"); err != nil {
+		t.Fatalf("remove plugins: %v", err)
+	}
+	var cmdDir string
+	if err := pool.QueryRow(ctx, `
+		SELECT payload->>'dir' FROM node_commands
+		WHERE server_id = $1 AND command_type = 'remove_mod'`, serverID).Scan(&cmdDir); err != nil {
+		t.Fatalf("load remove command: %v", err)
+	}
+	if cmdDir != "plugins" {
+		t.Fatalf("remove_mod dir = %q, want plugins", cmdDir)
+	}
+
+	// Only mods/shared.jar is left, so no dir is needed any more.
+	if err := svc.RemoveMod(ctx, serverID, "shared.jar", ""); err != nil {
+		t.Fatalf("remove remaining: %v", err)
+	}
+	if err := svc.RemoveMod(ctx, serverID, "shared.jar", ""); !errors.Is(err, ErrModNotFound) {
+		t.Fatalf("remove again: err=%v, want ErrModNotFound", err)
 	}
 }

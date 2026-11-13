@@ -129,7 +129,7 @@ func SetupRouter(
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion, cfg.SetupCodeHash != "")
-	modH := handlers.NewModHandler(modSvc, cfSvc, daemonPool)
+	modH := handlers.NewModHandler(modSvc, cfSvc, daemonPool, log)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)

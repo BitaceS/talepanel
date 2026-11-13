@@ -17,6 +17,11 @@ import (
 
 var (
 	ErrModNotFound = errors.New("mod not found")
+	// ErrModAmbiguous: the same filename exists in mods/ and plugins/ and the
+	// caller did not say which one.
+	ErrModAmbiguous = errors.New("a file with this name exists in mods/ and plugins/; pass dir=mods or dir=plugins")
+	// ErrInvalidModDir: dir is neither empty, "mods" nor "plugins".
+	ErrInvalidModDir = errors.New("dir must be mods or plugins")
 	// ErrModURLNotAllowed: a mod download URL the caller may not use.
 	ErrModURLNotAllowed = errors.New("mod download URL not allowed")
 )
@@ -76,6 +81,42 @@ func normalizeModDir(dir string) string {
 		return dir
 	}
 	return "mods"
+}
+
+// resolveModDir returns the directory of the server_mods row for filename.
+// dir may be "", "mods" or "plugins"; with "" the row must be unique.
+func (s *ModService) resolveModDir(ctx context.Context, serverID uuid.UUID, filename, dir string) (string, error) {
+	if dir != "" && !modDirs[dir] {
+		return "", ErrInvalidModDir
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT COALESCE(mod_dir, 'mods') FROM server_mods
+		WHERE server_id = $1 AND filename = $2
+		  AND ($3 = '' OR COALESCE(mod_dir, 'mods') = $3)
+	`, serverID, filename, dir)
+	if err != nil {
+		return "", fmt.Errorf("looking up mod: %w", err)
+	}
+	defer rows.Close()
+	var dirs []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return "", fmt.Errorf("scanning mod dir: %w", err)
+		}
+		dirs = append(dirs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("looking up mod: %w", err)
+	}
+	switch len(dirs) {
+	case 0:
+		return "", ErrModNotFound
+	case 1:
+		return normalizeModDir(dirs[0]), nil
+	default:
+		return "", ErrModAmbiguous
+	}
 }
 
 // InstallModRequest is the body for POST /servers/:id/mods.
@@ -194,7 +235,10 @@ func (s *ModService) InstallMod(ctx context.Context, callerRole string, serverID
 }
 
 // RemoveMod removes a mod record and enqueues the file deletion command.
-func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename string) error {
+// dir ("", "mods" or "plugins") selects the row when the same filename exists
+// in both directories. The daemon removes the file and its ".disabled" variant
+// from that directory, so plugins and disabled mods are deleted on disk too.
+func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename, dir string) error {
 	var nodeID uuid.UUID
 	var dataPath string
 	err := s.db.QueryRow(ctx,
@@ -207,8 +251,20 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 		return fmt.Errorf("fetching server: %w", err)
 	}
 
-	ct, err := s.db.Exec(ctx,
-		`DELETE FROM server_mods WHERE server_id = $1 AND filename = $2`, serverID, filename,
+	modDir, err := s.resolveModDir(ctx, serverID, filename, dir)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("remove mod: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	ct, err := tx.Exec(ctx,
+		`DELETE FROM server_mods WHERE server_id = $1 AND filename = $2 AND COALESCE(mod_dir, 'mods') = $3`,
+		serverID, filename, modDir,
 	)
 	if err != nil {
 		return fmt.Errorf("deleting mod: %w", err)
@@ -221,8 +277,9 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 	payload, _ := json.Marshal(map[string]any{
 		"data_path": dataPath,
 		"filename":  filename,
+		"dir":       modDir,
 	})
-	_, err = s.db.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
 		VALUES ($1, $2, 'remove_mod', $3)
 	`, nodeID, serverID, payload)
@@ -230,7 +287,7 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 		return fmt.Errorf("enqueuing remove command: %w", err)
 	}
 
-	return nil
+	return tx.Commit(ctx)
 }
 
 // ─── Task 2: Toggle mod ───────────────────────────────────────────────────────
@@ -240,7 +297,11 @@ func (s *ModService) RemoveMod(ctx context.Context, serverID uuid.UUID, filename
 // suffix; the "dir" field tells it whether the file lives in mods/ or plugins/.
 // Without it, toggling a plugin renamed a non-existent file under mods/ and the
 // panel reported success anyway.
-func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename string, enabled bool) error {
+//
+// dir ("", "mods" or "plugins") selects the row when the same filename exists
+// in both directories; otherwise one UPDATE would flip both rows while only
+// one file is renamed.
+func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename, dir string, enabled bool) error {
 	var nodeID uuid.UUID
 	var dataPath string
 	err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath)
@@ -251,19 +312,19 @@ func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename
 		return fmt.Errorf("toggle mod: fetch server: %w", err)
 	}
 
-	// RETURNING gives us the file's directory and tells us whether the row
-	// existed, in one round trip.
-	var modDir string
-	err = s.db.QueryRow(ctx, `
-		UPDATE server_mods SET is_present = $1
-		WHERE server_id = $2 AND filename = $3
-		RETURNING COALESCE(mod_dir, 'mods')
-	`, enabled, serverID, filename).Scan(&modDir)
+	modDir, err := s.resolveModDir(ctx, serverID, filename, dir)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrModNotFound
-		}
+		return err
+	}
+	ct, err := s.db.Exec(ctx, `
+		UPDATE server_mods SET is_present = $1
+		WHERE server_id = $2 AND filename = $3 AND COALESCE(mod_dir, 'mods') = $4
+	`, enabled, serverID, filename, modDir)
+	if err != nil {
 		return fmt.Errorf("toggle mod: update: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrModNotFound
 	}
 
 	cmdType := "disable_mod"
@@ -273,7 +334,7 @@ func (s *ModService) ToggleMod(ctx context.Context, serverID uuid.UUID, filename
 	payload, _ := json.Marshal(map[string]string{
 		"data_path": dataPath,
 		"filename":  filename,
-		"dir":       normalizeModDir(modDir),
+		"dir":       modDir,
 	})
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO node_commands (node_id, server_id, command_type, payload)
