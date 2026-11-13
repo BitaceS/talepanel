@@ -797,9 +797,9 @@ func (s *ServerService) MigratePreflight(ctx context.Context, callerRole string,
 	}
 	var nodeID uuid.UUID
 	var status string
-	var ramMB, diskMB int
-	err := s.db.QueryRow(ctx, `SELECT node_id, status, ram_limit_mb, disk_limit_mb FROM servers WHERE id = $1`,
-		serverID).Scan(&nodeID, &status, &ramMB, &diskMB)
+	var ramMB, diskMB, port int
+	err := s.db.QueryRow(ctx, `SELECT node_id, status, ram_limit_mb, disk_limit_mb, port FROM servers WHERE id = $1`,
+		serverID).Scan(&nodeID, &status, &ramMB, &diskMB, &port)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, ErrServerNotFound
@@ -834,6 +834,17 @@ func (s *ServerService) MigratePreflight(ctx context.Context, callerRole string,
 	}
 	if ramMB > totalRAM || diskMB > totalDisk {
 		return uuid.Nil, fmt.Errorf("%w: server limits exceed the target node's capacity", ErrMigrationTarget)
+	}
+	// Ports are allocated per node (from 5520 up) and the migration keeps the
+	// server's port, so two servers would end up bound to the same port.
+	var portTaken bool
+	if err := s.db.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM servers WHERE node_id = $1 AND port = $2 AND id <> $3)`,
+		req.TargetNodeID, port, serverID).Scan(&portTaken); err != nil {
+		return uuid.Nil, fmt.Errorf("checking target port: %w", err)
+	}
+	if portTaken {
+		return uuid.Nil, fmt.Errorf("%w: port %d is already used by another server on the target node", ErrMigrationTarget, port)
 	}
 
 	return nodeID, nil

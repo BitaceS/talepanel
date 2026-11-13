@@ -64,3 +64,36 @@ func TestMigratePreflightAuthorizationAndCapacity(t *testing.T) {
 		t.Fatalf("admin migrate to good node: %v", err)
 	}
 }
+
+// The migration keeps the server's port, so a target node that already runs
+// a server on that port must be refused.
+func TestMigratePreflightRejectsPortClash(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	serverID := seedTestServer(t, pool, ownerID) // port 5520
+	if _, err := pool.Exec(ctx, `UPDATE servers SET ram_limit_mb = 1024, disk_limit_mb = 1024 WHERE id = $1`, serverID); err != nil {
+		t.Fatal(err)
+	}
+	target := seedMigrateNode(t, pool, "online", 10, 8192)
+	occupant := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO servers (id, name, node_id, owner_id, status, port, data_path)
+		 VALUES ($1,$2,$3,$4,'stopped',5520,$5)`,
+		occupant, "s"+occupant.String()[:8], target, ownerID, "/tmp/"+occupant.String()); err != nil {
+		t.Fatalf("seed occupant: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM servers WHERE id = $1`, occupant) })
+
+	if _, err := svc.MigratePreflight(ctx, models.RoleAdmin, serverID, MigrateServerRequest{TargetNodeID: target}); !errors.Is(err, ErrMigrationTarget) {
+		t.Fatalf("port clash: err = %v, want ErrMigrationTarget", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE servers SET port = 5521 WHERE id = $1`, occupant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.MigratePreflight(ctx, models.RoleAdmin, serverID, MigrateServerRequest{TargetNodeID: target}); err != nil {
+		t.Fatalf("free port: %v", err)
+	}
+}
