@@ -23,7 +23,7 @@ function cardClass(selected: boolean) {
 </script>
 
 <template>
-  <div role="radiogroup" aria-label="Server template" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+  <div role="radiogroup" aria-label="Server template" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
     <button
       type="button"
       role="radio"

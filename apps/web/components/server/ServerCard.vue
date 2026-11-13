@@ -97,7 +97,7 @@ const statusDotColor = computed(() => {
 
           <div class="min-w-0">
             <h3 class="text-tp-text font-display font-semibold text-sm truncate">{{ server.name }}</h3>
-            <p class="text-tp-muted text-xs truncate mt-0.5">v{{ server.hytale_version }}</p>
+            <p class="text-tp-muted text-xs truncate mt-0.5">{{ formatHytaleVersion(server.hytale_version) }}</p>
           </div>
         </div>
 

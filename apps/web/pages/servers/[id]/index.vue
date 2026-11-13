@@ -1219,7 +1219,7 @@ const sidebarMods = computed(() => {
               <h2 class="text-tp-text font-display font-bold text-3xl">{{ server.name }}</h2>
               <ServerStatusBadge :status="server.status" />
             </div>
-            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; Port {{ server.port }} &middot; v{{ server.hytale_version }}</p>
+            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; Port {{ server.port }} &middot; {{ formatHytaleVersion(server.hytale_version) }}</p>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <UiButton variant="secondary" size="sm" :disabled="!canStart || actionLoading.start"

@@ -373,7 +373,7 @@ onMounted(() => {
         <!-- Server info -->
         <div class="min-w-0">
           <p class="text-tp-text font-display font-semibold text-sm truncate">{{ server.name }}</p>
-          <p class="text-tp-muted text-xs truncate">v{{ server.hytale_version }}</p>
+          <p class="text-tp-muted text-xs truncate">{{ formatHytaleVersion(server.hytale_version) }}</p>
         </div>
 
         <!-- Status badge -->
