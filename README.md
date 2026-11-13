@@ -1,18 +1,41 @@
 # TalePanel — open-source Hytale server panel
 
-**The control panel that actually understands Hytale.**
-**[Website](https://talepanel.com) · [Docs](https://talepanel.com/docs/) · [Install guide](https://talepanel.com/docs/start/install/) · [Discord](https://discord.gg/6N8WNrW5WJ)**
+**The Hytale server panel that actually understands Hytale.** Self-hosted Hytale server management for one VPS or a whole network of nodes.
+
+[![Latest release](https://img.shields.io/github/v/release/BitaceS/talepanel?include_prereleases&sort=semver)](https://github.com/BitaceS/talepanel/releases)
+[![CI](https://github.com/BitaceS/talepanel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BitaceS/talepanel/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/BitaceS/talepanel?style=flat)](https://github.com/BitaceS/talepanel/stargazers)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/6N8WNrW5WJ)
+
+**[Website](https://talepanel.com) · [Docs](https://talepanel.com/docs/) · [Install guide](https://talepanel.com/docs/start/install/) · [Roadmap](docs/ROADMAP.md) · [Discord](https://discord.gg/6N8WNrW5WJ)**
 Built by [BitaceS](https://github.com/BitaceS) · AGPL-3.0 · free, forever
+
+> If TalePanel is useful to you, a ⭐ on GitHub helps other Hytale server owners find it.
 
 ---
 
 ## What is TalePanel?
 
-TalePanel is a free, open-source, self-hosted **Hytale server panel**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
+TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hytale server manager**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
 
-Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
+It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
 **Status:** actively developed, public beta. Latest release: [v0.12.0-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.12.0-beta) (2026-10-30), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+
+### At a glance
+
+| | |
+|---|---|
+| **Install** | One command (`install.sh --quick`), automatic HTTPS via Let's Encrypt, no domain needed (`sslip.io`) |
+| **Servers** | Create / start / stop / restart / kill, live console (polling), RAM + CPU limits, auto restart after crashes |
+| **Hytale-native** | Launch flags, auth modes, exit codes, Release / Pre-release builds, Hytale account link (OAuth device flow) |
+| **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
+| **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
+| **Scale** | Multi-node with one-time enrollment tokens, mutual TLS between panel and nodes, network mod with `/play` handoff |
+| **Security** | 2FA, RBAC per server, audit log, rate limiting, no default accounts |
+| **Alerts** | Discord, webhook and email |
+| **Stack** | Go API, Rust daemon, Nuxt 3 web panel, PostgreSQL, Redis |
 
 ---
 
@@ -164,8 +187,11 @@ talepanel/
 ├── services/
 │   ├── api/           Go backend API
 │   └── daemon/        Rust node daemon (TaleDaemon)
-├── infra/
-│   └── docker/        Docker/Compose files
+├── deploy/
+│   ├── panel/         Production panel compose
+│   └── daemon/        Production daemon compose
+├── mods/              Hytale plugins (talepanel-network)
+├── scripts/           install.sh and helpers
 ├── services/api/migrations/   PostgreSQL migrations
 ├── docker-compose.yml
 ├── .env.example
@@ -180,7 +206,7 @@ talepanel/
 |---|---|---|
 | Docker + Docker Compose | latest | `docker -v` |
 | Node.js | 20+ | `node -v` |
-| Go | 1.22+ | `go version` |
+| Go | 1.26+ | `go version` |
 | Rust + Cargo | 1.79+ | `rustc --version` |
 
 ---
@@ -406,17 +432,20 @@ cd services/api && go test ./...
 # Daemon tests
 cd services/daemon && cargo test
 
-# Web lint/typecheck
-cd apps/web && npm run lint && npm run typecheck
+# API integration tests (need a disposable Postgres with the migrations applied)
+TALEPANEL_TEST_DATABASE_URL=postgres://... go test ./...
+
+# Web typecheck
+cd apps/web && npm run typecheck
 ```
 
-Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are being back-filled per module. PRs that add regression tests for code they touch are the most welcome kind of PR.
+Coverage is growing but incomplete: Go unit and Postgres integration tests in `services/api`, about 120 Rust tests in the daemon, JUnit in the network mod. PRs that add regression tests for code they touch are the most welcome kind of PR.
 
 ### Code Style
 
 - Go: `gofmt` + `golangci-lint`
 - Rust: `cargo fmt` + `cargo clippy`
-- TypeScript/Vue: ESLint + Prettier
+- TypeScript/Vue: `nuxt typecheck` (an ESLint config is not set up yet, see the roadmap)
 
 ---
 
@@ -438,6 +467,8 @@ Coverage is thin at v0.9 — a few Go test files, no Rust tests yet. Tests are b
 | Per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 | Server templates | Planned |
+
+The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
