@@ -80,7 +80,10 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    // verifyTotp completes a 2FA-gated login using the partial token from login().
+    // verifyTotp completes a 2FA-gated login using the partial token from
+    // login(). code is a 6-digit TOTP or a single-use recovery code; after a
+    // recovery code the user lands on the security settings, where they can
+    // see how many codes are left and re-enrol a lost authenticator.
     async verifyTotp(code: string): Promise<void> {
       if (!this.partialToken) {
         throw new Error('No pending 2FA challenge')
@@ -105,7 +108,14 @@ export const useAuthStore = defineStore('auth', {
         }
 
         this.partialToken = null
-        await navigateTo('/')
+        if (response.used_recovery_code) {
+          await navigateTo({
+            path: '/settings/security',
+            query: { recovery_used: String(response.recovery_codes_remaining ?? 0) },
+          })
+        } else {
+          await navigateTo('/')
+        }
       } finally {
         this.loading = false
       }

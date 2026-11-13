@@ -38,6 +38,17 @@ const showPassword = ref(false)
 // 2FA challenge state — shown after a password login when the account has TOTP.
 const totpRequired = ref(false)
 const totpCode = ref('')
+// Lost the authenticator? The same step accepts a single-use recovery code.
+const useRecoveryCode = ref(false)
+const codeInput = ref<HTMLInputElement | null>(null)
+
+async function toggleRecoveryCode() {
+  useRecoveryCode.value = !useRecoveryCode.value
+  totpCode.value = ''
+  serverError.value = ''
+  await nextTick()
+  codeInput.value?.focus()
+}
 
 function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -81,7 +92,13 @@ async function onVerifyTotp() {
   serverError.value = ''
 
   const code = totpCode.value.trim()
-  if (!/^\d{6}$/.test(code)) {
+  if (useRecoveryCode.value) {
+    // xxxxx-xxxxx; the server ignores dashes, spaces and case.
+    if (!/^[0-9a-z]{10}$/i.test(code.replace(/[\s-]/g, ''))) {
+      serverError.value = 'Enter one of your recovery codes (format xxxxx-xxxxx)'
+      return
+    }
+  } else if (!/^\d{6}$/.test(code)) {
     serverError.value = 'Enter the 6-digit code from your authenticator app'
     return
   }
@@ -97,6 +114,7 @@ async function onVerifyTotp() {
 function cancelTotp() {
   totpRequired.value = false
   totpCode.value = ''
+  useRecoveryCode.value = false
   serverError.value = ''
   authStore.partialToken = null
 }
@@ -110,7 +128,9 @@ function cancelTotp() {
         {{ totpRequired ? 'Two-factor authentication' : 'Welcome back' }}
       </h2>
       <p class="text-tp-muted text-sm mt-1">
-        {{ totpRequired ? 'Enter the 6-digit code from your authenticator app' : 'Sign in to manage your servers' }}
+        <template v-if="!totpRequired">Sign in to manage your servers</template>
+        <template v-else-if="useRecoveryCode">Enter one of the recovery codes you saved when enabling 2FA</template>
+        <template v-else>Enter the 6-digit code from your authenticator app</template>
       </p>
     </div>
 
@@ -126,10 +146,32 @@ function cancelTotp() {
     <!-- 2FA verification step -->
     <form v-if="totpRequired" class="space-y-5" @submit.prevent="onVerifyTotp">
       <div class="flex flex-col gap-1.5">
-        <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Authentication Code</label>
+        <label for="totp-code" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">
+          {{ useRecoveryCode ? 'Recovery Code' : 'Authentication Code' }}
+        </label>
         <div class="relative">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">pin</span>
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">{{ useRecoveryCode ? 'key' : 'pin' }}</span>
           <input
+            v-if="useRecoveryCode"
+            id="totp-code"
+            ref="codeInput"
+            :key="'recovery'"
+            v-model="totpCode"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            maxlength="24"
+            placeholder="xxxxx-xxxxx"
+            autofocus
+            class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm font-mono tracking-wider placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all duration-150"
+          />
+          <input
+            v-else
+            id="totp-code"
+            ref="codeInput"
+            :key="'totp'"
             v-model="totpCode"
             type="text"
             inputmode="numeric"
@@ -140,6 +182,13 @@ function cancelTotp() {
             class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm tracking-[0.5em] placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all duration-150"
           />
         </div>
+        <button
+          type="button"
+          class="self-start text-tp-accent text-xs font-semibold hover:text-tp-primary transition-colors"
+          @click="toggleRecoveryCode"
+        >
+          {{ useRecoveryCode ? 'Use your authenticator app instead' : 'Lost your authenticator? Use a recovery code' }}
+        </button>
       </div>
 
       <button

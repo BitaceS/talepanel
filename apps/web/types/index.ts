@@ -71,6 +71,9 @@ export interface LoginResponse {
   user?: User
   requires_totp?: boolean
   partial_token?: string
+  // Set by /auth/totp/verify when a recovery code was used instead of a TOTP.
+  used_recovery_code?: boolean
+  recovery_codes_remaining?: number
 }
 
 export interface InstalledMod {
