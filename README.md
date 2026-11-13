@@ -28,7 +28,7 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 | | |
 |---|---|
 | **Install** | One command (`install.sh --quick`), automatic HTTPS via Let's Encrypt, no domain needed (`sslip.io`) |
-| **Servers** | Create / start / stop / restart / kill, live console (polling), RAM + CPU limits, auto restart after crashes |
+| **Servers** | Create / start / stop / restart / kill, live console (SSE), RAM + CPU limits, auto restart after crashes |
 | **Hytale-native** | Launch flags, auth modes, exit codes, Release / Pre-release builds, Hytale account link (OAuth device flow) |
 | **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
 | **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
@@ -76,7 +76,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 **Shipped and working against real Hytale servers:**
 
 - **Servers** — create, start, stop, restart, kill, resource limits, per-server member roles.
-- **Live console + logs** — command input and log tail. Implemented as short-interval polling (logs ~1s, metrics ~5s, status 2–15s), not a socket. It feels live; it is honest about how.
+- **Live console + logs** — command input and log tail. Log lines, status changes and metrics (every 5 s) are pushed to the browser over Server-Sent Events (`GET /api/v1/servers/:id/stream`); commands still go out as plain POSTs. If the stream cannot connect (three failed attempts, e.g. a proxy that buffers responses) the page falls back to the old polling (logs ~1 s, metrics ~5 s, status 4–15 s); the console header shows **Live** or **Polling**.
 - **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
 - **Worlds** — list, switch and delete the worlds the Hytale server created. TalePanel does not generate worlds itself.
 - **Files** — browse, edit, upload, download inside the server directory.
@@ -89,7 +89,6 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 
 **Not there yet (roadmap, tracked publicly):**
 
-- **WebSocket / SSE streaming** — replacing the polling loops in console, logs and metrics.
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
 - **Process isolation per server** — see [`SECURITY.md`](SECURITY.md).
 
@@ -357,7 +356,7 @@ See `.env.example` for the full list with descriptions.
 
 | Service | Port | Notes |
 |---|---|---|
-| API (Go) | 8080 | REST API (the panel polls it; no WebSocket/SSE yet) |
+| API (Go) | 8080 | REST API + live event stream (Server-Sent Events on the same port; a reverse proxy in front must not buffer `text/event-stream`) |
 | Web Panel | 3000 | Nuxt 3 dev server |
 | PostgreSQL | 5432 | Database |
 | Redis | 6379 | Cache + queue |
@@ -454,7 +453,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Item | Status |
 |---|---|
 | Auth, RBAC, 2FA, audit log | Shipped |
-| Servers, console + logs (polling), files, worlds, players | Shipped |
+| Servers, console + logs, files, worlds, players | Shipped |
 | Multi-node with enrollment tokens | Shipped |
 | Upload-based mod installer | Shipped |
 | CurseForge mod browser | Shipped (needs an API key in Admin → Integrations) |
@@ -464,10 +463,10 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | mTLS panel ↔ daemon | Shipped (v0.12) |
 | Alerts via Discord, webhook and email | Shipped |
 | Admin IP allowlist, `tale-cli admin disable-2fa` | Unreleased |
-| WebSocket/SSE streaming instead of polling | Next |
 | Per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 | Server templates | Unreleased |
+| Live console, logs, status and metrics over SSE (polling as fallback) | Unreleased |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

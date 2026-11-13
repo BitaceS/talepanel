@@ -32,6 +32,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | `ADMIN_IP_ALLOWLIST` for `/api/v1/admin/*` and admin node routes | Open item in `SECURITY.md` and `production-hardening.md`. Off by default. Unit tests. |
 | `TRUSTED_PROXIES` set in the panel compose | Not a roadmap item but a prerequisite for any per-IP feature (rate limit, allowlist, audit IPs). |
 | Issue forms + PR template | Community files for contributors. |
+| Live console, logs, status and metrics over SSE | Roadmap "Now" #1. `GET /servers/:id/stream` with single-use tickets (`POST /servers/:id/stream-ticket`), Redis pub/sub wake-ups, Postgres as catch-up source (`Last-Event-ID` / `?after=`), polling fallback in the panel. Go unit + integration tests. |
 
 Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-13.md`.
 
@@ -43,7 +44,7 @@ Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-1
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 1 | **WebSocket/SSE console, logs and metrics** | Already the top "Next" item in the README. Every competing Hytale panel advertises a live WebSocket console; polling every 1 s costs requests per open tab and adds latency. SSE is enough (server → client) and passes through Caddy without config; commands keep using POST. | M–L |
+| 1 | ~~**WebSocket/SSE console, logs and metrics**~~ | Done (unreleased): Server-Sent Events stream for logs, status and metrics; the panel falls back to polling when the stream cannot connect. Commands keep using POST. | — |
 | 2 | **Fix the remaining review findings** (see handoff: mod `mod_dir` handling in toggle/remove, concurrent start race in the daemon, streamed file downloads, `remove_mod` for `plugins/` and `.disabled` files) | Real bugs with a known fix; small enough to batch into a patch release. | M |
 | 3 | **ESLint for the web panel** (`@nuxt/eslint`, add `npm run lint` to CI) | `npm run lint` exists but there is no config, so it fails; CI does not run it. Cheap safety net. | S |
 | 4 | **`cargo fmt` once, then enforce in CI** | ~350 formatting hunks in the daemon today; one mechanical commit when no branch is open, then `cargo fmt --check` in CI. Same for `gofmt -l`. | S |
