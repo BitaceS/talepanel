@@ -7,7 +7,7 @@ import {
   Send, ChevronRight, Search, Download, Trash2, Package, ExternalLink,
   Gamepad2, Loader2, Plus, Database,
   File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X, Pencil,
-  Upload, PackageOpen, Copy, Info,
+  Upload, PackageOpen, Copy, Info, CalendarClock,
 } from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
 import { useModsStore } from '~/stores/mods'
@@ -79,7 +79,7 @@ const displayId = computed(() => {
 })
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'console' | 'game-control' | 'files' | 'mods' | 'worlds' | 'players' | 'backups' | 'databases' | 'settings'
+type TabId = 'overview' | 'console' | 'game-control' | 'files' | 'mods' | 'worlds' | 'players' | 'backups' | 'tasks' | 'databases' | 'settings'
 
 interface Tab { id: TabId; label: string; icon: unknown }
 
@@ -93,6 +93,7 @@ const tabs: Tab[] = [
   { id: 'players',   label: 'Players',   icon: Users },
   { id: 'databases', label: 'Databases', icon: Database },
   { id: 'backups',   label: 'Backups',   icon: DatabaseBackup },
+  { id: 'tasks',     label: 'Schedules', icon: CalendarClock },
   { id: 'settings',  label: 'Settings',  icon: Settings },
 ]
 
@@ -2098,6 +2099,9 @@ const sidebarMods = computed(() => {
           </div>
         </div>
       </div>
+
+      <!-- ── Schedules tab ──────────────────────────────────────────────── -->
+      <ServerTasksPanel v-else-if="activeTab === 'tasks'" :server-id="serverId" @toast="showToast" />
 
       <!-- ── Databases tab ──────────────────────────────────────────────── -->
       <div v-else-if="activeTab === 'databases'" class="space-y-4">
