@@ -340,7 +340,7 @@ func (h *ServerHandler) StopServer(c *gin.Context) {
 
 	_ = h.svc.UpdateServerStatus(c.Request.Context(), serverID, models.StatusStopping)
 
-	go h.dispatchStop(server.NodeID.String(), server.ID.String())
+	go h.dispatchStop(server.NodeID.String(), server.ID, server.Status)
 
 	c.JSON(http.StatusAccepted, gin.H{"message": "stop dispatched", "status": models.StatusStopping})
 }
@@ -526,18 +526,35 @@ provisioned:
 	// Daemon reports status back via POST /servers/:id/daemon/status — DB updated there
 }
 
-func (h *ServerHandler) dispatchStop(nodeID, serverID string) {
+// dispatchStop asks the node to stop the server. When the node cannot be
+// reached or refuses (e.g. the process is not running, which the daemon
+// reports as "not managed by this node"), no status callback will ever
+// arrive, so the status set before dispatch is restored. Otherwise the
+// server would stay in "stopping" forever, which blocks reinstall and
+// migration and counts it as active on its node.
+func (h *ServerHandler) dispatchStop(nodeID string, serverID uuid.UUID, prevStatus string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
+
+	restore := func() {
+		if prevStatus == "" || prevStatus == models.StatusStopping {
+			return
+		}
+		if err := h.svc.UpdateServerStatus(ctx, serverID, prevStatus); err != nil {
+			h.log.Warn("stop: restoring status failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		}
+	}
 
 	client, err := h.daemonClient(nodeID)
 	if err != nil {
 		h.log.Error("stop: no daemon client", zap.String("node_id", nodeID), zap.Error(err))
+		restore()
 		return
 	}
 
-	if err := client.StopServer(ctx, serverID); err != nil {
-		h.log.Error("stop: daemon call failed", zap.String("server_id", serverID), zap.Error(err))
+	if err := client.StopServer(ctx, serverID.String()); err != nil {
+		h.log.Error("stop: daemon call failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		restore()
 	}
 }
 
