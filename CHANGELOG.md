@@ -9,6 +9,9 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 ### Added
 - Theme switch in the user menu (top right): **Classic** or **Game**. The choice is stored per browser. Classic is the default.
 - Game theme: a hand-drawn pixel-art night scene behind the panel (moon, pine forest, campfire and torches), stone-framed panels and game-style buttons. The server list becomes a server select like in a game's multiplayer menu: tabs for all/online/stopped servers, a block icon per server status, keyboard selection (arrow keys, Enter to open, double-click) and Open, Start/Stop, Restart, New Server and Delete buttons. The scene is drawn in the browser, no image files are downloaded; with "reduce motion" enabled in the operating system it stays still, and it pauses in background tabs.
+- `tale-cli admin disable-2fa --email <address> [--revoke-sessions]`: turns off 2FA for a user who lost their authenticator, writes an audit entry. Replaces the SQL workaround in `SECURITY.md`.
+- Optional `ADMIN_IP_ALLOWLIST` (comma-separated IPs/CIDRs) restricts `/api/v1/admin/*` and the admin node routes to known addresses. Empty (the default) changes nothing; a malformed value stops the API at startup.
+- GitHub issue forms (bug report, feature request), contact links and a pull request template.
 - `GET /api/v1/servers/activity`: players online right now (per server and in total) and the number of players per hour over the last 24 hours, limited to the servers the caller can see. Counted from the player sessions the panel already records.
 
 ### Changed
@@ -18,11 +21,31 @@ A new look for the panel, an optional game-style theme, and a dashboard that onl
 - Login and registration use plain wording ("Sign in", "Password", "Create account"); the help menu links to the docs, Discord and GitHub issues and shows the installed version.
 
 ### Fixed
+- CPU, RAM and disk alert rules never fired: the event was stored with the node ID in the server column, which the database rejected. A global rule now also raises its own event for each affected node instead of being suppressed for 15 minutes after the first one.
+- Node RAM was reported 1024 times too high (sysinfo 0.30 reports bytes, the daemon divided by 1024 once). Existing nodes correct their stored total on the next daemon start.
+- Per-server CPU always showed 0 % and node CPU was the average since boot; the daemon now measures CPU between samples.
+- Plugin commands were added again on every plugin scan (every 5 minutes), filling the Game Control panel with copies. Migration 042 removes the copies and prevents new ones.
+- Cross-node migration failed for every server archive over 2 MB (the daemon's import route kept the default body limit). The archive is now streamed to disk, up to 2 GiB.
+- A server that missed its startup timeout was shown as crashed but kept running unmanaged; Stop/Kill no longer reached it and Start launched a second process on the same data. It is now stopped.
+- A node set to "draining" was switched back to "online" by its next heartbeat.
+- Stop on a crashed or already stopped server (or an unreachable node) left it in "stopping" for good, which blocked reinstall and migration. The previous status is restored.
+- Invited server admins got 403 when saving server settings.
+- Switching a CurseForge mod to another version lost its project ID, so its versions could not be listed again.
+- Player detail page: name, playtime and status were empty, and op/mute/ban/whitelist could only be turned on; the session list showed no join time.
+- Editing a node's "Max Servers" always failed with 400.
+- Deleting a user who still owns servers returned 500; it now returns 409 with an explanation.
+- Invitations sent with different upper/lower case in the email address did not appear under "My invitations".
+- The daemon held an internal lock while writing to a server's console, which could stall other servers' start/stop while one server hung.
 - The dashboard displayed made-up numbers: a fixed weekly CPU/RAM chart, a drawn player curve, "N operational" even for offline nodes, "0 players" on every server card, and four sample notifications.
 - The RAM bars in the server list were filled with random values. The list now shows the configured RAM limit.
 - Console output contained raw ANSI colour codes from the Hytale server, shown as `[m` noise. They are now stripped.
 - The 2FA settings page used light-theme colours and was hard to read on the dark background.
 - The help menu showed a hard-coded "v1.0.0" and links that went nowhere; the login page had a "Lost credentials?" link without a function. Both fixed or removed.
+
+### Security
+- The panel stack now sets `TRUSTED_PROXIES` for Caddy. Before, the API saw every request as coming from Caddy: all users shared one login rate limit (one client could lock everyone out) and audit log entries had Caddy's IP.
+- Restoring an encrypted backup refuses an archive that is not encrypted. Someone with write access to the off-site storage could otherwise swap in an unauthenticated zip (e.g. with a malicious mod).
+- Alert webhook URLs (which contain their credential) are redacted from the audit log.
 
 ### Build
 - Release images are built per architecture on native GitHub runners (amd64 and arm64) instead of under QEMU emulation, with a build cache and timeouts. The v0.12.0-beta release hung for hours in the emulated arm64 web build. A release can be re-run for an existing tag from the Actions tab.
