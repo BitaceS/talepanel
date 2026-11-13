@@ -467,7 +467,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | WebSocket/SSE streaming instead of polling | Next |
 | Per-server process isolation | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
-| Server templates | Planned |
+| Server templates | Unreleased |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
