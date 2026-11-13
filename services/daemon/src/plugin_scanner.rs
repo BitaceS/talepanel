@@ -136,11 +136,16 @@ fn read_active_world(server_dir: &Path) -> String {
     let cfg_path = server_dir.join("config.json");
     // Bounded read of a regular file only: the file is tenant-controlled and
     // could be a symlink to /dev/zero or something huge.
-    let is_file = std::fs::symlink_metadata(&cfg_path).map(|m| m.is_file()).unwrap_or(false);
+    let is_file = std::fs::symlink_metadata(&cfg_path)
+        .map(|m| m.is_file())
+        .unwrap_or(false);
     let mut contents = Vec::new();
     let read_ok = is_file
         && std::fs::File::open(&cfg_path)
-            .and_then(|f| f.take(MAX_SERVER_CONFIG_BYTES + 1).read_to_end(&mut contents))
+            .and_then(|f| {
+                f.take(MAX_SERVER_CONFIG_BYTES + 1)
+                    .read_to_end(&mut contents)
+            })
             .is_ok()
         && contents.len() as u64 <= MAX_SERVER_CONFIG_BYTES;
     if read_ok {
@@ -242,7 +247,9 @@ fn classify_archive_name(filename: &str) -> Option<(String, bool)> {
 
 /// True if `p` is a directory and not a symlink to one.
 fn is_real_dir(p: &Path) -> bool {
-    std::fs::symlink_metadata(p).map(|m| m.file_type().is_dir()).unwrap_or(false)
+    std::fs::symlink_metadata(p)
+        .map(|m| m.file_type().is_dir())
+        .unwrap_or(false)
 }
 
 fn scan_server_plugins(server_dir: &Path) -> Vec<DetectedPlugin> {
@@ -331,10 +338,17 @@ const MAX_SERVER_CONFIG_BYTES: u64 = 1024 * 1024;
 
 /// Read a small metadata entry, or `None` if it is missing or larger than
 /// `MAX_META_BYTES` (checked on the declared size and on the bytes read).
-fn read_meta_entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) -> Option<Vec<u8>> {
+fn read_meta_entry<R: Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Option<Vec<u8>> {
     let entry = archive.by_name(name).ok()?;
     if entry.size() > MAX_META_BYTES {
-        debug!(entry = name, size = entry.size(), "Plugin metadata too large, skipped");
+        debug!(
+            entry = name,
+            size = entry.size(),
+            "Plugin metadata too large, skipped"
+        );
         return None;
     }
     let mut buf = Vec::new();
@@ -364,9 +378,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
             || name.ends_with(".toml")
             || name.ends_with(".json")
             || name.ends_with(".properties"))
-            && (!name.contains('/') || name.starts_with("config")) {
-                config_files.push(name);
-            }
+            && (!name.contains('/') || name.starts_with("config"))
+        {
+            config_files.push(name);
+        }
     }
 
     // Try plugin.yml (Bukkit/Spigot/Paper).
@@ -448,7 +463,10 @@ fn scan_archive(path: &Path) -> Result<Option<DetectedPlugin>> {
 
 fn extract_yaml_commands(commands: &Option<serde_yaml::Value>) -> Vec<String> {
     match commands {
-        Some(serde_yaml::Value::Mapping(map)) => map.keys().filter_map(|k| k.as_str().map(String::from)).collect(),
+        Some(serde_yaml::Value::Mapping(map)) => map
+            .keys()
+            .filter_map(|k| k.as_str().map(String::from))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -470,7 +488,8 @@ mod tests {
 
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("talescan-test-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("talescan-test-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         dir
@@ -478,9 +497,18 @@ mod tests {
 
     #[test]
     fn classify_archive_name_detects_disabled_suffix() {
-        assert_eq!(classify_archive_name("cool.jar"), Some(("cool.jar".into(), true)));
-        assert_eq!(classify_archive_name("cool.JAR"), Some(("cool.JAR".into(), true)));
-        assert_eq!(classify_archive_name("pack.zip"), Some(("pack.zip".into(), true)));
+        assert_eq!(
+            classify_archive_name("cool.jar"),
+            Some(("cool.jar".into(), true))
+        );
+        assert_eq!(
+            classify_archive_name("cool.JAR"),
+            Some(("cool.JAR".into(), true))
+        );
+        assert_eq!(
+            classify_archive_name("pack.zip"),
+            Some(("pack.zip".into(), true))
+        );
         assert_eq!(
             classify_archive_name("cool.jar.disabled"),
             Some(("cool.jar".into(), false))
@@ -502,18 +530,28 @@ mod tests {
         std::fs::create_dir_all(server_dir.join("mods")).unwrap();
         std::fs::create_dir_all(server_dir.join("plugins")).unwrap();
         std::fs::write(server_dir.join("mods").join("alpha.jar"), EMPTY_ZIP).unwrap();
-        std::fs::write(server_dir.join("plugins").join("beta.jar.disabled"), EMPTY_ZIP).unwrap();
+        std::fs::write(
+            server_dir.join("plugins").join("beta.jar.disabled"),
+            EMPTY_ZIP,
+        )
+        .unwrap();
         std::fs::write(server_dir.join("plugins").join("readme.txt"), b"ignore me").unwrap();
 
         let found = scan_server_plugins(&server_dir);
         assert_eq!(found.len(), 2, "only archives are reported: {found:?}");
 
-        let alpha = found.iter().find(|p| p.filename == "alpha.jar").expect("alpha.jar");
+        let alpha = found
+            .iter()
+            .find(|p| p.filename == "alpha.jar")
+            .expect("alpha.jar");
         assert!(alpha.enabled);
         assert_eq!(alpha.source_dir, "mods");
 
         // Reported under its base name, not "beta.jar.disabled".
-        let beta = found.iter().find(|p| p.filename == "beta.jar").expect("beta.jar");
+        let beta = found
+            .iter()
+            .find(|p| p.filename == "beta.jar")
+            .expect("beta.jar");
         assert!(!beta.enabled, "a .disabled file must report enabled=false");
         assert_eq!(beta.source_dir, "plugins");
 
@@ -564,8 +602,14 @@ mod tests {
         let d = scratch_dir("linked-dirs");
         std::os::unix::fs::symlink(victim.join("mods"), d.join("mods")).unwrap();
         std::os::unix::fs::symlink(victim.join("universe"), d.join("universe")).unwrap();
-        assert!(scan_server_plugins(&d).is_empty(), "plugins seen through a symlinked mods/");
-        assert!(scan_server_worlds(&d).0.is_empty(), "worlds seen through a symlinked universe/");
+        assert!(
+            scan_server_plugins(&d).is_empty(),
+            "plugins seen through a symlinked mods/"
+        );
+        assert!(
+            scan_server_worlds(&d).0.is_empty(),
+            "worlds seen through a symlinked universe/"
+        );
         let _ = std::fs::remove_dir_all(&d);
         let _ = std::fs::remove_dir_all(&victim);
     }

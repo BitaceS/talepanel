@@ -55,11 +55,16 @@ mod tests {
         let start = std::time::Instant::now();
         let mut x: u64 = 1;
         while start.elapsed() < std::time::Duration::from_millis(400) {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
         }
         std::hint::black_box(x);
         let (cpu, ram) = process_usage(pid);
-        assert!(cpu > 1.0, "expected measurable CPU for a busy process, got {cpu}");
+        assert!(
+            cpu > 1.0,
+            "expected measurable CPU for a busy process, got {cpu}"
+        );
         assert!(ram > 0, "resident memory should be reported");
     }
 

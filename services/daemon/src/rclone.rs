@@ -71,7 +71,9 @@ pub fn valid_option_key(key: &str) -> bool {
     let first_ok = matches!(chars.next(), Some(c) if c.is_ascii_lowercase());
     first_ok
         && key.len() <= 64
-        && key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         && key != "type"
         && key != "ssh"
         && !key.ends_with("_command")
@@ -106,7 +108,10 @@ pub fn validate_base_path(p: &str) -> Result<(), String> {
         if seg.trim() != seg {
             return Err("base path segments must not start or end with spaces".into());
         }
-        if seg.chars().any(|c| c.is_control() || "\\:*?\"<>|".contains(c)) {
+        if seg
+            .chars()
+            .any(|c| c.is_control() || "\\:*?\"<>|".contains(c))
+        {
             return Err("base path contains a forbidden character".into());
         }
     }
@@ -119,7 +124,9 @@ pub fn valid_name_component(name: &str) -> bool {
         && name.len() <= 128
         && !name.starts_with('-')
         && !name.starts_with('.')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
         && !name.contains("..")
 }
 
@@ -149,7 +156,12 @@ pub fn remote_object_path(base: &str, server_id: &str, file_name: &str) -> Resul
     if !valid_name_component(server_id) || !valid_name_component(file_name) {
         return Err("invalid server id or file name".into());
     }
-    Ok(format!("{}/{}/{}", base.trim_end_matches('/'), server_id, file_name))
+    Ok(format!(
+        "{}/{}/{}",
+        base.trim_end_matches('/'),
+        server_id,
+        file_name
+    ))
 }
 
 /// `tp:<path>` — the remote argument handed to rclone.
@@ -194,7 +206,10 @@ pub fn parse_config_section(text: &str) -> BTreeMap<String, String> {
 }
 
 /// Keys among [`WRITE_BACK_KEYS`] whose value rclone changed.
-pub fn diff_write_back(before: &BTreeMap<String, String>, after: &BTreeMap<String, String>) -> ConfigUpdates {
+pub fn diff_write_back(
+    before: &BTreeMap<String, String>,
+    after: &BTreeMap<String, String>,
+) -> ConfigUpdates {
     WRITE_BACK_KEYS
         .iter()
         .filter_map(|k| {
@@ -218,7 +233,14 @@ fn with_common(sub: &[&str], conf: &Path) -> Vec<OsString> {
 /// `rclone copyto --config C --retries 3 --low-level-retries 10 -- SRC DST`
 pub fn copyto_args(conf: &Path, src: &OsString, dst: &OsString) -> Vec<OsString> {
     let mut args = with_common(&["copyto"], conf);
-    for a in ["--retries", "3", "--low-level-retries", "10", "--stats", "0"] {
+    for a in [
+        "--retries",
+        "3",
+        "--low-level-retries",
+        "10",
+        "--stats",
+        "0",
+    ] {
         args.push(a.into());
     }
     args.push("--".into());
@@ -241,7 +263,9 @@ pub fn valid_drive_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 256
         && !id.starts_with('-')
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || "!-_.".contains(c))
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "!-_.".contains(c))
 }
 
 /// Drive the OneDrive config state machine non-interactively (rclone
@@ -302,7 +326,10 @@ pub fn pick_onedrive_drive(json: &str) -> Result<String, String> {
         .option
         .ok_or_else(|| format!("rclone did not ask for a drive (state {:?})", out.state))?;
     if option.name != "config_driveid" {
-        return Err(format!("rclone asked an unexpected question ({})", option.name));
+        return Err(format!(
+            "rclone asked an unexpected question ({})",
+            option.name
+        ));
     }
     let examples = option.examples.unwrap_or_default();
     let chosen = examples
@@ -321,7 +348,13 @@ pub fn pick_onedrive_drive(json: &str) -> Result<String, String> {
 fn strip_log_prefix(line: &str) -> &str {
     let line = line.trim();
     let b = line.as_bytes();
-    let rest = if b.len() > 20 && b[4] == b'/' && b[7] == b'/' && b[10] == b' ' && b[13] == b':' && b[19] == b' ' {
+    let rest = if b.len() > 20
+        && b[4] == b'/'
+        && b[7] == b'/'
+        && b[10] == b' '
+        && b[13] == b':'
+        && b[19] == b' '
+    {
         &line[20..]
     } else {
         line
@@ -337,18 +370,35 @@ fn strip_log_prefix(line: &str) -> &str {
 /// rclone repeats the same error once per retry and ends with a "Failed to
 /// <command>: <reason>" summary, which is what a user needs to see.
 pub fn error_text(stderr: &str, fallback: &str) -> String {
-    let lines: Vec<&str> = stderr.lines().map(strip_log_prefix).filter(|l| !l.is_empty()).collect();
-    let summary: Vec<&str> = lines.iter().copied().filter(|l| l.contains("Failed to")).collect();
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(strip_log_prefix)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let summary: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| l.contains("Failed to"))
+        .collect();
     let important: Vec<&str> = if !summary.is_empty() {
         summary
     } else {
         lines
             .iter()
             .copied()
-            .filter(|l| l.contains("ERROR") || l.contains("CRITICAL") || l.contains("Failed") || l.contains("error"))
+            .filter(|l| {
+                l.contains("ERROR")
+                    || l.contains("CRITICAL")
+                    || l.contains("Failed")
+                    || l.contains("error")
+            })
             .collect()
     };
-    let source = if important.is_empty() { lines } else { important };
+    let source = if important.is_empty() {
+        lines
+    } else {
+        important
+    };
     let mut chosen: Vec<&str> = Vec::new();
     for l in source.iter().rev() {
         if !chosen.contains(l) {
@@ -378,10 +428,18 @@ pub fn error_text(stderr: &str, fallback: &str) -> String {
 // Running rclone
 // ─────────────────────────────────────────────────────────────────────────────
 
-async fn run_rclone(args: Vec<OsString>, stdin: Option<&[u8]>, timeout: Duration) -> Result<String, String> {
+async fn run_rclone(
+    args: Vec<OsString>,
+    stdin: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<String, String> {
     let mut cmd = Command::new(rclone_bin());
     cmd.args(&args)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -401,7 +459,9 @@ async fn run_rclone(args: Vec<OsString>, stdin: Option<&[u8]>, timeout: Duration
     })?;
     if let Some(data) = stdin {
         if let Some(mut pipe) = child.stdin.take() {
-            pipe.write_all(data).await.map_err(|e| format!("rclone stdin: {e}"))?;
+            pipe.write_all(data)
+                .await
+                .map_err(|e| format!("rclone stdin: {e}"))?;
             drop(pipe);
         }
     }
@@ -415,7 +475,10 @@ async fn run_rclone(args: Vec<OsString>, stdin: Option<&[u8]>, timeout: Duration
         Ok(stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(error_text(&stderr, &format!("rclone exited with {}", output.status)))
+        Err(error_text(
+            &stderr,
+            &format!("rclone exited with {}", output.status),
+        ))
     }
 }
 
@@ -462,7 +525,11 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 fn write_private_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
     f.write_all(data)?;
     f.sync_all()
 }
@@ -476,7 +543,9 @@ fn write_private_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// is removed once it is older than any operation can run.
 fn remove_stale_sessions(tmp_root: &Path) {
     let max_age = TRANSFER_TIMEOUT + Duration::from_secs(3600);
-    let Ok(entries) = std::fs::read_dir(tmp_root) else { return };
+    let Ok(entries) = std::fs::read_dir(tmp_root) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         if !name.to_string_lossy().starts_with("rclone-") {
@@ -504,7 +573,11 @@ impl Session {
         let dir = tmp_root.join(format!("rclone-{}", uuid::Uuid::new_v4()));
         create_private_dir(&dir).map_err(|e| format!("create rclone temp dir: {e}"))?;
         let conf = dir.join("rclone.conf");
-        let mut session = Session { dir, conf, written: BTreeMap::new() };
+        let mut session = Session {
+            dir,
+            conf,
+            written: BTreeMap::new(),
+        };
 
         let mut options = spec.options.clone();
         for key in &spec.obscure {
@@ -514,13 +587,19 @@ impl Session {
                 }
             }
         }
-        write_private_file(&session.conf, render_config(&spec.backend, &options).as_bytes())
-            .map_err(|e| format!("write rclone config: {e}"))?;
+        write_private_file(
+            &session.conf,
+            render_config(&spec.backend, &options).as_bytes(),
+        )
+        .map_err(|e| format!("write rclone config: {e}"))?;
         session.written = options;
 
         if spec.backend == "onedrive" {
             let has_drive = spec.options.get("drive_id").is_some_and(|v| !v.is_empty())
-                && spec.options.get("drive_type").is_some_and(|v| !v.is_empty());
+                && spec
+                    .options
+                    .get("drive_type")
+                    .is_some_and(|v| !v.is_empty());
             if !has_drive {
                 session.resolve_onedrive().await?;
             }
@@ -540,25 +619,37 @@ impl Session {
         let out = run_rclone(onedrive_resolve_args(&self.conf, None), None, SHORT_TIMEOUT)
             .await
             .map_err(|e| format!("looking up your OneDrive failed: {e}"))?;
-        let drive_id = pick_onedrive_drive(&out).map_err(|e| format!("looking up your OneDrive failed: {e}"))?;
-        let out = run_rclone(onedrive_resolve_args(&self.conf, Some(&drive_id)), None, SHORT_TIMEOUT)
-            .await
-            .map_err(|e| format!("selecting your OneDrive failed: {e}"))?;
+        let drive_id = pick_onedrive_drive(&out)
+            .map_err(|e| format!("looking up your OneDrive failed: {e}"))?;
+        let out = run_rclone(
+            onedrive_resolve_args(&self.conf, Some(&drive_id)),
+            None,
+            SHORT_TIMEOUT,
+        )
+        .await
+        .map_err(|e| format!("selecting your OneDrive failed: {e}"))?;
         // A finished state machine answers with an empty State.
         if let Ok(done) = serde_json::from_str::<ConfigOut>(out.trim()) {
             if !done.error.is_empty() {
-                return Err(format!("selecting your OneDrive failed: {}", done.error.trim()));
+                return Err(format!(
+                    "selecting your OneDrive failed: {}",
+                    done.error.trim()
+                ));
             }
         }
         let after = self.read_config();
-        if after.get("drive_id").is_none_or(|v| v.is_empty()) || after.get("drive_type").is_none_or(|v| v.is_empty()) {
+        if after.get("drive_id").is_none_or(|v| v.is_empty())
+            || after.get("drive_type").is_none_or(|v| v.is_empty())
+        {
             return Err("rclone did not store the OneDrive drive id".into());
         }
         Ok(())
     }
 
     fn read_config(&self) -> BTreeMap<String, String> {
-        std::fs::read_to_string(&self.conf).map(|t| parse_config_section(&t)).unwrap_or_default()
+        std::fs::read_to_string(&self.conf)
+            .map(|t| parse_config_section(&t))
+            .unwrap_or_default()
     }
 
     /// Options rclone changed while running (refreshed token, resolved drive).
@@ -583,12 +674,21 @@ pub struct Outcome<T> {
 
 impl<T> Outcome<T> {
     fn err(e: String) -> Self {
-        Outcome { result: Err(e), config_updates: ConfigUpdates::new() }
+        Outcome {
+            result: Err(e),
+            config_updates: ConfigUpdates::new(),
+        }
     }
 }
 
 /// Upload `local` to `<base>/<server_id>/<file_name>`.  Returns the object path.
-pub async fn upload(tmp_root: &Path, spec: &RemoteSpec, local: &Path, server_id: &str, file_name: &str) -> Outcome<String> {
+pub async fn upload(
+    tmp_root: &Path,
+    spec: &RemoteSpec,
+    local: &Path,
+    server_id: &str,
+    file_name: &str,
+) -> Outcome<String> {
     let object = match remote_object_path(&spec.base_path, server_id, file_name) {
         Ok(o) => o,
         Err(e) => return Outcome::err(e),
@@ -597,13 +697,26 @@ pub async fn upload(tmp_root: &Path, spec: &RemoteSpec, local: &Path, server_id:
         Ok(s) => s,
         Err(e) => return Outcome::err(e),
     };
-    let args = copyto_args(session.conf(), &local.as_os_str().to_owned(), &remote_arg(&object).into());
+    let args = copyto_args(
+        session.conf(),
+        &local.as_os_str().to_owned(),
+        &remote_arg(&object).into(),
+    );
     let result = session.run(args, TRANSFER_TIMEOUT).await.map(|_| object);
-    Outcome { result, config_updates: session.updates() }
+    Outcome {
+        result,
+        config_updates: session.updates(),
+    }
 }
 
 /// Download `<base>/<server_id>/<file_name>` to `local`.
-pub async fn fetch(tmp_root: &Path, spec: &RemoteSpec, server_id: &str, file_name: &str, local: &Path) -> Outcome<()> {
+pub async fn fetch(
+    tmp_root: &Path,
+    spec: &RemoteSpec,
+    server_id: &str,
+    file_name: &str,
+    local: &Path,
+) -> Outcome<()> {
     let object = match remote_object_path(&spec.base_path, server_id, file_name) {
         Ok(o) => o,
         Err(e) => return Outcome::err(e),
@@ -612,13 +725,25 @@ pub async fn fetch(tmp_root: &Path, spec: &RemoteSpec, server_id: &str, file_nam
         Ok(s) => s,
         Err(e) => return Outcome::err(e),
     };
-    let args = copyto_args(session.conf(), &remote_arg(&object).into(), &local.as_os_str().to_owned());
+    let args = copyto_args(
+        session.conf(),
+        &remote_arg(&object).into(),
+        &local.as_os_str().to_owned(),
+    );
     let result = session.run(args, TRANSFER_TIMEOUT).await.map(|_| ());
-    Outcome { result, config_updates: session.updates() }
+    Outcome {
+        result,
+        config_updates: session.updates(),
+    }
 }
 
 /// Delete `<base>/<server_id>/<file_name>`; a missing object counts as success.
-pub async fn delete(tmp_root: &Path, spec: &RemoteSpec, server_id: &str, file_name: &str) -> Outcome<()> {
+pub async fn delete(
+    tmp_root: &Path,
+    spec: &RemoteSpec,
+    server_id: &str,
+    file_name: &str,
+) -> Outcome<()> {
     let object = match remote_object_path(&spec.base_path, server_id, file_name) {
         Ok(o) => o,
         Err(e) => return Outcome::err(e),
@@ -627,17 +752,29 @@ pub async fn delete(tmp_root: &Path, spec: &RemoteSpec, server_id: &str, file_na
         Ok(s) => s,
         Err(e) => return Outcome::err(e),
     };
-    let result = match session.run(deletefile_args(session.conf(), &remote_arg(&object)), DELETE_TIMEOUT).await {
+    let result = match session
+        .run(
+            deletefile_args(session.conf(), &remote_arg(&object)),
+            DELETE_TIMEOUT,
+        )
+        .await
+    {
         Ok(_) => Ok(()),
         Err(e) if is_not_found(&e) => Ok(()),
         Err(e) => Err(e),
     };
-    Outcome { result, config_updates: session.updates() }
+    Outcome {
+        result,
+        config_updates: session.updates(),
+    }
 }
 
 fn is_not_found(err: &str) -> bool {
     let e = err.to_ascii_lowercase();
-    e.contains("object not found") || e.contains("not found") || e.contains("doesn't exist") || e.contains("no such file")
+    e.contains("object not found")
+        || e.contains("not found")
+        || e.contains("doesn't exist")
+        || e.contains("no such file")
 }
 
 /// Write a small probe file to `<base>/` and delete it again: proves the
@@ -649,19 +786,38 @@ pub async fn test(tmp_root: &Path, spec: &RemoteSpec) -> Outcome<()> {
     };
     let probe_name = format!("talepanel-connection-test-{}.txt", uuid::Uuid::new_v4());
     let probe_local = session.dir().join("probe.txt");
-    if let Err(e) = std::fs::write(&probe_local, b"TalePanel connection test - safe to delete\n") {
-        return Outcome { result: Err(format!("write probe file: {e}")), config_updates: session.updates() };
+    if let Err(e) = std::fs::write(
+        &probe_local,
+        b"TalePanel connection test - safe to delete\n",
+    ) {
+        return Outcome {
+            result: Err(format!("write probe file: {e}")),
+            config_updates: session.updates(),
+        };
     }
     let object = format!("{}/{}", spec.base_path.trim_end_matches('/'), probe_name);
     let remote = remote_arg(&object);
     let mut result = session
-        .run(copyto_args(session.conf(), &probe_local.as_os_str().to_owned(), &remote.clone().into()), SHORT_TIMEOUT)
+        .run(
+            copyto_args(
+                session.conf(),
+                &probe_local.as_os_str().to_owned(),
+                &remote.clone().into(),
+            ),
+            SHORT_TIMEOUT,
+        )
         .await
         .map(|_| ());
     if result.is_ok() {
-        result = session.run(deletefile_args(session.conf(), &remote), SHORT_TIMEOUT).await.map(|_| ());
+        result = session
+            .run(deletefile_args(session.conf(), &remote), SHORT_TIMEOUT)
+            .await
+            .map(|_| ());
     }
-    Outcome { result, config_updates: session.updates() }
+    Outcome {
+        result,
+        config_updates: session.updates(),
+    }
 }
 
 #[cfg(test)]
@@ -671,7 +827,10 @@ mod tests {
     fn spec(backend: &str, opts: &[(&str, &str)]) -> RemoteSpec {
         RemoteSpec {
             backend: backend.into(),
-            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             obscure: vec![],
             base_path: "talepanel".into(),
         }
@@ -679,10 +838,30 @@ mod tests {
 
     #[test]
     fn base_path_validation() {
-        for ok in ["talepanel", "TalePanel/backups", "/srv/backups", "bucket/tale panel"] {
+        for ok in [
+            "talepanel",
+            "TalePanel/backups",
+            "/srv/backups",
+            "bucket/tale panel",
+        ] {
             assert!(validate_base_path(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "/", "..", "a/../b", "./a", "a//b", "a/", "-a", "a/--config", "a\nb", "a\\b", "x:y", " a", "a/b "] {
+        for bad in [
+            "",
+            "/",
+            "..",
+            "a/../b",
+            "./a",
+            "a//b",
+            "a/",
+            "-a",
+            "a/--config",
+            "a\nb",
+            "a\\b",
+            "x:y",
+            " a",
+            "a/b ",
+        ] {
             assert!(validate_base_path(bad).is_err(), "{bad:?}");
         }
         assert!(validate_base_path(&"a".repeat(513)).is_err());
@@ -691,7 +870,9 @@ mod tests {
     #[test]
     fn name_component_validation() {
         assert!(valid_name_component("0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00"));
-        assert!(valid_name_component("0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00.zip"));
+        assert!(valid_name_component(
+            "0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00.zip"
+        ));
         for bad in ["", "..", "../x", "a/b", "-rf", ".hidden", "a b", "a..b"] {
             assert!(!valid_name_component(bad), "{bad:?}");
         }
@@ -699,8 +880,14 @@ mod tests {
 
     #[test]
     fn remote_object_path_joins_and_validates() {
-        assert_eq!(remote_object_path("tp/backups", "srv", "b.zip").unwrap(), "tp/backups/srv/b.zip");
-        assert_eq!(remote_object_path("/abs", "srv", "b.zip").unwrap(), "/abs/srv/b.zip");
+        assert_eq!(
+            remote_object_path("tp/backups", "srv", "b.zip").unwrap(),
+            "tp/backups/srv/b.zip"
+        );
+        assert_eq!(
+            remote_object_path("/abs", "srv", "b.zip").unwrap(),
+            "/abs/srv/b.zip"
+        );
         assert!(remote_object_path("../x", "srv", "b.zip").is_err());
         assert!(remote_object_path("ok", "../srv", "b.zip").is_err());
         assert!(remote_object_path("ok", "srv", "-b.zip").is_err());
@@ -712,9 +899,24 @@ mod tests {
         assert!(validate_spec(&spec("onedrive", &[("token", "{}")])).is_ok());
         assert!(validate_spec(&spec("local", &[])).is_err());
         assert!(validate_spec(&spec("crypt", &[])).is_err());
-        for key in ["ssh", "bearer_token_command", "password_command", "key_file", "known_hosts_file",
-                    "service_account_file", "type", "Token", "1abc", "a-b", "config_is_local", ""] {
-            assert!(validate_spec(&spec("sftp", &[(key, "x")])).is_err(), "{key:?}");
+        for key in [
+            "ssh",
+            "bearer_token_command",
+            "password_command",
+            "key_file",
+            "known_hosts_file",
+            "service_account_file",
+            "type",
+            "Token",
+            "1abc",
+            "a-b",
+            "config_is_local",
+            "",
+        ] {
+            assert!(
+                validate_spec(&spec("sftp", &[(key, "x")])).is_err(),
+                "{key:?}"
+            );
         }
         assert!(validate_spec(&spec("sftp", &[("host", "h\n[evil]\ntype = local")])).is_err());
         assert!(validate_spec(&spec("sftp", &[("host", "h\rx")])).is_err());
@@ -729,7 +931,10 @@ mod tests {
     #[test]
     fn config_render_and_parse_roundtrip() {
         let opts: BTreeMap<String, String> = [
-            ("token".to_string(), r#"{"access_token":"a=b","expiry":"x"}"#.to_string()),
+            (
+                "token".to_string(),
+                r#"{"access_token":"a=b","expiry":"x"}"#.to_string(),
+            ),
             ("drive_type".to_string(), "personal".to_string()),
         ]
         .into_iter()
@@ -743,12 +948,19 @@ mod tests {
 
     #[test]
     fn write_back_only_reports_changed_allowed_keys() {
-        let before: BTreeMap<String, String> =
-            [("token", "old"), ("user", "u")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let after: BTreeMap<String, String> = [("token", "new"), ("user", "changed"), ("drive_id", "abc"), ("drive_type", "")]
+        let before: BTreeMap<String, String> = [("token", "old"), ("user", "u")]
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
+        let after: BTreeMap<String, String> = [
+            ("token", "new"),
+            ("user", "changed"),
+            ("drive_id", "abc"),
+            ("drive_type", ""),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
         let d = diff_write_back(&before, &after);
         assert_eq!(d.len(), 2);
         assert_eq!(d.get("token").map(String::as_str), Some("new"));
@@ -757,29 +969,56 @@ mod tests {
     }
 
     fn strs(args: &[OsString]) -> Vec<String> {
-        args.iter().map(|a| a.to_string_lossy().to_string()).collect()
+        args.iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect()
     }
 
     #[test]
     fn argument_building_keeps_secrets_off_the_command_line() {
         let conf = Path::new("/tmp/x/rclone.conf");
-        let up = strs(&copyto_args(conf, &"/srv/b.zip".into(), &"tp:base/s/b.zip".into()));
+        let up = strs(&copyto_args(
+            conf,
+            &"/srv/b.zip".into(),
+            &"tp:base/s/b.zip".into(),
+        ));
         assert_eq!(up[0], "copyto");
         assert_eq!(&up[1..3], &["--config", "/tmp/x/rclone.conf"]);
         let dd = up.iter().position(|a| a == "--").unwrap();
         assert_eq!(&up[dd + 1..], &["/srv/b.zip", "tp:base/s/b.zip"]);
 
         let del = strs(&deletefile_args(conf, "tp:base/s/b.zip"));
-        assert_eq!(del, vec!["deletefile", "--config", "/tmp/x/rclone.conf", "--", "tp:base/s/b.zip"]);
+        assert_eq!(
+            del,
+            vec![
+                "deletefile",
+                "--config",
+                "/tmp/x/rclone.conf",
+                "--",
+                "tp:base/s/b.zip"
+            ]
+        );
 
         let od = strs(&onedrive_resolve_args(conf, None));
         assert_eq!(
             od,
-            vec!["config", "update", "--config", "/tmp/x/rclone.conf", "--non-interactive", "--", "tp",
-                 "config_refresh_token=false", "config_type=onedrive"]
+            vec![
+                "config",
+                "update",
+                "--config",
+                "/tmp/x/rclone.conf",
+                "--non-interactive",
+                "--",
+                "tp",
+                "config_refresh_token=false",
+                "config_type=onedrive"
+            ]
         );
         let od = strs(&onedrive_resolve_args(conf, Some("b!abc")));
-        assert!(od.ends_with(&["config_driveid=b!abc".to_string(), "config_drive_ok=true".to_string()]));
+        assert!(od.ends_with(&[
+            "config_driveid=b!abc".to_string(),
+            "config_drive_ok=true".to_string()
+        ]));
         for a in up.iter().chain(del.iter()) {
             assert!(!a.contains("token"), "{a}");
         }
@@ -825,10 +1064,15 @@ mod tests {
         let tmp_root = work.join("tmp");
         let spec = RemoteSpec {
             backend: "webdav".into(),
-            options: [("url", url.as_str()), ("vendor", "other"), ("user", user.as_str()), ("pass", pass.as_str())]
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            options: [
+                ("url", url.as_str()),
+                ("vendor", "other"),
+                ("user", user.as_str()),
+                ("pass", pass.as_str()),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
             obscure: vec!["pass".into()],
             base_path: "TalePanel/backups".into(),
         };
@@ -840,7 +1084,10 @@ mod tests {
         std::fs::write(&local, b"PK fake archive bytes").unwrap();
         let server = "0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00";
         let up = upload(&tmp_root, &spec, &local, server, "b1.zip").await;
-        assert_eq!(up.result.as_deref(), Ok("TalePanel/backups/0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00/b1.zip"));
+        assert_eq!(
+            up.result.as_deref(),
+            Ok("TalePanel/backups/0b6f0c2e-1d2c-4c39-9b5e-3f1f3c2d1a00/b1.zip")
+        );
         assert!(up.config_updates.is_empty());
 
         let back = work.join("fetched.zip");
@@ -851,7 +1098,11 @@ mod tests {
         let d = delete(&tmp_root, &spec, server, "b1.zip").await;
         assert!(d.result.is_ok(), "delete: {:?}", d.result);
         let d2 = delete(&tmp_root, &spec, server, "b1.zip").await;
-        assert!(d2.result.is_ok(), "second delete must be idempotent: {:?}", d2.result);
+        assert!(
+            d2.result.is_ok(),
+            "second delete must be idempotent: {:?}",
+            d2.result
+        );
         let gone = fetch(&tmp_root, &spec, server, "b1.zip", &work.join("gone.zip")).await;
         assert!(gone.result.is_err());
 
@@ -871,13 +1122,20 @@ mod tests {
     #[test]
     fn error_text_prefers_error_lines_and_truncates() {
         let stderr = "2026/10/23 NOTICE: something\n2026/10/23 ERROR : b.zip: Failed to copy: 401 Unauthorized\n";
-        assert_eq!(error_text(stderr, "fb"), "2026/10/23 ERROR : b.zip: Failed to copy: 401 Unauthorized");
+        assert_eq!(
+            error_text(stderr, "fb"),
+            "2026/10/23 ERROR : b.zip: Failed to copy: 401 Unauthorized"
+        );
         assert_eq!(error_text("", "fallback"), "fallback");
         let retries = "2026/10/23 23:20:31 ERROR : Attempt 1/3 failed with 1 errors and: read metadata failed: 401 Unauthorized\n\
                        2026/10/23 23:20:31 ERROR : Attempt 2/3 failed with 1 errors and: read metadata failed: 401 Unauthorized\n\
                        2026/10/23 23:20:31 NOTICE: Failed to copyto: read metadata failed: 401 Unauthorized\n";
-        assert_eq!(error_text(retries, ""), "Failed to copyto: read metadata failed: 401 Unauthorized");
-        let no_summary = "2026/10/23 23:20:31 ERROR : x: boom\n2026/10/23 23:20:32 ERROR : x: boom\n";
+        assert_eq!(
+            error_text(retries, ""),
+            "Failed to copyto: read metadata failed: 401 Unauthorized"
+        );
+        let no_summary =
+            "2026/10/23 23:20:31 ERROR : x: boom\n2026/10/23 23:20:32 ERROR : x: boom\n";
         assert_eq!(error_text(no_summary, ""), "x: boom");
         assert!(error_text(&"ERROR x".repeat(1000), "").len() <= MAX_ERROR_LEN + 3);
     }

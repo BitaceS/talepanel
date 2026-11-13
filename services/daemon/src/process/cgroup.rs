@@ -53,7 +53,9 @@ fn parse_own_cgroup(proc_self_cgroup: &str) -> Option<String> {
 fn server_cgroup_name(server_id: &str) -> Option<String> {
     let ok = !server_id.is_empty()
         && server_id.len() <= 64
-        && server_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+        && server_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
     ok.then(|| format!("server-{server_id}"))
 }
 
@@ -84,7 +86,10 @@ fn prepare(base: &Path) -> Result<(), String> {
     // Only the real root cgroup lacks cgroup.type. Moving every process out of
     // it would reorganise the whole host, so refuse.
     if !base.join("cgroup.type").exists() {
-        return Err("the daemon runs in the root cgroup; run it as a systemd service or in a container".into());
+        return Err(
+            "the daemon runs in the root cgroup; run it as a systemd service or in a container"
+                .into(),
+        );
     }
     if !has_controller(&read("cgroup.controllers")?, "cpu") {
         return Err(format!(
@@ -111,12 +116,21 @@ fn prepare(base: &Path) -> Result<(), String> {
                 Ok(()) => {}
                 // The process exited meanwhile.
                 Err(e) if e.raw_os_error() == Some(ESRCH) => {}
-                Err(e) => return Err(format!("cannot move process {pid} into {}: {e}", leaf.display())),
+                Err(e) => {
+                    return Err(format!(
+                        "cannot move process {pid} into {}: {e}",
+                        leaf.display()
+                    ))
+                }
             }
         }
     }
-    write_file(&base.join("cgroup.subtree_control"), "+cpu")
-        .map_err(|e| format!("cannot enable the cpu controller in {}: {e}", base.display()))
+    write_file(&base.join("cgroup.subtree_control"), "+cpu").map_err(|e| {
+        format!(
+            "cannot enable the cpu controller in {}: {e}",
+            base.display()
+        )
+    })
 }
 
 /// The prepared base cgroup, or why CPU limits cannot be enforced. Computed
@@ -138,7 +152,9 @@ fn hierarchy() -> &'static Result<PathBuf, String> {
             Ok(base)
         })();
         match &result {
-            Ok(base) => info!(cgroup = %base.display(), "Per-server CPU limits enabled (cgroup v2)"),
+            Ok(base) => {
+                info!(cgroup = %base.display(), "Per-server CPU limits enabled (cgroup v2)")
+            }
             Err(why) => warn!(
                 reason = %why,
                 "CPU limits cannot be enforced on this node; servers start without them"
@@ -261,8 +277,14 @@ mod tests {
         std::fs::create_dir_all(base.join(DAEMON_LEAF)).unwrap();
         std::fs::write(base.join(DAEMON_LEAF).join("cgroup.procs"), "").unwrap();
         prepare(&base).unwrap();
-        assert_eq!(std::fs::read_to_string(base.join("daemon/cgroup.procs")).unwrap(), "4242");
-        assert_eq!(std::fs::read_to_string(base.join("cgroup.subtree_control")).unwrap(), "+cpu");
+        assert_eq!(
+            std::fs::read_to_string(base.join("daemon/cgroup.procs")).unwrap(),
+            "4242"
+        );
+        assert_eq!(
+            std::fs::read_to_string(base.join("cgroup.subtree_control")).unwrap(),
+            "+cpu"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -299,7 +321,10 @@ mod tests {
                 panic!("limit not applied: {other:?}");
             }
         };
-        assert_eq!(std::fs::read_to_string(dir.join("cpu.max")).unwrap().trim(), "20000 100000");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("cpu.max")).unwrap().trim(),
+            "20000 100000"
+        );
         let usage = |d: &Path| -> u64 {
             let stat = std::fs::read_to_string(d.join("cpu.stat")).unwrap();
             stat.lines()
@@ -315,7 +340,10 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         // 20% of one core over 2s is 400ms; allow some slack.
-        assert!(used < 600_000, "used {used}us of CPU in 2s, limit not enforced");
+        assert!(
+            used < 600_000,
+            "used {used}us of CPU in 2s, limit not enforced"
+        );
         assert!(used > 100_000, "used {used}us, the loop did not run at all");
         std::thread::sleep(std::time::Duration::from_millis(100));
         remove_server_cgroup(&dir);

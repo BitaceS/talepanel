@@ -61,7 +61,8 @@ mod tests {
 
     fn scratch_dir() -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("taledaemon-machineid-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("taledaemon-machineid-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -98,7 +99,10 @@ mod tests {
         let (etc, kept) = (d.join("machine-id"), d.join("data/machine-id"));
         std::fs::write(&etc, "0123456789abcdef0123456789abcdef\n").unwrap();
         ensure_machine_id(&etc, &kept).unwrap();
-        assert_eq!(std::fs::read_to_string(&etc).unwrap(), "0123456789abcdef0123456789abcdef\n");
+        assert_eq!(
+            std::fs::read_to_string(&etc).unwrap(),
+            "0123456789abcdef0123456789abcdef\n"
+        );
         assert!(!kept.exists(), "nothing should be persisted on a real host");
     }
 }

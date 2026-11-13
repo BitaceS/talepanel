@@ -75,14 +75,16 @@ pub async fn fetch_downloader_cli(download_dir: &Path) -> Result<PathBuf> {
     let zip_path_owned = zip_path.clone();
 
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let file = std::fs::File::open(&zip_path_owned)
-            .context("Failed to open downloader zip")?;
-        let mut archive = zip::ZipArchive::new(file)
-            .context("Failed to parse downloader zip")?;
+        let file = std::fs::File::open(&zip_path_owned).context("Failed to open downloader zip")?;
+        let mut archive = zip::ZipArchive::new(file).context("Failed to parse downloader zip")?;
         // Not ZipArchive::extract: that one recreates symlink entries.
-        safe_fs::extract_zip(&mut archive, &download_dir_owned, safe_fs::ExtractLimits::default())
-            .map_err(anyhow::Error::msg)
-            .context("Failed to extract downloader zip")?;
+        safe_fs::extract_zip(
+            &mut archive,
+            &download_dir_owned,
+            safe_fs::ExtractLimits::default(),
+        )
+        .map_err(anyhow::Error::msg)
+        .context("Failed to extract downloader zip")?;
         Ok(())
     })
     .await
@@ -247,7 +249,10 @@ pub async fn download_server_files(
         collected
     });
 
-    let status = child.wait().await.context("Failed to wait for Hytale Downloader")?;
+    let status = child
+        .wait()
+        .await
+        .context("Failed to wait for Hytale Downloader")?;
     let stdout_lines = stdout_task.await.unwrap_or_default();
     let stderr_lines = stderr_task.await.unwrap_or_default();
 
@@ -291,15 +296,19 @@ pub async fn download_server_files(
         let zip_owned = zip_path.clone();
         let extract_dir = server_data_path.to_path_buf();
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let file = safe_fs::open_nofollow(&zip_owned)
-                .context("Failed to open downloaded game zip")?;
-            let mut archive = zip::ZipArchive::new(file)
-                .context("Failed to parse downloaded game zip")?;
+            let file =
+                safe_fs::open_nofollow(&zip_owned).context("Failed to open downloaded game zip")?;
+            let mut archive =
+                zip::ZipArchive::new(file).context("Failed to parse downloaded game zip")?;
             // Extracts into the tenant's directory: skip symlink entries,
             // never follow planted links, and cap the decompressed size.
-            safe_fs::extract_zip(&mut archive, &extract_dir, safe_fs::ExtractLimits::default())
-                .map_err(anyhow::Error::msg)
-                .context("Failed to extract downloaded game zip")?;
+            safe_fs::extract_zip(
+                &mut archive,
+                &extract_dir,
+                safe_fs::ExtractLimits::default(),
+            )
+            .map_err(anyhow::Error::msg)
+            .context("Failed to extract downloaded game zip")?;
             Ok(())
         })
         .await
@@ -313,7 +322,10 @@ pub async fn download_server_files(
 
         info!("Game zip extracted successfully");
     } else {
-        warn!("No game zip found after download — expected at {}", sibling_zip.display());
+        warn!(
+            "No game zip found after download — expected at {}",
+            sibling_zip.display()
+        );
         if let Some(tx) = &log_tx {
             let _ = tx.send("WARNING: No game zip found after download".into());
         }
@@ -342,7 +354,10 @@ pub async fn download_server_files(
         }
     }
     if !assets_zip.exists() {
-        let msg = format!("Assets.zip not found at {} after download", assets_zip.display());
+        let msg = format!(
+            "Assets.zip not found at {} after download",
+            assets_zip.display()
+        );
         warn!("{}", msg);
         if let Some(tx) = &log_tx {
             let _ = tx.send(msg);
@@ -350,7 +365,8 @@ pub async fn download_server_files(
     }
 
     // Parse version from downloader output if available
-    let downloaded_version = parse_version_from_output(&stdout_str).unwrap_or_else(|| version.to_string());
+    let downloaded_version =
+        parse_version_from_output(&stdout_str).unwrap_or_else(|| version.to_string());
 
     info!(
         path = %server_data_path.display(),
@@ -386,7 +402,11 @@ fn downloader_output_zip(server_data_path: &Path) -> PathBuf {
 // (e.g. the "100.0% (1.4 GB / 1.4 GB)" line if it's the only thing left,
 // or any non-progress text appended at the end).
 fn forward_downloader_line(tx: &mpsc::UnboundedSender<String>, line: &str) {
-    let segments: Vec<&str> = line.split('\r').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let segments: Vec<&str> = line
+        .split('\r')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if segments.is_empty() {
         return;
@@ -417,7 +437,9 @@ fn is_progress_frame(s: &str) -> bool {
     if !t.starts_with('[') {
         return false;
     }
-    let Some(close) = t.find(']') else { return false };
+    let Some(close) = t.find(']') else {
+        return false;
+    };
     // Inside the brackets the bar uses '=' or ' ' only.
     let inside = &t[1..close];
     if !inside.chars().all(|c| c == '=' || c == ' ') {
@@ -436,7 +458,11 @@ fn parse_version_from_output(output: &str) -> Option<String> {
             for (i, part) in parts.iter().enumerate() {
                 if part.to_ascii_lowercase().contains("version") {
                     if let Some(v) = parts.get(i + 1) {
-                        if v.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                        if v.chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit())
+                            .unwrap_or(false)
+                        {
                             return Some(v.trim_matches(',').to_string());
                         }
                     }
@@ -475,4 +501,3 @@ mod tests {
         assert!(!out.starts_with("/srv/taledaemon/servers/abc/"));
     }
 }
-

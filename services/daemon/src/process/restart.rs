@@ -45,9 +45,14 @@ pub enum NoRestartReason {
 pub enum RestartDecision {
     /// Start the server again after `delay`. `attempt` counts the crashes in
     /// the current window (1 = first crash).
-    Restart { attempt: u32, delay: Duration },
+    Restart {
+        attempt: u32,
+        delay: Duration,
+    },
     /// Too many crashes within the window: leave the server crashed.
-    GiveUp { crashes: u32 },
+    GiveUp {
+        crashes: u32,
+    },
     NoRestart(NoRestartReason),
 }
 
@@ -63,7 +68,11 @@ impl RestartPolicy {
     pub fn from_config(cfg: &ServerConfig) -> Self {
         Self {
             enabled: cfg.auto_restart,
-            max_restarts: if cfg.crash_limit == 0 { DEFAULT_MAX_RESTARTS } else { cfg.crash_limit },
+            max_restarts: if cfg.crash_limit == 0 {
+                DEFAULT_MAX_RESTARTS
+            } else {
+                cfg.crash_limit
+            },
             window: if cfg.crash_window_s == 0 {
                 DEFAULT_WINDOW
             } else {
@@ -92,9 +101,16 @@ pub struct CrashHistory {
 
 impl CrashHistory {
     /// Decide what to do about an exit at `now`. Only crashes are recorded.
-    pub fn decide(&mut self, policy: &RestartPolicy, exit: ProcessExit, now: Instant) -> RestartDecision {
+    pub fn decide(
+        &mut self,
+        policy: &RestartPolicy,
+        exit: ProcessExit,
+        now: Instant,
+    ) -> RestartDecision {
         let code = match exit {
-            ProcessExit::Requested => return RestartDecision::NoRestart(NoRestartReason::Requested),
+            ProcessExit::Requested => {
+                return RestartDecision::NoRestart(NoRestartReason::Requested)
+            }
             ProcessExit::Exited(code) => code,
         };
         match code {
@@ -121,7 +137,10 @@ impl CrashHistory {
         if crashes > policy.max_restarts {
             RestartDecision::GiveUp { crashes }
         } else {
-            RestartDecision::Restart { attempt: crashes, delay: backoff(crashes) }
+            RestartDecision::Restart {
+                attempt: crashes,
+                delay: backoff(crashes),
+            }
         }
     }
 }
@@ -131,7 +150,11 @@ mod tests {
     use super::*;
 
     fn policy() -> RestartPolicy {
-        RestartPolicy { enabled: true, max_restarts: 3, window: Duration::from_secs(300) }
+        RestartPolicy {
+            enabled: true,
+            max_restarts: 3,
+            window: Duration::from_secs(300),
+        }
     }
 
     fn crash(code: i32) -> ProcessExit {
@@ -144,15 +167,24 @@ mod tests {
         let t = Instant::now();
         assert_eq!(
             h.decide(&policy(), crash(1), t),
-            RestartDecision::Restart { attempt: 1, delay: Duration::from_secs(5) }
+            RestartDecision::Restart {
+                attempt: 1,
+                delay: Duration::from_secs(5)
+            }
         );
         assert_eq!(
             h.decide(&policy(), crash(1), t + Duration::from_secs(30)),
-            RestartDecision::Restart { attempt: 2, delay: Duration::from_secs(10) }
+            RestartDecision::Restart {
+                attempt: 2,
+                delay: Duration::from_secs(10)
+            }
         );
         assert_eq!(
             h.decide(&policy(), crash(1), t + Duration::from_secs(60)),
-            RestartDecision::Restart { attempt: 3, delay: Duration::from_secs(20) }
+            RestartDecision::Restart {
+                attempt: 3,
+                delay: Duration::from_secs(20)
+            }
         );
     }
 
@@ -182,7 +214,10 @@ mod tests {
         // Six minutes later the earlier crashes no longer count.
         assert_eq!(
             h.decide(&policy(), crash(1), t + Duration::from_secs(360)),
-            RestartDecision::Restart { attempt: 1, delay: Duration::from_secs(5) }
+            RestartDecision::Restart {
+                attempt: 1,
+                delay: Duration::from_secs(5)
+            }
         );
     }
 
@@ -203,24 +238,42 @@ mod tests {
             h.decide(&policy(), ProcessExit::Requested, t),
             RestartDecision::NoRestart(NoRestartReason::Requested)
         );
-        assert_eq!(h.decide(&policy(), crash(0), t), RestartDecision::NoRestart(NoRestartReason::CleanExit));
+        assert_eq!(
+            h.decide(&policy(), crash(0), t),
+            RestartDecision::NoRestart(NoRestartReason::CleanExit)
+        );
         // Neither was recorded as a crash.
-        assert!(matches!(h.decide(&policy(), crash(1), t), RestartDecision::Restart { attempt: 1, .. }));
+        assert!(matches!(
+            h.decide(&policy(), crash(1), t),
+            RestartDecision::Restart { attempt: 1, .. }
+        ));
     }
 
     #[test]
     fn update_and_install_dir_exit_codes_are_not_restarted() {
         let mut h = CrashHistory::default();
         let t = Instant::now();
-        assert_eq!(h.decide(&policy(), crash(8), t), RestartDecision::NoRestart(NoRestartReason::NeedsAttention(8)));
-        assert_eq!(h.decide(&policy(), crash(11), t), RestartDecision::NoRestart(NoRestartReason::NeedsAttention(11)));
-        assert!(matches!(h.decide(&policy(), crash(1), t), RestartDecision::Restart { attempt: 1, .. }));
+        assert_eq!(
+            h.decide(&policy(), crash(8), t),
+            RestartDecision::NoRestart(NoRestartReason::NeedsAttention(8))
+        );
+        assert_eq!(
+            h.decide(&policy(), crash(11), t),
+            RestartDecision::NoRestart(NoRestartReason::NeedsAttention(11))
+        );
+        assert!(matches!(
+            h.decide(&policy(), crash(1), t),
+            RestartDecision::Restart { attempt: 1, .. }
+        ));
     }
 
     #[test]
     fn disabled_policy_never_restarts() {
         let mut h = CrashHistory::default();
-        let off = RestartPolicy { enabled: false, ..policy() };
+        let off = RestartPolicy {
+            enabled: false,
+            ..policy()
+        };
         assert_eq!(
             h.decide(&off, crash(1), Instant::now()),
             RestartDecision::NoRestart(NoRestartReason::Disabled)
@@ -244,7 +297,10 @@ mod tests {
         )
         .unwrap();
         let p = RestartPolicy::from_config(&cfg);
-        assert!(!p.enabled, "older panels send no auto_restart: keep the old behaviour");
+        assert!(
+            !p.enabled,
+            "older panels send no auto_restart: keep the old behaviour"
+        );
         assert_eq!(p.max_restarts, DEFAULT_MAX_RESTARTS);
         assert_eq!(p.window, DEFAULT_WINDOW);
 

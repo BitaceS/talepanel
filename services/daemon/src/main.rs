@@ -72,10 +72,7 @@ async fn main() -> Result<()> {
         config.daemon.insecure_tls,
     ));
 
-    let process_manager = ProcessManager::new(
-        Arc::clone(&api_client),
-        Arc::clone(&config),
-    );
+    let process_manager = ProcessManager::new(Arc::clone(&api_client), Arc::clone(&config));
 
     // ── 4. Register this node with the TalePanel API ────────────────────────
     //
@@ -166,7 +163,9 @@ async fn main() -> Result<()> {
     let net_mon_handle = {
         let mon = net_mon.clone();
         let api = Arc::clone(&api_client);
-        tokio::spawn(async move { mon.run(Some(api)).await; })
+        tokio::spawn(async move {
+            mon.run(Some(api)).await;
+        })
     };
 
     // 6e. Local Axum HTTP server (listener already bound above)
@@ -187,7 +186,10 @@ async fn main() -> Result<()> {
             allow_legacy_bearer: http_legacy_bearer,
             require_mtls: http_require_mtls,
         };
-        if let Err(err) = http_server::serve_listener(listener, http_server::build_router(http_state), security).await {
+        if let Err(err) =
+            http_server::serve_listener(listener, http_server::build_router(http_state), security)
+                .await
+        {
             // Fatal: otherwise the daemon would keep heartbeating while unreachable.
             error!(%err, "Local HTTP server exited with error; exiting");
             std::process::exit(1);
@@ -220,14 +222,11 @@ async fn main() -> Result<()> {
     }
 
     // ── 11. Await background tasks (with a short deadline) ──────────────────
-    let _ = tokio::time::timeout(
-        tokio::time::Duration::from_secs(5),
-        async {
-            let _ = heartbeat_handle.await;
-            let _ = poller_handle.await;
-            let _ = scanner_handle.await;
-        },
-    )
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
+        let _ = heartbeat_handle.await;
+        let _ = poller_handle.await;
+        let _ = scanner_handle.await;
+    })
     .await;
 
     // The HTTP server and network monitor tasks are not cancelable via the
@@ -366,7 +365,8 @@ async fn wait_for_shutdown_signal() {
     {
         use tokio::signal::unix::{signal, SignalKind};
 
-        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+        let mut sigint =
+            signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
         let mut sigterm =
             signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
 

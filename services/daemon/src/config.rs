@@ -55,10 +55,18 @@ impl Default for HytaleConfig {
 }
 
 impl HytaleConfig {
-    fn default_java_binary() -> String { "java".to_string() }
-    fn default_server_jar() -> String { "Server/HytaleServer.jar".to_string() }
-    fn default_startup_timeout_s() -> u64 { 120 }
-    fn default_stop_timeout_s() -> u64 { 30 }
+    fn default_java_binary() -> String {
+        "java".to_string()
+    }
+    fn default_server_jar() -> String {
+        "Server/HytaleServer.jar".to_string()
+    }
+    fn default_startup_timeout_s() -> u64 {
+        120
+    }
+    fn default_stop_timeout_s() -> u64 {
+        30
+    }
 }
 
 /// Core daemon identity and connectivity settings.

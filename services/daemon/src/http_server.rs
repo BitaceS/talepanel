@@ -198,12 +198,18 @@ struct ActionResponse {
 
 impl ActionResponse {
     fn ok(msg: impl Into<String>) -> Json<Self> {
-        Json(Self { success: true, message: msg.into() })
+        Json(Self {
+            success: true,
+            message: msg.into(),
+        })
     }
     fn err(msg: impl Into<String>) -> (StatusCode, Json<Self>) {
         (
             StatusCode::BAD_REQUEST,
-            Json(Self { success: false, message: msg.into() }),
+            Json(Self {
+                success: false,
+                message: msg.into(),
+            }),
         )
     }
 }
@@ -227,7 +233,11 @@ async fn start_server(
     // ({servers_base_dir}/{server_id}) — the same check command_poller enforces
     // on every outside-supplied path. Guards against a caller (holding the node
     // token) steering writes/execution elsewhere on the node.
-    if !crate::command_poller::is_server_data_path(&cfg.data_path, &state.servers_base_dir, &server_id) {
+    if !crate::command_poller::is_server_data_path(
+        &cfg.data_path,
+        &state.servers_base_dir,
+        &server_id,
+    ) {
         return ActionResponse::err("data_path is not this server's directory").into_response();
     }
 
@@ -275,17 +285,12 @@ async fn delete_server_data(
     // Best-effort kill — ignore "not running" errors.
     let _ = state.process_manager.kill_server(&server_id).await;
 
-    let data_path = std::path::PathBuf::from(&state.servers_base_dir)
-        .join(&server_id);
+    let data_path = std::path::PathBuf::from(&state.servers_base_dir).join(&server_id);
 
     if data_path.exists() {
         if let Err(e) = tokio::fs::remove_dir_all(&data_path).await {
-            return ActionResponse::err(format!(
-                "failed to remove {}: {}",
-                data_path.display(),
-                e
-            ))
-            .into_response();
+            return ActionResponse::err(format!("failed to remove {}: {}", data_path.display(), e))
+                .into_response();
         }
     }
     ActionResponse::ok(format!("server {server_id} data removed")).into_response()
@@ -317,7 +322,11 @@ async fn provision_server(
     // own directory ({servers_base_dir}/{server_id}), matching the check
     // command_poller applies to every outside-supplied path. Prevents a caller
     // (holding the node token) from writing/extracting outside the server tree.
-    if !crate::command_poller::is_server_data_path(&req.data_path, &state.servers_base_dir, &server_id) {
+    if !crate::command_poller::is_server_data_path(
+        &req.data_path,
+        &state.servers_base_dir,
+        &server_id,
+    ) {
         return ActionResponse::err("data_path is not this server's directory").into_response();
     }
 
@@ -341,7 +350,11 @@ async fn send_command(
     Path(server_id): Path<String>,
     Json(req): Json<CommandRequest>,
 ) -> impl IntoResponse {
-    match state.process_manager.send_command(&server_id, &req.command).await {
+    match state
+        .process_manager
+        .send_command(&server_id, &req.command)
+        .await
+    {
         Ok(_) => ActionResponse::ok("Command sent").into_response(),
         Err(e) => ActionResponse::err(e.to_string()).into_response(),
     }
@@ -482,7 +495,10 @@ pub(crate) mod safe_fs {
 
     impl Default for ExtractLimits {
         fn default() -> Self {
-            Self { max_total_bytes: MAX_EXTRACT_BYTES, max_entries: MAX_EXTRACT_ENTRIES }
+            Self {
+                max_total_bytes: MAX_EXTRACT_BYTES,
+                max_entries: MAX_EXTRACT_ENTRIES,
+            }
         }
     }
 
@@ -500,7 +516,10 @@ pub(crate) mod safe_fs {
     }
 
     fn temp_path_in(dir: &Path) -> PathBuf {
-        dir.join(format!("{TEMP_PREFIX}{}{TEMP_SUFFIX}", uuid::Uuid::new_v4().simple()))
+        dir.join(format!(
+            "{TEMP_PREFIX}{}{TEMP_SUFFIX}",
+            uuid::Uuid::new_v4().simple()
+        ))
     }
 
     /// True if `path` itself is a symlink (the link is not followed).
@@ -526,7 +545,10 @@ pub(crate) mod safe_fs {
     /// O_CREAT|O_EXCL, which never follows or reuses an existing entry.
     fn create_temp(target: &Path) -> io::Result<(PathBuf, File)> {
         let dir = target.parent().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "target has no parent directory")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target has no parent directory",
+            )
         })?;
         for _ in 0..8 {
             let tmp = temp_path_in(dir);
@@ -536,7 +558,10 @@ pub(crate) mod safe_fs {
                 Err(e) => return Err(e),
             }
         }
-        Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a temp file"))
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a temp file",
+        ))
     }
 
     /// Rename `tmp` over `target`, removing `tmp` on failure. A symlink at
@@ -575,8 +600,14 @@ pub(crate) mod safe_fs {
         target: &Path,
         fill: impl FnOnce(&mut File) -> io::Result<T>,
     ) -> io::Result<T> {
-        if fs::symlink_metadata(target).map(|m| m.is_dir()).unwrap_or(false) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "target is a directory"));
+        if fs::symlink_metadata(target)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target is a directory",
+            ));
         }
         let (tmp, mut file) = create_temp(target)?;
         let value = match fill(&mut file).and_then(|v| file.flush().map(|_| v)) {
@@ -639,7 +670,10 @@ pub(crate) mod safe_fs {
                     Ok(()) => created.push(cur.clone()),
                     // Lost a race with a concurrent creator: accept only a real directory.
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                        if !fs::symlink_metadata(&cur).map(|m| m.is_dir()).unwrap_or(false) {
+                        if !fs::symlink_metadata(&cur)
+                            .map(|m| m.is_dir())
+                            .unwrap_or(false)
+                        {
                             return Ok(None);
                         }
                     }
@@ -675,10 +709,18 @@ pub(crate) mod safe_fs {
                 limits.max_entries
             ));
         }
-        let base = base.canonicalize().map_err(|e| format!("canonicalize base: {e}"))?;
+        let base = base
+            .canonicalize()
+            .map_err(|e| format!("canonicalize base: {e}"))?;
         let mut created_files = Vec::new();
         let mut created_dirs = Vec::new();
-        let result = extract_entries(archive, &base, limits, &mut created_files, &mut created_dirs);
+        let result = extract_entries(
+            archive,
+            &base,
+            limits,
+            &mut created_files,
+            &mut created_dirs,
+        );
         if result.is_err() {
             for f in created_files.iter().rev() {
                 let _ = fs::remove_file(f);
@@ -702,7 +744,9 @@ pub(crate) mod safe_fs {
         let too_big = || "archive exceeds the extraction size limit".to_string();
 
         for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("read entry: {e}"))?;
 
             // enclosed_name drops absolute prefixes and refuses `..` traversal.
             let rel = match entry.enclosed_name() {
@@ -718,7 +762,9 @@ pub(crate) mod safe_fs {
             }
 
             if entry.is_dir() {
-                match ensure_dir_chain(base, &rel, created_dirs).map_err(|e| format!("mkdir: {e}"))? {
+                match ensure_dir_chain(base, &rel, created_dirs)
+                    .map_err(|e| format!("mkdir: {e}"))?
+                {
                     Some(_) => {}
                     None => stats.skipped += 1,
                 }
@@ -823,7 +869,9 @@ pub(crate) mod safe_fs {
                 };
                 let len = file.metadata().map(|m| m.len()).unwrap_or(0);
                 let opts = options.large_file(len >= u32::MAX as u64);
-                writer.start_file(&rel, opts).map_err(|e| format!("start file: {e}"))?;
+                writer
+                    .start_file(&rel, opts)
+                    .map_err(|e| format!("start file: {e}"))?;
                 io::copy(&mut file, writer).map_err(|e| format!("write {rel}: {e}"))?;
             }
         }
@@ -900,7 +948,9 @@ async fn resolve_in_server(
             warn!(%e, "failed to create server directory");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("failed to create server directory: {e}")})),
+                Json(
+                    serde_json::json!({"error": format!("failed to create server directory: {e}")}),
+                ),
             ));
         }
         info!(path = %base.display(), "Created server directory on first access");
@@ -953,7 +1003,10 @@ async fn resolve_in_server(
             let canonical_parent = match parent.canonicalize() {
                 Ok(p) => p,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Err(path_error(StatusCode::NOT_FOUND, "parent directory does not exist"));
+                    return Err(path_error(
+                        StatusCode::NOT_FOUND,
+                        "parent directory does not exist",
+                    ));
                 }
                 Err(e) => {
                     warn!(%e, "failed to canonicalize parent path");
@@ -961,7 +1014,10 @@ async fn resolve_in_server(
                 }
             };
             if !canonical_parent.starts_with(&canonical_base) {
-                return Err(path_error(StatusCode::FORBIDDEN, "path traversal is not allowed"));
+                return Err(path_error(
+                    StatusCode::FORBIDDEN,
+                    "path traversal is not allowed",
+                ));
             }
             // Reconstruct the full path using the canonical parent + file name.
             let file_name = target
@@ -982,7 +1038,10 @@ async fn resolve_in_server(
     };
 
     if !resolved.starts_with(&canonical_base) {
-        return Err(path_error(StatusCode::FORBIDDEN, "path traversal is not allowed"));
+        return Err(path_error(
+            StatusCode::FORBIDDEN,
+            "path traversal is not allowed",
+        ));
     }
 
     Ok((canonical_base, resolved))
@@ -1169,7 +1228,9 @@ async fn write_file(
     // to a file outside this server's directory.
     let content = req.content;
     let result = tokio::task::spawn_blocking(move || {
-        safe_fs::write_atomic(&target, |f| std::io::Write::write_all(f, content.as_bytes()))
+        safe_fs::write_atomic(&target, |f| {
+            std::io::Write::write_all(f, content.as_bytes())
+        })
     })
     .await;
 
@@ -1404,7 +1465,10 @@ async fn upload_file(
         // Create parent directories for nested uploads one component at a
         // time, refusing symlinks: create_dir_all would follow a planted link
         // (e.g. `mods -> /etc`) and the file would land outside the server.
-        let rel = dest.strip_prefix(&target_dir).unwrap_or(&dest).to_path_buf();
+        let rel = dest
+            .strip_prefix(&target_dir)
+            .unwrap_or(&dest)
+            .to_path_buf();
         let file_name = match rel.file_name() {
             Some(n) => n.to_os_string(),
             None => {
@@ -1483,16 +1547,25 @@ async fn upload_file(
             loop {
                 match field.chunk().await {
                     Ok(Some(chunk)) => file.write_all(&chunk).await.map_err(|e| {
-                        (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to write file: {e}"))
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("failed to write file: {e}"),
+                        )
                     })?,
                     Ok(None) => break,
                     Err(e) => {
-                        return Err((StatusCode::BAD_REQUEST, format!("failed to read upload: {e}")));
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            format!("failed to read upload: {e}"),
+                        ));
                     }
                 }
             }
             file.flush().await.map_err(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to flush file: {e}"))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to flush file: {e}"),
+                )
             })
         }
         .await;
@@ -1616,7 +1689,13 @@ async fn download_file(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    stream_file_response(file, Some(len), "application/octet-stream", &file_name, None)
+    stream_file_response(
+        file,
+        Some(len),
+        "application/octet-stream",
+        &file_name,
+        None,
+    )
 }
 
 /// Opens `path` for reading with O_NOFOLLOW and checks, on the opened handle,
@@ -1632,15 +1711,21 @@ async fn open_regular_nofollow(
     .await;
     match opened {
         Ok(Ok((f, md))) if md.is_file() => Ok((tokio::fs::File::from_std(f), md.len())),
-        Ok(Ok(_)) => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "file not found"}))).into_response()),
+        Ok(Ok(_)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "file not found"})),
+        )
+            .into_response()),
         Ok(Err(e)) if e.raw_os_error() == Some(libc::ELOOP) => Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "symbolic links are not allowed"})),
         )
             .into_response()),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "file not found"}))).into_response())
-        }
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "file not found"})),
+        )
+            .into_response()),
         Ok(Err(e)) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("failed to open file: {e}")})),
@@ -1696,9 +1781,14 @@ async fn extract_archive(
     // Run extraction in a blocking task. safe_fs::extract_zip guards against
     // zip-slip, symlink entries, planted symlinks and decompression bombs.
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let file = safe_fs::open_nofollow(&archive_path).map_err(|e| format!("open archive: {e}"))?;
+        let file =
+            safe_fs::open_nofollow(&archive_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
-        let stats = safe_fs::extract_zip(&mut archive, &extract_dir, safe_fs::ExtractLimits::default())?;
+        let stats = safe_fs::extract_zip(
+            &mut archive,
+            &extract_dir,
+            safe_fs::ExtractLimits::default(),
+        )?;
         Ok(stats.written)
     })
     .await;
@@ -1728,10 +1818,11 @@ async fn create_archive(
     Path(server_id): Path<String>,
     Json(req): Json<ArchiveRequest>,
 ) -> impl IntoResponse {
-    let (root, target) = match resolve_in_server(&state.servers_base_dir, &server_id, &req.path).await {
-        Ok(p) => p,
-        Err(e) => return e.into_response(),
-    };
+    let (root, target) =
+        match resolve_in_server(&state.servers_base_dir, &server_id, &req.path).await {
+            Ok(p) => p,
+            Err(e) => return e.into_response(),
+        };
 
     if std::fs::symlink_metadata(&target).is_err() {
         return (
@@ -1770,21 +1861,31 @@ async fn create_archive(
         let written = safe_fs::write_atomic(&archive_path, |file| {
             let mut zip_writer = zip::ZipWriter::new(&mut *file);
             let zipped = if source.is_file() {
-                let name = source.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = source
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 safe_fs::open_nofollow(&source)
                     .map_err(|e| format!("read file: {e}"))
                     .and_then(|mut f| {
                         zip_writer
                             .start_file(&name, options.large_file(true))
                             .map_err(|e| format!("start file: {e}"))?;
-                        std::io::copy(&mut f, &mut zip_writer).map_err(|e| format!("write: {e}"))?;
+                        std::io::copy(&mut f, &mut zip_writer)
+                            .map_err(|e| format!("write: {e}"))?;
                         Ok(())
                     })
             } else {
                 safe_fs::zip_tree(&mut zip_writer, &source, &source, options, &exclude)
             };
             zipped
-                .and_then(|_| zip_writer.finish().map(|_| ()).map_err(|e| format!("finish archive: {e}")))
+                .and_then(|_| {
+                    zip_writer
+                        .finish()
+                        .map(|_| ())
+                        .map_err(|e| format!("finish archive: {e}"))
+                })
                 .map_err(std::io::Error::other)
         });
         written.map_err(|e| format!("create archive: {e}"))?;
@@ -1842,9 +1943,7 @@ struct BackupCreatedResponse {
 /// Validate a backup id (a UUID from the panel) so it cannot be used to escape
 /// the backups directory. Only hex digits and dashes are allowed.
 fn valid_backup_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
 /// Absolute path of a backup archive: `{backups_base_dir}/{server_id}/{backup_id}.zip`.
@@ -1867,22 +1966,37 @@ fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Resul
     safe_fs::write_atomic(archive_path, |file| {
         let mut zip_writer = zip::ZipWriter::new(&mut *file);
         safe_fs::zip_tree(&mut zip_writer, source, source, options, &[])
-            .and_then(|_| zip_writer.finish().map(|_| ()).map_err(|e| format!("finish archive: {e}")))
+            .and_then(|_| {
+                zip_writer
+                    .finish()
+                    .map(|_| ())
+                    .map_err(|e| format!("finish archive: {e}"))
+            })
             .map_err(std::io::Error::other)
     })
     .map_err(|e| format!("create archive: {e}"))?;
 
-    let size = std::fs::metadata(archive_path).map(|m| m.len()).unwrap_or(0);
+    let size = std::fs::metadata(archive_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
     Ok(size)
 }
 
 /// Parse the optional panel-managed key from a backup request.
-fn parse_backup_key(req: &BackupRequest) -> Result<Option<([u8; 32], u8)>, Box<axum::response::Response>> {
+fn parse_backup_key(
+    req: &BackupRequest,
+) -> Result<Option<([u8; 32], u8)>, Box<axum::response::Response>> {
     match &req.encryption_key {
         None => Ok(None),
         Some(s) => {
             let key = crate::backup_crypto::decode_key(s).map_err(|e| {
-                Box::new((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("invalid backup key: {e}")}))).into_response())
+                Box::new(
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error": format!("invalid backup key: {e}")})),
+                    )
+                        .into_response(),
+                )
             })?;
             Ok(Some((key, req.key_id.unwrap_or(0))))
         }
@@ -1932,7 +2046,9 @@ fn write_backup_archive(
     };
     let _ = std::fs::remove_file(&tmp);
     encrypted?;
-    Ok(std::fs::metadata(archive_path).map(|m| m.len()).unwrap_or(0))
+    Ok(std::fs::metadata(archive_path)
+        .map(|m| m.len())
+        .unwrap_or(0))
 }
 
 /// Return a readable plaintext archive path for `src`. If `src` is encrypted,
@@ -1950,16 +2066,24 @@ fn open_plaintext_archive(
 ) -> Result<(PathBuf, Option<TempArchive>), String> {
     if !archive_is_encrypted(src).map_err(|e| format!("read archive: {e}"))? {
         if key.is_some() {
-            return Err("this backup was recorded as encrypted, but the archive is not; refusing to use it".to_string());
+            return Err(
+                "this backup was recorded as encrypted, but the archive is not; refusing to use it"
+                    .to_string(),
+            );
         }
         return Ok((src.to_path_buf(), None));
     }
-    let key = key.ok_or_else(|| "this backup is encrypted; a key is required to restore it".to_string())?;
+    let key =
+        key.ok_or_else(|| "this backup is encrypted; a key is required to restore it".to_string())?;
     std::fs::create_dir_all(scratch_dir).map_err(|e| format!("create scratch dir: {e}"))?;
-    let tmp = TempArchive { path: scratch_dir.join(format!(".plain-{}.zip", uuid::Uuid::new_v4())) };
+    let tmp = TempArchive {
+        path: scratch_dir.join(format!(".plain-{}.zip", uuid::Uuid::new_v4())),
+    };
     let infile = std::fs::File::open(src).map_err(|e| format!("open archive: {e}"))?;
-    let out = std::fs::File::create(&tmp.path).map_err(|e| format!("create plaintext temp: {e}"))?;
-    crate::backup_crypto::decrypt_stream(infile, out, key).map_err(|e| format!("decrypt archive: {e}"))?;
+    let out =
+        std::fs::File::create(&tmp.path).map_err(|e| format!("create plaintext temp: {e}"))?;
+    crate::backup_crypto::decrypt_stream(infile, out, key)
+        .map_err(|e| format!("decrypt archive: {e}"))?;
     Ok((tmp.path.clone(), Some(tmp)))
 }
 
@@ -1971,7 +2095,11 @@ async fn create_backup(
     Json(req): Json<BackupRequest>,
 ) -> impl IntoResponse {
     if !valid_backup_id(&req.backup_id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid backup_id"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid backup_id"})),
+        )
+            .into_response();
     }
     let enc = match parse_backup_key(&req) {
         Ok(v) => v,
@@ -1984,7 +2112,11 @@ async fn create_backup(
         Err(e) => return e.into_response(),
     };
     if !source.is_dir() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "server data directory not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "server data directory not found"})),
+        )
+            .into_response();
     }
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
@@ -1997,9 +2129,22 @@ async fn create_backup(
     .await;
 
     match result {
-        Ok(Ok(size_bytes)) => Json(BackupCreatedResponse { success: true, size_bytes, storage_path }).into_response(),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("backup task failed: {e}")}))).into_response(),
+        Ok(Ok(size_bytes)) => Json(BackupCreatedResponse {
+            success: true,
+            size_bytes,
+            storage_path,
+        })
+        .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("backup task failed: {e}")})),
+        )
+            .into_response(),
     }
 }
 
@@ -2011,7 +2156,11 @@ async fn restore_backup(
     Json(req): Json<BackupRequest>,
 ) -> impl IntoResponse {
     if !valid_backup_id(&req.backup_id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid backup_id"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid backup_id"})),
+        )
+            .into_response();
     }
 
     let dest = match resolve_safe_path(&state.servers_base_dir, &server_id, "/").await {
@@ -2019,7 +2168,11 @@ async fn restore_backup(
         Err(e) => return e.into_response(),
     };
     if !dest.is_dir() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "server data directory not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "server data directory not found"})),
+        )
+            .into_response();
     }
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
@@ -2032,9 +2185,16 @@ async fn restore_backup(
             Err(resp) => return *resp,
         }
     } else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "backup archive not found"})),
+        )
+            .into_response();
     };
-    let source = fetched.as_ref().map(|t| t.path.clone()).unwrap_or(archive_path);
+    let source = fetched
+        .as_ref()
+        .map(|t| t.path.clone())
+        .unwrap_or(archive_path);
     let key = match parse_backup_key(&req) {
         Ok(v) => v.map(|(k, _)| k),
         Err(resp) => return *resp,
@@ -2054,8 +2214,16 @@ async fn restore_backup(
 
     match result {
         Ok(Ok(count)) => ActionResponse::ok(format!("restored {count} entries")).into_response(),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("restore task failed: {e}")}))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("restore task failed: {e}")})),
+        )
+            .into_response(),
     }
 }
 
@@ -2067,12 +2235,20 @@ async fn download_backup(
 ) -> impl IntoResponse {
     let backup_id = match query.backup_id {
         Some(id) if valid_backup_id(&id) && valid_server_id(&server_id) => id,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"}))).into_response(),
+        _ => return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"})),
+        )
+            .into_response(),
     };
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
     if !archive_path.is_file() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "backup archive not found"})),
+        )
+            .into_response();
     }
     // Encrypted archives have no key on this unauthenticated GET path; the panel
     // downloads them through the key-carrying POST variant instead.
@@ -2091,7 +2267,11 @@ async fn download_backup_from(
     Json(req): Json<BackupRequest>,
 ) -> impl IntoResponse {
     if !valid_backup_id(&req.backup_id) || !valid_server_id(&server_id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or backup_id"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid server id or backup_id"})),
+        )
+            .into_response();
     }
     let key = match parse_backup_key(&req) {
         Ok(v) => v.map(|(k, _)| k),
@@ -2108,21 +2288,36 @@ async fn download_backup_from(
             Err(resp) => return *resp,
         }
     } else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "backup archive not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "backup archive not found"})),
+        )
+            .into_response();
     };
 
     // Decrypt to a plaintext temp if needed, off the async thread.
     let scratch = PathBuf::from(&state.backups_base_dir).join(".decrypt");
-    let decrypted = tokio::task::spawn_blocking(move || open_plaintext_archive(&src_path, key.as_ref(), &scratch)).await;
+    let decrypted = tokio::task::spawn_blocking(move || {
+        open_plaintext_archive(&src_path, key.as_ref(), &scratch)
+    })
+    .await;
     let (plain_path, guard) = match decrypted {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
             drop(fetched);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e})),
+            )
+                .into_response();
         }
         Err(e) => {
             drop(fetched);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("decrypt task failed: {e}")}))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("decrypt task failed: {e}")})),
+            )
+                .into_response();
         }
     };
     // When we decrypted, stream the plaintext temp and drop the ciphertext copy.
@@ -2147,11 +2342,21 @@ async fn stream_archive(
     let file = match tokio::fs::File::open(path).await {
         Ok(f) => f,
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to read archive: {e}")}))).into_response()
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("failed to read archive: {e}")})),
+            )
+                .into_response()
         }
     };
     let len = file.metadata().await.map(|m| m.len()).ok();
-    stream_file_response(file, len, "application/zip", &format!("{backup_id}.zip"), owned_tmp)
+    stream_file_response(
+        file,
+        len,
+        "application/zip",
+        &format!("{backup_id}.zip"),
+        owned_tmp,
+    )
 }
 
 /// Streams `file` as an attachment in 256 KiB chunks, so large files never
@@ -2175,7 +2380,11 @@ fn stream_file_response(
             match file.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    if tx.send(Ok(axum::body::Bytes::copy_from_slice(&buf[..n]))).await.is_err() {
+                    if tx
+                        .send(Ok(axum::body::Bytes::copy_from_slice(&buf[..n])))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -2189,12 +2398,18 @@ fn stream_file_response(
     let body = axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
     let mut resp = axum::response::Response::new(body);
     let headers = resp.headers_mut();
-    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static(content_type));
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static(content_type),
+    );
     if let Ok(v) = axum::http::HeaderValue::from_str(&content_disposition_attachment(file_name)) {
         headers.insert(axum::http::header::CONTENT_DISPOSITION, v);
     }
     if let Some(len) = len {
-        headers.insert(axum::http::header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
+        headers.insert(
+            axum::http::header::CONTENT_LENGTH,
+            axum::http::HeaderValue::from(len),
+        );
     }
     resp
 }
@@ -2230,7 +2445,10 @@ struct RemoteResponse {
     config_updates: crate::rclone::ConfigUpdates,
 }
 
-fn remote_response<T>(outcome: crate::rclone::Outcome<T>, remote_path: impl FnOnce(&T) -> Option<String>) -> axum::response::Response {
+fn remote_response<T>(
+    outcome: crate::rclone::Outcome<T>,
+    remote_path: impl FnOnce(&T) -> Option<String>,
+) -> axum::response::Response {
     match outcome.result {
         Ok(v) => Json(RemoteResponse {
             success: true,
@@ -2241,7 +2459,12 @@ fn remote_response<T>(outcome: crate::rclone::Outcome<T>, remote_path: impl FnOn
         .into_response(),
         Err(e) => (
             StatusCode::BAD_GATEWAY,
-            Json(RemoteResponse { success: false, error: Some(e), remote_path: None, config_updates: outcome.config_updates }),
+            Json(RemoteResponse {
+                success: false,
+                error: Some(e),
+                remote_path: None,
+                config_updates: outcome.config_updates,
+            }),
         )
             .into_response(),
     }
@@ -2250,7 +2473,12 @@ fn remote_response<T>(outcome: crate::rclone::Outcome<T>, remote_path: impl FnOn
 fn remote_bad_request(msg: &str) -> axum::response::Response {
     (
         StatusCode::BAD_REQUEST,
-        Json(RemoteResponse { success: false, error: Some(msg.to_string()), remote_path: None, config_updates: Default::default() }),
+        Json(RemoteResponse {
+            success: false,
+            error: Some(msg.to_string()),
+            remote_path: None,
+            config_updates: Default::default(),
+        }),
     )
         .into_response()
 }
@@ -2266,15 +2494,32 @@ async fn fetch_remote_archive(
     let dir = PathBuf::from(&state.backups_base_dir).join(server_id);
     if let Err(e) = tokio::fs::create_dir_all(&dir).await {
         return Err(Box::new(remote_response::<()>(
-            crate::rclone::Outcome { result: Err(format!("create backup dir: {e}")), config_updates: Default::default() },
+            crate::rclone::Outcome {
+                result: Err(format!("create backup dir: {e}")),
+                config_updates: Default::default(),
+            },
             |_| None,
         )));
     }
-    let tmp = TempArchive { path: dir.join(format!(".fetch-{}-{}.zip", backup_id, uuid::Uuid::new_v4())) };
-    let outcome = crate::rclone::fetch(&rclone_tmp_root(state), remote, server_id, &format!("{backup_id}.zip"), &tmp.path).await;
+    let tmp = TempArchive {
+        path: dir.join(format!(".fetch-{}-{}.zip", backup_id, uuid::Uuid::new_v4())),
+    };
+    let outcome = crate::rclone::fetch(
+        &rclone_tmp_root(state),
+        remote,
+        server_id,
+        &format!("{backup_id}.zip"),
+        &tmp.path,
+    )
+    .await;
     if outcome.result.is_err() || !tmp.path.is_file() {
         let outcome = crate::rclone::Outcome {
-            result: Err::<(), String>(outcome.result.err().unwrap_or_else(|| "rclone did not produce the archive".into())),
+            result: Err::<(), String>(
+                outcome
+                    .result
+                    .err()
+                    .unwrap_or_else(|| "rclone did not produce the archive".into()),
+            ),
             config_updates: outcome.config_updates,
         };
         return Err(Box::new(remote_response(outcome, |_| None)));
@@ -2300,12 +2545,24 @@ async fn upload_backup(
     if !archive_path.is_file() {
         return (
             StatusCode::NOT_FOUND,
-            Json(RemoteResponse { success: false, error: Some("backup archive not found".into()), remote_path: None, config_updates: Default::default() }),
+            Json(RemoteResponse {
+                success: false,
+                error: Some("backup archive not found".into()),
+                remote_path: None,
+                config_updates: Default::default(),
+            }),
         )
             .into_response();
     }
     info!(%server_id, backup_id = %req.backup_id, backend = %remote.backend, "uploading backup off-site");
-    let outcome = crate::rclone::upload(&rclone_tmp_root(&state), remote, &archive_path, &server_id, &format!("{}.zip", req.backup_id)).await;
+    let outcome = crate::rclone::upload(
+        &rclone_tmp_root(&state),
+        remote,
+        &archive_path,
+        &server_id,
+        &format!("{}.zip", req.backup_id),
+    )
+    .await;
     if let Err(e) = &outcome.result {
         warn!(%server_id, backup_id = %req.backup_id, error = %e, "off-site upload failed");
     }
@@ -2325,7 +2582,13 @@ async fn delete_remote_backup(
     let Some(remote) = req.remote.as_ref() else {
         return remote_bad_request("remote is required");
     };
-    let outcome = crate::rclone::delete(&rclone_tmp_root(&state), remote, &server_id, &format!("{}.zip", req.backup_id)).await;
+    let outcome = crate::rclone::delete(
+        &rclone_tmp_root(&state),
+        remote,
+        &server_id,
+        &format!("{}.zip", req.backup_id),
+    )
+    .await;
     remote_response(outcome, |_| None)
 }
 
@@ -2335,7 +2598,10 @@ struct RemoteTestRequest {
 }
 
 /// `POST /rclone/test` — write and delete a probe file on the remote.
-async fn test_remote(State(state): State<AppState>, Json(req): Json<RemoteTestRequest>) -> impl IntoResponse {
+async fn test_remote(
+    State(state): State<AppState>,
+    Json(req): Json<RemoteTestRequest>,
+) -> impl IntoResponse {
     let outcome = crate::rclone::test(&rclone_tmp_root(&state), &req.remote).await;
     remote_response(outcome, |_| None)
 }
@@ -2349,14 +2615,24 @@ async fn delete_backup(
 ) -> impl IntoResponse {
     let backup_id = match query.backup_id {
         Some(id) if valid_backup_id(&id) && valid_server_id(&server_id) => id,
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"}))).into_response(),
+        _ => return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid server id or invalid or missing backup_id"})),
+        )
+            .into_response(),
     };
 
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &backup_id);
     match tokio::fs::remove_file(&archive_path).await {
         Ok(_) => ActionResponse::ok("backup deleted").into_response(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ActionResponse::ok("backup already absent").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("failed to delete archive: {e}")}))).into_response(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            ActionResponse::ok("backup already absent").into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("failed to delete archive: {e}")})),
+        )
+            .into_response(),
     }
 }
 
@@ -2374,12 +2650,20 @@ async fn import_server(
 ) -> impl IntoResponse {
     // The server id comes from the panel; guard against traversal regardless.
     if !valid_server_id(&server_id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid server id"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid server id"})),
+        )
+            .into_response();
     }
 
     let dest = PathBuf::from(&state.servers_base_dir).join(&server_id);
     if let Err(e) = tokio::fs::create_dir_all(&dest).await {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("create server dir: {e}")}))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("create server dir: {e}")})),
+        )
+            .into_response();
     }
 
     // Stream the uploaded archive to a temp file next to the server dirs
@@ -2393,17 +2677,26 @@ async fn import_server(
         Ok(Some(())) => tmp_path.clone(),
         Ok(None) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "missing file field"}))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "missing file field"})),
+            )
+                .into_response();
         }
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e})),
+            )
+                .into_response();
         }
     };
 
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
-        let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| format!("read archive: {e}"))?;
+        let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+            .map_err(|e| format!("read archive: {e}"))?;
         let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
         Ok(stats.written)
     })
@@ -2412,8 +2705,16 @@ async fn import_server(
 
     match result {
         Ok(Ok(count)) => ActionResponse::ok(format!("imported {count} entries")).into_response(),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("import task failed: {e}")}))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("import task failed: {e}")})),
+        )
+            .into_response(),
     }
 }
 
@@ -2452,13 +2753,17 @@ async fn receive_import_archive(
                     if written > max_bytes {
                         return Err("import archive exceeds size limit".to_string());
                     }
-                    file.write_all(&chunk).await.map_err(|e| format!("write temp file: {e}"))?;
+                    file.write_all(&chunk)
+                        .await
+                        .map_err(|e| format!("write temp file: {e}"))?;
                 }
                 Ok(None) => break,
                 Err(e) => return Err(format!("failed to read upload: {e}")),
             }
         }
-        file.flush().await.map_err(|e| format!("write temp file: {e}"))?;
+        file.flush()
+            .await
+            .map_err(|e| format!("write temp file: {e}"))?;
         return Ok(Some(()));
     }
 }
@@ -2490,7 +2795,10 @@ fn token_matches(presented: &str, expected: &str) -> bool {
     }
     let a = Sha256::digest(presented.as_bytes());
     let b = Sha256::digest(expected.as_bytes());
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 /// Simple bearer token extractor for daemon endpoint auth.
@@ -2518,7 +2826,10 @@ async fn auth_middleware(
 
 /// Catch-all 404 handler.
 async fn not_found() -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"})))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "not found"})),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2555,18 +2866,30 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/files/download", get(download_file))
         .route("/servers/:id/files/extract", post(extract_archive))
         .route("/servers/:id/files/archive", post(create_archive))
-        .route("/servers/:id/backup", post(create_backup).delete(delete_backup))
+        .route(
+            "/servers/:id/backup",
+            post(create_backup).delete(delete_backup),
+        )
         .route("/servers/:id/backup/restore", post(restore_backup))
-        .route("/servers/:id/backup/download", get(download_backup).post(download_backup_from))
+        .route(
+            "/servers/:id/backup/download",
+            get(download_backup).post(download_backup_from),
+        )
         .route("/servers/:id/backup/upload", post(upload_backup))
-        .route("/servers/:id/backup/remote-delete", post(delete_remote_backup))
+        .route(
+            "/servers/:id/backup/remote-delete",
+            post(delete_remote_backup),
+        )
         .route("/rclone/test", post(test_remote))
         .route(
             "/servers/:id/import",
             // A whole server archive: streamed to disk, capped at 2 GiB.
             post(import_server).layer(axum::extract::DefaultBodyLimit::disable()),
         )
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     Router::new()
         // Health is public — used by load-balancers without auth
@@ -2659,7 +2982,13 @@ pub async fn serve_listener(
         };
         let router = router.clone();
         let acceptor = acceptor.clone();
-        tokio::spawn(handle_connection(stream, peer, router, acceptor, allow_plain));
+        tokio::spawn(handle_connection(
+            stream,
+            peer,
+            router,
+            acceptor,
+            allow_plain,
+        ));
     }
 }
 
@@ -2686,18 +3015,18 @@ async fn handle_connection(
 
     match (is_tls, acceptor) {
         (true, Some(acceptor)) => {
-            let tls = match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await
-            {
-                Ok(Ok(tls)) => tls,
-                Ok(Err(e)) => {
-                    warn!(%peer, error = %e, "mTLS handshake rejected");
-                    return;
-                }
-                Err(_) => {
-                    warn!(%peer, "mTLS handshake timed out");
-                    return;
-                }
-            };
+            let tls =
+                match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+                    Ok(Ok(tls)) => tls,
+                    Ok(Err(e)) => {
+                        warn!(%peer, error = %e, "mTLS handshake rejected");
+                        return;
+                    }
+                    Err(_) => {
+                        warn!(%peer, "mTLS handshake timed out");
+                        return;
+                    }
+                };
             serve_connection(TokioIo::new(tls), peer, router).await;
         }
         (false, _) if allow_plain => serve_connection(TokioIo::new(stream), peer, router).await,
@@ -2787,7 +3116,8 @@ impl ClientCertVerifier for PanelClientVerifier {
         intermediates: &[rustls::pki_types::CertificateDer<'_>],
         now: rustls::pki_types::UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
-        self.inner.verify_client_cert(end_entity, intermediates, now)?;
+        self.inner
+            .verify_client_cert(end_entity, intermediates, now)?;
         match single_common_name(end_entity) {
             Some(cn) if cn == PANEL_CLIENT_CN => Ok(ClientCertVerified::assertion()),
             _ => Err(rustls::Error::InvalidCertificate(
@@ -2846,7 +3176,8 @@ mod tests {
 
     fn scratch_dir(tag: &str) -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("tp-http-test-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("tp-http-test-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         dir.canonicalize().unwrap()
@@ -2859,7 +3190,8 @@ mod tests {
     }
 
     fn opts() -> zip::write::SimpleFileOptions {
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)
+        zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
     }
 
     fn extract(
@@ -2892,8 +3224,16 @@ mod tests {
         assert!(guard.is_some(), "encrypted archive decrypts into a temp");
         let dest = dir.join("restored");
         std::fs::create_dir_all(&dest).unwrap();
-        extract(std::fs::read(&plain).unwrap(), &dest, safe_fs::ExtractLimits::default()).expect("extract");
-        assert_eq!(std::fs::read(dest.join("world/level.dat")).unwrap(), b"hytale world bytes");
+        extract(
+            std::fs::read(&plain).unwrap(),
+            &dest,
+            safe_fs::ExtractLimits::default(),
+        )
+        .expect("extract");
+        assert_eq!(
+            std::fs::read(dest.join("world/level.dat")).unwrap(),
+            b"hytale world bytes"
+        );
         drop(guard);
 
         // Wrong key is rejected.
@@ -2903,8 +3243,8 @@ mod tests {
         let plain_archive = dir.join("plain.zip");
         write_backup_archive(&source, &plain_archive, None).expect("write plain archive");
         assert!(!archive_is_encrypted(&plain_archive).unwrap());
-        let (p2, guard2) =
-            open_plaintext_archive(&plain_archive, None, &dir.join("scratch3")).expect("open plain");
+        let (p2, guard2) = open_plaintext_archive(&plain_archive, None, &dir.join("scratch3"))
+            .expect("open plain");
         assert!(guard2.is_none(), "plaintext archive is read in place");
         assert_eq!(p2, plain_archive);
 
@@ -2934,13 +3274,25 @@ mod tests {
         let base = "/srv/taledaemon/servers";
         assert!(is_server_data_path(&format!("{base}/{SID}"), base, SID));
         assert!(is_server_data_path(&format!("{base}/{SID}/"), base, SID)); // trailing slash tolerated
-        // Rejected: data root itself, siblings, other servers, traversal, nesting.
+                                                                            // Rejected: data root itself, siblings, other servers, traversal, nesting.
         assert!(!is_server_data_path(base, base, SID));
         assert!(!is_server_data_path("/etc/cron.d", base, SID));
         assert!(!is_server_data_path(&format!("{base}/other"), base, SID));
-        assert!(!is_server_data_path(&format!("{base}/{SID}/../x"), base, SID));
-        assert!(!is_server_data_path(&format!("{base}/{SID}/sub"), base, SID));
-        assert!(!is_server_data_path(&format!("{base}/{SID}"), base, "not-a-uuid"));
+        assert!(!is_server_data_path(
+            &format!("{base}/{SID}/../x"),
+            base,
+            SID
+        ));
+        assert!(!is_server_data_path(
+            &format!("{base}/{SID}/sub"),
+            base,
+            SID
+        ));
+        assert!(!is_server_data_path(
+            &format!("{base}/{SID}"),
+            base,
+            "not-a-uuid"
+        ));
     }
 
     #[test]
@@ -2958,7 +3310,10 @@ mod tests {
             v.starts_with("attachment; filename=\"a_b_c__X-Evil: 1;_.txt\"; filename*=UTF-8''"),
             "{v}"
         );
-        assert!(v.ends_with("a%22b%5Cc%0D%0AX-Evil%3A%201%3B%C3%BC.txt"), "{v}");
+        assert!(
+            v.ends_with("a%22b%5Cc%0D%0AX-Evil%3A%201%3B%C3%BC.txt"),
+            "{v}"
+        );
         assert!(axum::http::HeaderValue::from_str(&v).is_ok());
     }
 
@@ -3009,12 +3364,27 @@ mod tests {
 
         assert!(resolve_safe_path(b, SID, "/sub").await.is_ok());
         assert!(resolve_safe_path(b, SID, "/new.txt").await.is_ok());
-        assert_eq!(resolve_safe_path(b, SID, "/escape").await.unwrap_err().0, StatusCode::FORBIDDEN);
-        assert_eq!(resolve_safe_path(b, SID, "/escape/x").await.unwrap_err().0, StatusCode::FORBIDDEN);
-        assert_eq!(resolve_safe_path(b, SID, "/dangling").await.unwrap_err().0, StatusCode::FORBIDDEN);
+        assert_eq!(
+            resolve_safe_path(b, SID, "/escape").await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            resolve_safe_path(b, SID, "/escape/x").await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            resolve_safe_path(b, SID, "/dangling").await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
         // Even a link pointing inside the root is refused as a final component.
-        assert_eq!(resolve_safe_path(b, SID, "/inner").await.unwrap_err().0, StatusCode::FORBIDDEN);
-        assert_eq!(resolve_safe_path(b, "../x", "/").await.unwrap_err().0, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            resolve_safe_path(b, SID, "/inner").await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            resolve_safe_path(b, "../x", "/").await.unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
         assert!(resolve_safe_child(b, SID, "/").await.is_err());
         assert!(resolve_safe_child(b, SID, "/sub").await.is_ok());
 
@@ -3060,7 +3430,10 @@ mod tests {
 
         assert_eq!(stats.written, 1, "only config.json is written");
         assert_eq!(stats.skipped, 2);
-        assert!(std::fs::symlink_metadata(base.join("link")).is_err(), "symlink entry must not be created");
+        assert!(
+            std::fs::symlink_metadata(base.join("link")).is_err(),
+            "symlink entry must not be created"
+        );
         assert_eq!(std::fs::read(outside.join("victim.txt")).unwrap(), b"keep");
         // The planted link was replaced by a regular file, not written through.
         assert!(!safe_fs::is_symlink(&base.join("config.json")));
@@ -3078,10 +3451,16 @@ mod tests {
             w.start_file("second/b.bin", opts()).unwrap();
             w.write_all(&[0u8; 600]).unwrap();
         });
-        let limits = safe_fs::ExtractLimits { max_total_bytes: 1000, max_entries: 10 };
+        let limits = safe_fs::ExtractLimits {
+            max_total_bytes: 1000,
+            max_entries: 10,
+        };
         let err = extract(bytes, &base, limits).unwrap_err();
         assert!(err.contains("size limit"), "{err}");
-        assert!(!base.join("first").exists(), "partial output must be removed");
+        assert!(
+            !base.join("first").exists(),
+            "partial output must be removed"
+        );
         assert!(!base.join("second").exists());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -3094,8 +3473,13 @@ mod tests {
                 w.start_file(format!("f{i}"), opts()).unwrap();
             }
         });
-        let limits = safe_fs::ExtractLimits { max_total_bytes: 1 << 20, max_entries: 4 };
-        assert!(extract(bytes, &base, limits).unwrap_err().contains("entries"));
+        let limits = safe_fs::ExtractLimits {
+            max_total_bytes: 1 << 20,
+            max_entries: 4,
+        };
+        assert!(extract(bytes, &base, limits)
+            .unwrap_err()
+            .contains("entries"));
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -3237,8 +3621,16 @@ mod tests {
         ) -> SocketAddr {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
-            let security = ListenerSecurity { pki, allow_legacy_bearer, require_mtls };
-            tokio::spawn(serve_listener(listener, build_router(test_state()), security));
+            let security = ListenerSecurity {
+                pki,
+                allow_legacy_bearer,
+                require_mtls,
+            };
+            tokio::spawn(serve_listener(
+                listener,
+                build_router(test_state()),
+                security,
+            ));
             addr
         }
 
@@ -3256,7 +3648,10 @@ mod tests {
         }
 
         fn plain_client() -> reqwest::Client {
-            reqwest::Client::builder().timeout(Duration::from_secs(5)).build().unwrap()
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap()
         }
 
         async fn status(
@@ -3276,7 +3671,10 @@ mod tests {
         fn assert_refused(res: Result<u16, reqwest::Error>, what: &str) {
             match res {
                 Ok(code) => panic!("{what}: expected refusal, got HTTP {code}"),
-                Err(e) => assert!(!e.is_timeout(), "{what}: timed out instead of refusing: {e}"),
+                Err(e) => assert!(
+                    !e.is_timeout(),
+                    "{what}: timed out instead of refusing: {e}"
+                ),
             }
         }
 
@@ -3286,7 +3684,12 @@ mod tests {
             let addr = start(Some(f.node.clone()), true, false).await;
             let c = tls_client(&f.ca_pem, Some(&f.panel));
 
-            assert_eq!(status(&c, format!("https://{addr}/health"), None).await.unwrap(), 200);
+            assert_eq!(
+                status(&c, format!("https://{addr}/health"), None)
+                    .await
+                    .unwrap(),
+                200
+            );
             // The bearer middleware still runs on the mTLS path.
             let url = format!("https://{addr}/network-stats");
             assert_eq!(status(&c, url.clone(), Some(TOKEN)).await.unwrap(), 200);
@@ -3331,13 +3734,20 @@ mod tests {
             );
             // Plain HTTP with a valid bearer: refused because mTLS is required.
             assert_refused(
-                status(&plain_client(), format!("http://{addr}/health"), Some(TOKEN)).await,
+                status(
+                    &plain_client(),
+                    format!("http://{addr}/health"),
+                    Some(TOKEN),
+                )
+                .await,
                 "plain HTTP with require_mtls",
             );
             // The panel itself still gets through.
             let panel = tls_client(&f.ca_pem, Some(&f.panel));
             assert_eq!(
-                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN))
+                    .await
+                    .unwrap(),
                 200
             );
 
@@ -3358,7 +3768,12 @@ mod tests {
             // Transition mode: PKI loaded, legacy allowed -> plain HTTP works,
             // still behind the bearer token.
             let addr = start(Some(f.node.clone()), true, false).await;
-            assert_eq!(status(&plain, format!("http://{addr}/health"), None).await.unwrap(), 200);
+            assert_eq!(
+                status(&plain, format!("http://{addr}/health"), None)
+                    .await
+                    .unwrap(),
+                200
+            );
             let url = format!("http://{addr}/network-stats");
             assert_eq!(status(&plain, url.clone(), Some(TOKEN)).await.unwrap(), 200);
             assert_eq!(status(&plain, url, None).await.unwrap(), 401);
@@ -3373,7 +3788,9 @@ mod tests {
             // No PKI yet -> plain only, as before mTLS existed.
             let addr = start(None, true, false).await;
             assert_eq!(
-                status(&plain, format!("http://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                status(&plain, format!("http://{addr}/network-stats"), Some(TOKEN))
+                    .await
+                    .unwrap(),
                 200
             );
         }
@@ -3415,7 +3832,9 @@ mod tests {
             // Go-issued panel client cert against a Go-issued node cert.
             let panel = tls_client(&f.ca_pem, Some(&f.panel));
             assert_eq!(
-                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN)).await.unwrap(),
+                status(&panel, format!("https://{addr}/network-stats"), Some(TOKEN))
+                    .await
+                    .unwrap(),
                 200
             );
             // Go-issued cert from the same CA but CN != panel: refused.
@@ -3435,7 +3854,10 @@ mod tests {
                 require_mtls: false,
             };
             let out = format!("{sec:?}");
-            assert!(!out.contains(&f.node.key_pem) && !out.contains("PRIVATE KEY"), "{out}");
+            assert!(
+                !out.contains(&f.node.key_pem) && !out.contains("PRIVATE KEY"),
+                "{out}"
+            );
         }
 
         /// A migration ships the whole server directory. Archives above axum's
@@ -3459,7 +3881,8 @@ mod tests {
             let zip = super::zip_bytes(|w| {
                 let opts = zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Stored);
-                w.start_file("universe/worlds/default/chunk.bin", opts).unwrap();
+                w.start_file("universe/worlds/default/chunk.bin", opts)
+                    .unwrap();
                 w.write_all(&payload).unwrap();
             });
             assert!(zip.len() > 2 * 1024 * 1024);
@@ -3474,7 +3897,11 @@ mod tests {
 
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
-            let security = ListenerSecurity { pki: None, allow_legacy_bearer: true, require_mtls: false };
+            let security = ListenerSecurity {
+                pki: None,
+                allow_legacy_bearer: true,
+                require_mtls: false,
+            };
             tokio::spawn(serve_listener(listener, build_router(state), security));
 
             let resp = reqwest::Client::builder()
@@ -3483,7 +3910,10 @@ mod tests {
                 .unwrap()
                 .post(format!("http://{addr}/servers/{}/import", super::SID))
                 .bearer_auth(TOKEN)
-                .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .body(body)
                 .send()
                 .await
@@ -3492,7 +3922,11 @@ mod tests {
             let text = resp.text().await.unwrap_or_default();
             assert_eq!(code, 200, "{text}");
 
-            let written = std::fs::read(base.join(super::SID).join("universe/worlds/default/chunk.bin")).unwrap();
+            let written = std::fs::read(
+                base.join(super::SID)
+                    .join("universe/worlds/default/chunk.bin"),
+            )
+            .unwrap();
             assert_eq!(written.len(), payload.len());
             assert!(written == payload);
             // The temp archive is gone.
@@ -3510,7 +3944,9 @@ mod tests {
             let base = super::scratch_dir("download");
             let root = base.join(super::SID);
             std::fs::create_dir_all(&root).unwrap();
-            let big: Vec<u8> = (0..(3 * 1024 * 1024 + 17)).map(|i| (i % 251) as u8).collect();
+            let big: Vec<u8> = (0..(3 * 1024 * 1024 + 17))
+                .map(|i| (i % 251) as u8)
+                .collect();
             std::fs::write(root.join("big.bin"), &big).unwrap();
             std::fs::write(root.join("config.json"), b"{\"MaxPlayers\": 20}").unwrap();
 
@@ -3518,26 +3954,38 @@ mod tests {
             state.servers_base_dir = base.to_string_lossy().into_owned();
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
-            let security = ListenerSecurity { pki: None, allow_legacy_bearer: true, require_mtls: false };
+            let security = ListenerSecurity {
+                pki: None,
+                allow_legacy_bearer: true,
+                require_mtls: false,
+            };
             tokio::spawn(serve_listener(listener, build_router(state), security));
             let c = plain_client();
 
             let resp = c
-                .get(format!("http://{addr}/servers/{}/files/download?path=big.bin", super::SID))
+                .get(format!(
+                    "http://{addr}/servers/{}/files/download?path=big.bin",
+                    super::SID
+                ))
                 .bearer_auth(TOKEN)
                 .send()
                 .await
                 .unwrap();
             assert_eq!(resp.status().as_u16(), 200);
             assert_eq!(
-                resp.headers().get("content-length").and_then(|v| v.to_str().ok()),
+                resp.headers()
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok()),
                 Some(big.len().to_string().as_str())
             );
             let body = resp.bytes().await.unwrap();
             assert!(body.as_ref() == big.as_slice(), "downloaded bytes differ");
 
             let resp = c
-                .get(format!("http://{addr}/servers/{}/files/content?path=config.json", super::SID))
+                .get(format!(
+                    "http://{addr}/servers/{}/files/content?path=config.json",
+                    super::SID
+                ))
                 .bearer_auth(TOKEN)
                 .send()
                 .await
@@ -3547,7 +3995,10 @@ mod tests {
             assert_eq!(v["content"], "{\"MaxPlayers\": 20}");
 
             let resp = c
-                .get(format!("http://{addr}/servers/{}/files/download?path=missing.bin", super::SID))
+                .get(format!(
+                    "http://{addr}/servers/{}/files/download?path=missing.bin",
+                    super::SID
+                ))
                 .bearer_auth(TOKEN)
                 .send()
                 .await

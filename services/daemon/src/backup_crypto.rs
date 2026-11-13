@@ -42,7 +42,12 @@ pub fn is_encrypted(header: &[u8]) -> bool {
 pub fn decode_key(b64: &str) -> io::Result<[u8; 32]> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64.trim())
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("backup key not valid base64: {e}")))?;
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("backup key not valid base64: {e}"),
+            )
+        })?;
     <[u8; 32]>::try_from(bytes.as_slice())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "backup key must be 32 bytes"))
 }
@@ -95,10 +100,16 @@ pub fn decrypt_stream<R: Read, W: Write>(
 ) -> io::Result<()> {
     let mut header = [0u8; HEADER_LEN];
     if read_full(&mut reader, &mut header)? != HEADER_LEN {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated backup header"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "truncated backup header",
+        ));
     }
     if !is_encrypted(&header) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "not an encrypted backup"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "not an encrypted backup",
+        ));
     }
     // header[MAGIC.len()] is the key id; the panel already supplied the matching
     // key, so we only need the nonce prefix that follows it.
@@ -142,7 +153,10 @@ fn read_full<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<usize> {
 }
 
 fn aead_err(_e: chacha20poly1305::aead::Error) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "backup archive authentication failed (wrong key or corrupt data)")
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "backup archive authentication failed (wrong key or corrupt data)",
+    )
 }
 
 #[cfg(test)]

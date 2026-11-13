@@ -69,7 +69,10 @@ impl StartReservation {
             dashmap::mapref::entry::Entry::Occupied(_) => None,
             dashmap::mapref::entry::Entry::Vacant(v) => {
                 v.insert(());
-                Some(Self { map: Arc::clone(map), id: id.to_string() })
+                Some(Self {
+                    map: Arc::clone(map),
+                    id: id.to_string(),
+                })
             }
         }
     }
@@ -157,11 +160,13 @@ impl ProcessManager {
 
         // Spawn the log relay task.
         let relay_handle = self.spawn_log_relay(&server_id, Arc::clone(&process));
-        self.log_relay_handles.insert(server_id.clone(), relay_handle);
+        self.log_relay_handles
+            .insert(server_id.clone(), relay_handle);
 
         // Insert into the registry *after* the relay is up so that there are
         // always subscribers before log lines start flowing.
-        self.processes.insert(server_id.clone(), Arc::clone(&process));
+        self.processes
+            .insert(server_id.clone(), Arc::clone(&process));
 
         // Spawn a status-watcher task that reports every lifecycle transition
         // (Starting → Running, Starting → Crashed, Running → Crashed, etc.)
@@ -283,11 +288,17 @@ impl ProcessManager {
                 Vec::new()
             };
             if reinstall {
-                let _ = api_client.push_log_lines(&server_id, vec![crate::api_client::LogLine {
-                    timestamp: chrono::Utc::now(),
-                    level: "INFO".to_string(),
-                    message: "Reinstall requested — fetching fresh Hytale server files".to_string(),
-                }]).await;
+                let _ = api_client
+                    .push_log_lines(
+                        &server_id,
+                        vec![crate::api_client::LogLine {
+                            timestamp: chrono::Utc::now(),
+                            level: "INFO".to_string(),
+                            message: "Reinstall requested — fetching fresh Hytale server files"
+                                .to_string(),
+                        }],
+                    )
+                    .await;
             }
 
             // Inner block so its early `return`s still reach the reinstall
@@ -488,11 +499,10 @@ done
 
             if reinstall {
                 let target = PathBuf::from(&data_path);
-                let restored = tokio::task::spawn_blocking(move || {
-                    finish_reinstall(&target, set_aside)
-                })
-                .await
-                .unwrap_or(false);
+                let restored =
+                    tokio::task::spawn_blocking(move || finish_reinstall(&target, set_aside))
+                        .await
+                        .unwrap_or(false);
                 if restored {
                     let _ = api_client.push_log_lines(&server_id, vec![crate::api_client::LogLine {
                         timestamp: chrono::Utc::now(),
@@ -536,9 +546,7 @@ done
 
     /// Return the current status of a specific server, or `None` if unknown.
     pub fn get_server_status(&self, server_id: &str) -> Option<super::ServerStatus> {
-        self.processes
-            .get(server_id)
-            .map(|p| p.get_status())
+        self.processes.get(server_id).map(|p| p.get_status())
     }
 
     /// Collect resource metrics from every managed server process.
@@ -566,7 +574,11 @@ done
     /// Used during daemon shutdown.  Errors are logged but do not prevent
     /// subsequent servers from being stopped.
     pub async fn stop_all(&self) {
-        let pending: Vec<String> = self.pending_restarts.iter().map(|e| e.key().clone()).collect();
+        let pending: Vec<String> = self
+            .pending_restarts
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
         for server_id in pending {
             self.cancel_pending_restart(&server_id);
         }
@@ -600,8 +612,18 @@ done
         if self.cancel_pending_restart(server_id).is_none() {
             bail!("Server {server_id} is not managed by this node");
         }
-        push_log(&self.api_client, server_id, "INFO", "Pending auto restart cancelled".into()).await;
-        if let Err(err) = self.api_client.report_server_status(server_id, "stopped").await {
+        push_log(
+            &self.api_client,
+            server_id,
+            "INFO",
+            "Pending auto restart cancelled".into(),
+        )
+        .await;
+        if let Err(err) = self
+            .api_client
+            .report_server_status(server_id, "stopped")
+            .await
+        {
             warn!(%err, %server_id, "Failed to report stopped status to API");
         }
         Ok(())
@@ -675,10 +697,19 @@ done
                     info!(server_id = %sid, attempt, "Auto restarting server");
                     if let Err(err) = mgr.start_process(task_config).await {
                         error!(server_id = %sid, %err, "Auto restart failed");
-                        push_log(&mgr.api_client, &sid, "ERROR", format!("Auto restart failed: {err:#}")).await;
+                        push_log(
+                            &mgr.api_client,
+                            &sid,
+                            "ERROR",
+                            format!("Auto restart failed: {err:#}"),
+                        )
+                        .await;
                     }
                 });
-                if let Some(old) = self.pending_restarts.insert(server_id.to_string(), PendingRestart { config, handle }) {
+                if let Some(old) = self
+                    .pending_restarts
+                    .insert(server_id.to_string(), PendingRestart { config, handle })
+                {
                     old.handle.abort();
                 }
             }
@@ -716,7 +747,10 @@ done
             let sid = server_id.clone();
             tokio::spawn(async move {
                 while let Some((action, username, hytale_uuid)) = event_rx.recv().await {
-                    if let Err(err) = api.report_player_event(&sid, action, &username, &hytale_uuid).await {
+                    if let Err(err) = api
+                        .report_player_event(&sid, action, &username, &hytale_uuid)
+                        .await
+                    {
                         warn!(server_id = %sid, %action, %username, error = %err,
                             "Failed to report player event");
                     }
@@ -726,8 +760,7 @@ done
 
         tokio::spawn(async move {
             let mut batch: Vec<LogLine> = Vec::new();
-            let mut flush_interval =
-                tokio::time::interval(tokio::time::Duration::from_secs(1));
+            let mut flush_interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
 
             loop {
                 tokio::select! {
@@ -801,11 +834,7 @@ done
     ///
     /// On terminal states (Stopped / Crashed) the task also removes the
     /// process from the registry so a fresh `start_server` can succeed.
-    fn spawn_status_watcher(
-        &self,
-        server_id: &str,
-        process: &Arc<HytaleServerProcess>,
-    ) {
+    fn spawn_status_watcher(&self, server_id: &str, process: &Arc<HytaleServerProcess>) {
         let mut rx = process.subscribe_status();
         let process = Arc::clone(process);
         let api_client = Arc::clone(&self.api_client);
@@ -899,14 +928,21 @@ done
 /// copy and every other server on the node. The copy also replaces (never
 /// follows) a symlink the tenant planted at the destination.
 fn place_local_binaries(local_bin: &Path, target: &Path) -> std::result::Result<(), String> {
-    std::fs::create_dir_all(target).map_err(|e| format!("Failed to create {}: {e}", target.display()))?;
+    std::fs::create_dir_all(target)
+        .map_err(|e| format!("Failed to create {}: {e}", target.display()))?;
     let server_dir = safe_fs::ensure_dir_chain(target, Path::new("Server"), &mut Vec::new())
         .map_err(|e| format!("Failed to create Server/: {e}"))?
         .ok_or_else(|| "Failed to create Server/: it is a symlink or a file".to_string())?;
 
     for (src, dst) in [
-        (local_bin.join("HytaleServer.jar"), server_dir.join("HytaleServer.jar")),
-        (local_bin.join("HytaleServer.aot"), server_dir.join("HytaleServer.aot")),
+        (
+            local_bin.join("HytaleServer.jar"),
+            server_dir.join("HytaleServer.jar"),
+        ),
+        (
+            local_bin.join("HytaleServer.aot"),
+            server_dir.join("HytaleServer.aot"),
+        ),
         (local_bin.join("Assets.zip"), target.join("Assets.zip")),
     ] {
         if !src.exists() {
@@ -1006,7 +1042,10 @@ async fn ensure_server_subdir(target: &Path) -> std::io::Result<PathBuf> {
     tokio::task::spawn_blocking(move || {
         std::fs::create_dir_all(&target)?;
         safe_fs::ensure_dir_chain(&target, Path::new("Server"), &mut Vec::new())?.ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Server/ is a symlink or a file")
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Server/ is a symlink or a file",
+            )
         })
     })
     .await
@@ -1095,9 +1134,7 @@ fn parse_player_event(raw: &str) -> Option<(&'static str, String, String)> {
 /// True if `s` looks like a Hytale username (alphanumeric or underscore,
 /// 1..=32 chars). Rejects log fragments that leak into the join/leave lines.
 fn is_valid_username(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 32
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    !s.is_empty() && s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// True if `s` is a canonical 8-4-4-4-12 hex UUID.
@@ -1186,7 +1223,8 @@ mod tests {
     }
 
     fn scratch_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tp-manager-test-{tag}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("tp-manager-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         dir
@@ -1208,7 +1246,10 @@ mod tests {
 
         let jar = server.join("Server").join("HytaleServer.jar");
         assert_eq!(std::fs::read(&jar).unwrap(), b"jar");
-        assert_eq!(std::fs::read(server.join("Server/Licenses/LICENSE")).unwrap(), b"l");
+        assert_eq!(
+            std::fs::read(server.join("Server/Licenses/LICENSE")).unwrap(),
+            b"l"
+        );
         // Truncating in-place writes, as a tenant would do.
         std::fs::write(&jar, b"evil").unwrap();
         std::fs::write(server.join("Assets.zip"), b"evil").unwrap();
@@ -1235,7 +1276,10 @@ mod tests {
         place_local_binaries(&bin, &server).unwrap();
 
         assert_eq!(std::fs::read(&other).unwrap(), b"other");
-        assert_eq!(std::fs::read(server.join("Server/HytaleServer.jar")).unwrap(), b"jar");
+        assert_eq!(
+            std::fs::read(server.join("Server/HytaleServer.jar")).unwrap(),
+            b"jar"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1251,7 +1295,10 @@ mod tests {
 
         std::fs::write(root.join("Server/HytaleServer.jar"), b"new").unwrap();
         assert!(!finish_reinstall(&root, moved));
-        assert_eq!(std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(), b"new");
+        assert_eq!(
+            std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(),
+            b"new"
+        );
         assert!(!root.join("Server/HytaleServer.jar.pre-reinstall").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1266,8 +1313,14 @@ mod tests {
         let moved = set_aside_server_binaries(&root);
         assert_eq!(moved.len(), 2);
         assert!(finish_reinstall(&root, moved));
-        assert_eq!(std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(), b"old");
-        assert_eq!(std::fs::read(root.join("Server/HytaleServer.aot")).unwrap(), b"aot");
+        assert_eq!(
+            std::fs::read(root.join("Server/HytaleServer.jar")).unwrap(),
+            b"old"
+        );
+        assert_eq!(
+            std::fs::read(root.join("Server/HytaleServer.aot")).unwrap(),
+            b"aot"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1301,10 +1354,16 @@ mod start_reservation_tests {
     fn second_start_of_the_same_server_is_refused_until_the_first_ends() {
         let map = Arc::new(DashMap::new());
         let first = StartReservation::try_reserve(&map, "s1").expect("first start reserves");
-        assert!(StartReservation::try_reserve(&map, "s1").is_none(), "concurrent start must be refused");
+        assert!(
+            StartReservation::try_reserve(&map, "s1").is_none(),
+            "concurrent start must be refused"
+        );
         let other = StartReservation::try_reserve(&map, "s2");
         assert!(other.is_some(), "other servers are independent");
         drop(first);
-        assert!(StartReservation::try_reserve(&map, "s1").is_some(), "released on drop");
+        assert!(
+            StartReservation::try_reserve(&map, "s1").is_some(),
+            "released on drop"
+        );
     }
 }

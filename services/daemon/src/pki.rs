@@ -247,7 +247,9 @@ mod tests {
     fn self_signed(cn: &str, not_after: Option<(i32, u8, u8)>) -> (String, KeyPair) {
         let key = KeyPair::generate().unwrap();
         let mut params = CertificateParams::new(vec!["x".to_string()]).unwrap();
-        params.distinguished_name.push(rcgen::DnType::CommonName, cn);
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, cn);
         if let Some((y, m, d)) = not_after {
             params.not_after = rcgen::date_time_ymd(y, m, d);
         }
@@ -381,7 +383,9 @@ mod tests {
             include_str!("../testdata/go-pki/node-key.pem"),
         )
         .unwrap();
-        let p = load_pki(&dir, NODE).unwrap().expect("Go-issued PKI rejected");
+        let p = load_pki(&dir, NODE)
+            .unwrap()
+            .expect("Go-issued PKI rejected");
         assert!(p.not_after > Utc::now() + chrono::Duration::days(365));
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
@@ -398,7 +402,10 @@ mod tests {
             serial: "1".into(),
         };
         let out = format!("{pki:?}");
-        assert!(!out.contains(&key_pem) && !out.contains("PRIVATE KEY"), "{out}");
+        assert!(
+            !out.contains(&key_pem) && !out.contains("PRIVATE KEY"),
+            "{out}"
+        );
         assert!(out.contains("<redacted>"));
     }
 
@@ -413,9 +420,11 @@ mod tests {
         let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&dir), 0o700);
         assert_eq!(mode(&dir.join(KEY_FILE)), 0o600);
-        assert!(fs::read_dir(&dir)
+        assert!(fs::read_dir(&dir).unwrap().all(|e| !e
             .unwrap()
-            .all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")));
         assert!(load_pki(&dir, NODE).unwrap().is_some());
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }

@@ -21,11 +21,11 @@ use tokio::process::{Child, Command};
 use tokio::sync::{watch, Mutex, RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::api_client::GameSession;
-use crate::config::HytaleConfig;
 use super::cgroup::{self, CpuLimit};
 use super::restart::ProcessExit;
 use super::{LogLine, ServerStatus};
+use crate::api_client::GameSession;
+use crate::config::HytaleConfig;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ServerConfig
@@ -70,7 +70,8 @@ pub struct ServerConfig {
 /// Launch flags a panel user may enable per server. Value-less switches only:
 /// flags that take a path (e.g. --universe, --backup-dir) could point the
 /// server outside its data directory, so they stay node-config only.
-pub const ALLOWED_LAUNCH_FLAGS: &[&str] = &["--accept-early-plugins", "--allow-op", "--disable-sentry"];
+pub const ALLOWED_LAUNCH_FLAGS: &[&str] =
+    &["--accept-early-plugins", "--allow-op", "--disable-sentry"];
 
 /// Returns the requested flags that are allowlisted, de-duplicated, in order.
 fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
@@ -90,7 +91,10 @@ fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
 /// this node towards the panel.
 fn is_daemon_env(key: &str) -> bool {
     key.starts_with("TALEDAEMON_")
-        || matches!(key, "CURSEFORGE_API_KEY" | "MARIADB_DSN" | "MARIADB_ROOT_PASSWORD")
+        || matches!(
+            key,
+            "CURSEFORGE_API_KEY" | "MARIADB_DSN" | "MARIADB_ROOT_PASSWORD"
+        )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +145,6 @@ pub struct HytaleServerProcess {
     /// and replace it; `None` when the server is not running.
     stdin: Arc<Mutex<Option<tokio::io::BufWriter<tokio::process::ChildStdin>>>>,
 
-
     /// Daemon-level Hytale configuration (jar path, java binary, timeouts).
     hytale_cfg: Arc<HytaleConfig>,
 
@@ -163,7 +166,11 @@ struct ExitWatch {
 }
 
 impl HytaleServerProcess {
-    pub fn new(config: ServerConfig, hytale_cfg: Arc<HytaleConfig>, dev_stub_allowed: bool) -> Self {
+    pub fn new(
+        config: ServerConfig,
+        hytale_cfg: Arc<HytaleConfig>,
+        dev_stub_allowed: bool,
+    ) -> Self {
         let (log_tx, _) = tokio::sync::broadcast::channel(2048);
         let (status_tx, status_rx) = watch::channel(ServerStatus::Stopped);
 
@@ -212,7 +219,12 @@ impl HytaleServerProcess {
     ) -> Result<()> {
         wait_for_status_on(self.status_tx.subscribe(), target, timeout)
             .await
-            .with_context(|| format!("server {} did not reach status {:?}", self.server_id, target))
+            .with_context(|| {
+                format!(
+                    "server {} did not reach status {:?}",
+                    self.server_id, target
+                )
+            })
     }
 
     fn set_status(&self, s: ServerStatus) {
@@ -233,7 +245,8 @@ impl HytaleServerProcess {
         if current != ServerStatus::Stopped && current != ServerStatus::Crashed {
             bail!(
                 "Cannot start server {}: current status is {:?}",
-                self.server_id, current
+                self.server_id,
+                current
             );
         }
 
@@ -243,8 +256,8 @@ impl HytaleServerProcess {
         *self.start_time.write().await = Some(Instant::now());
 
         // ── Build the server command ─────────────────────────────────────────
-        let jar_path = std::path::Path::new(&self.config.data_path)
-            .join(&self.hytale_cfg.server_jar);
+        let jar_path =
+            std::path::Path::new(&self.config.data_path).join(&self.hytale_cfg.server_jar);
 
         if !jar_path.exists() {
             self.set_status(ServerStatus::Stopped);
@@ -342,7 +355,9 @@ impl HytaleServerProcess {
             // Do NOT kill on drop — we manage shutdown explicitly.
             .kill_on_drop(false);
 
-        let mut child = cmd.spawn().context("Failed to spawn Hytale server process")?;
+        let mut child = cmd
+            .spawn()
+            .context("Failed to spawn Hytale server process")?;
 
         // ── Capture PID ───────────────────────────────────────────────────────
         let pid = child.id().unwrap_or(0);
@@ -352,7 +367,8 @@ impl HytaleServerProcess {
         // ── CPU limit (cgroup v2) ─────────────────────────────────────────────
         // Applied right after spawn; the JVM is still starting up, and moving
         // a process via cgroup.procs takes all of its threads along.
-        let cpu_cgroup = match cgroup::apply_cpu_limit(&self.server_id, self.config.cpu_limit, pid) {
+        let cpu_cgroup = match cgroup::apply_cpu_limit(&self.server_id, self.config.cpu_limit, pid)
+        {
             CpuLimit::Unlimited => None,
             CpuLimit::Applied(dir) => {
                 info!(server_id = %self.server_id, cgroup = %dir.display(), cpu_limit = self.config.cpu_limit, "CPU limit applied");
@@ -417,11 +433,10 @@ impl HytaleServerProcess {
                 debug!(server_id = %server_id_out, %line, "stdout");
 
                 // Detect server-ready signals in stdout
-                if *status_tx_out.borrow() == ServerStatus::Starting
-                    && is_ready_signal(&line) {
-                        info!(server_id = %server_id_out, "Server ready signal detected");
-                        status_tx_out.send_replace(ServerStatus::Running);
-                    }
+                if *status_tx_out.borrow() == ServerStatus::Starting && is_ready_signal(&line) {
+                    info!(server_id = %server_id_out, "Server ready signal detected");
+                    status_tx_out.send_replace(ServerStatus::Running);
+                }
 
                 let _ = log_tx_out.send(LogLine {
                     timestamp: chrono::Utc::now(),
@@ -550,7 +565,8 @@ impl HytaleServerProcess {
                     let _ = log_tx.send(LogLine {
                         timestamp: chrono::Utc::now(),
                         level: "INFO".to_string(),
-                        message: "Server process exited normally (code 0) — marking as stopped".to_string(),
+                        message: "Server process exited normally (code 0) — marking as stopped"
+                            .to_string(),
                     });
                     status_tx.send_replace(ServerStatus::Stopped);
                 } else {
@@ -605,10 +621,7 @@ impl HytaleServerProcess {
 
         // Wait for the exit-watcher to transition to Stopped
         let timeout = std::time::Duration::from_secs(self.hytale_cfg.stop_timeout_s);
-        match self
-            .wait_for_status(ServerStatus::Stopped, timeout)
-            .await
-        {
+        match self.wait_for_status(ServerStatus::Stopped, timeout).await {
             Ok(_) => {
                 info!(server_id = %self.server_id, "Server stopped gracefully");
             }
@@ -650,10 +663,7 @@ impl HytaleServerProcess {
 
         // Give the OS up to 3 seconds to reap the process before we declare it stopped
         let _ = self
-            .wait_for_status(
-                ServerStatus::Stopped,
-                std::time::Duration::from_secs(3),
-            )
+            .wait_for_status(ServerStatus::Stopped, std::time::Duration::from_secs(3))
             .await;
 
         // If the exit-watcher hasn't fired yet (race), set Stopped manually
@@ -676,7 +686,8 @@ impl HytaleServerProcess {
         if status != ServerStatus::Running {
             bail!(
                 "Cannot send command to server {}: status is {:?}",
-                self.server_id, status
+                self.server_id,
+                status
             );
         }
 
@@ -703,7 +714,10 @@ impl HytaleServerProcess {
             .write_all(format!("{line}\n").as_bytes())
             .await
             .context("Failed to write to server stdin")?;
-        writer.flush().await.context("Failed to flush server stdin")?;
+        writer
+            .flush()
+            .await
+            .context("Failed to flush server stdin")?;
         Ok(())
     }
 
@@ -731,16 +745,25 @@ impl HytaleServerProcess {
             .unwrap_or(0);
 
         if pid == 0 {
-            return ServerMetrics { cpu_percent: 0.0, ram_mb: 0, uptime_s };
+            return ServerMetrics {
+                cpu_percent: 0.0,
+                ram_mb: 0,
+                uptime_s,
+            };
         }
 
         // Shared sampler: CPU is measured since the previous call, which a
         // fresh sysinfo System per call cannot do (it always read 0 %).
-        let (cpu_percent, ram_mb) = tokio::task::spawn_blocking(move || crate::sysmetrics::process_usage(pid))
-            .await
-            .unwrap_or((0.0, 0));
+        let (cpu_percent, ram_mb) =
+            tokio::task::spawn_blocking(move || crate::sysmetrics::process_usage(pid))
+                .await
+                .unwrap_or((0.0, 0));
 
-        ServerMetrics { cpu_percent, ram_mb, uptime_s }
+        ServerMetrics {
+            cpu_percent,
+            ram_mb,
+            uptime_s,
+        }
     }
 }
 
@@ -767,7 +790,11 @@ fn is_dev_stub_script(dev_stub_allowed: bool, head: Option<&[u8]>) -> bool {
 /// Classify a log line level from its text content.
 fn classify_level(line: &str) -> String {
     let upper = line.to_ascii_uppercase();
-    if upper.contains("[ERROR]") || upper.contains("ERROR:") || upper.contains("EXCEPTION") || upper.contains("FATAL") {
+    if upper.contains("[ERROR]")
+        || upper.contains("ERROR:")
+        || upper.contains("EXCEPTION")
+        || upper.contains("FATAL")
+    {
         "ERROR".to_string()
     } else if upper.contains("[WARN]") || upper.contains("WARNING") || upper.contains("WARN:") {
         "WARN".to_string()
@@ -861,7 +888,10 @@ fn kill_pid(pid: u32) {
         let _ = Command::new("taskkill")
             .args(["/F", "/PID", &pid.to_string()])
             .output();
-        info!(pid, "Sent TerminateProcess (taskkill /F) to Hytale server process");
+        info!(
+            pid,
+            "Sent TerminateProcess (taskkill /F) to Hytale server process"
+        );
     }
 }
 
@@ -872,7 +902,9 @@ mod tests {
     #[test]
     fn explains_hytale_updater_and_install_dir_exit_codes() {
         assert!(explain_exit_code(8).unwrap().contains("self-update"));
-        assert!(explain_exit_code(11).unwrap().contains("--allow-install-dir"));
+        assert!(explain_exit_code(11)
+            .unwrap()
+            .contains("--allow-install-dir"));
     }
 
     #[test]
@@ -912,10 +944,18 @@ mod tests {
             owner_uuid: "123e4567-e89b-12d3-a456-426614174000".into(),
         };
         let (args, envs) = game_session_launch(&gs);
-        assert_eq!(args, vec!["--owner-uuid", "123e4567-e89b-12d3-a456-426614174000"]);
+        assert_eq!(
+            args,
+            vec!["--owner-uuid", "123e4567-e89b-12d3-a456-426614174000"]
+        );
         assert!(envs.contains(&("HYTALE_SERVER_SESSION_TOKEN", "sess".to_string())));
         assert!(envs.contains(&("HYTALE_SERVER_IDENTITY_TOKEN", "ident".to_string())));
-        assert!(!args.iter().any(|a| a.contains("sess") || a.contains("ident")), "tokens must not be in argv");
+        assert!(
+            !args
+                .iter()
+                .any(|a| a.contains("sess") || a.contains("ident")),
+            "tokens must not be in argv"
+        );
     }
 
     #[test]
@@ -1017,7 +1057,9 @@ mod wait_for_status_tests {
         tx.send_replace(ServerStatus::Stopped);
         let rx = tx.subscribe();
         let started = std::time::Instant::now();
-        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5)).await.unwrap();
+        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5))
+            .await
+            .unwrap();
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 
@@ -1030,8 +1072,16 @@ mod wait_for_status_tests {
             tx.send_replace(ServerStatus::Stopped);
             tx
         });
-        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5)).await.unwrap();
+        wait_for_status_on(rx, ServerStatus::Stopped, Duration::from_secs(5))
+            .await
+            .unwrap();
         let tx = t.await.unwrap();
-        assert!(wait_for_status_on(tx.subscribe(), ServerStatus::Running, Duration::from_millis(50)).await.is_err());
+        assert!(wait_for_status_on(
+            tx.subscribe(),
+            ServerStatus::Running,
+            Duration::from_millis(50)
+        )
+        .await
+        .is_err());
     }
 }

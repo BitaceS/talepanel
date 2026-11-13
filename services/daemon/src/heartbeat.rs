@@ -25,15 +25,21 @@ pub async fn run_heartbeat_loop(
     mtls: Option<MtlsAdvert>,
     mut shutdown: broadcast::Receiver<()>,
 ) {
-    let interval_duration =
-        tokio::time::Duration::from_secs(config.resources.heartbeat_interval_s);
+    let interval_duration = tokio::time::Duration::from_secs(config.resources.heartbeat_interval_s);
     let mut interval = tokio::time::interval(interval_duration);
     // Skip missed ticks rather than bursting when the system is slow.
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Fire an immediate heartbeat on startup so the API knows we are online
     // as soon as possible, rather than waiting for the first interval.
-    send_heartbeat(&api_client, &process_manager, &config, mtls.as_ref(), "online").await;
+    send_heartbeat(
+        &api_client,
+        &process_manager,
+        &config,
+        mtls.as_ref(),
+        "online",
+    )
+    .await;
 
     info!(
         interval_s = config.resources.heartbeat_interval_s,

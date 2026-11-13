@@ -4,7 +4,7 @@ use tracing::{info, instrument, warn};
 
 use crate::api_client::{ApiClient, CommandResult};
 use crate::config::Config;
-use crate::process::{manager::ProcessManager, hytale::ServerConfig};
+use crate::process::{hytale::ServerConfig, manager::ProcessManager};
 
 /// Run the command-polling loop until a shutdown signal is received.
 ///
@@ -63,7 +63,6 @@ async fn poll_and_dispatch(
     };
 
     for command in commands {
-
         let command_id = command.id.clone();
         let server_id = command.server_id.clone();
         let command_type = command.command_type.as_str();
@@ -94,15 +93,13 @@ async fn poll_and_dispatch(
             "start" => {
                 // The payload must deserialise into a `ServerConfig`.
                 match serde_json::from_value::<ServerConfig>(command.payload.clone()) {
-                    Ok(server_cfg) => {
-                        match process_manager.start_server(server_cfg).await {
-                            Ok(()) => CommandResult::ok(format!("Server {server_id} started")),
-                            Err(err) => {
-                                warn!(%err, %server_id, "Failed to start server");
-                                CommandResult::err(err.to_string())
-                            }
+                    Ok(server_cfg) => match process_manager.start_server(server_cfg).await {
+                        Ok(()) => CommandResult::ok(format!("Server {server_id} started")),
+                        Err(err) => {
+                            warn!(%err, %server_id, "Failed to start server");
+                            CommandResult::err(err.to_string())
                         }
-                    }
+                    },
                     Err(err) => {
                         warn!(
                             %err,
@@ -163,9 +160,24 @@ async fn poll_and_dispatch(
             }
 
             "install_mod" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let download_url = command.payload.get("download_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let data_path = command
+                    .payload
+                    .get("data_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let filename = command
+                    .payload
+                    .get("filename")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let download_url = command
+                    .payload
+                    .get("download_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
 
                 if data_path.is_empty() || filename.is_empty() || download_url.is_empty() {
                     CommandResult::err("install_mod payload missing required fields".to_string())
@@ -191,9 +203,24 @@ async fn poll_and_dispatch(
             // (mods/), so panels that predate it keep working.
             "remove_mod" | "enable_mod" | "disable_mod" => {
                 let cmd = command.command_type.as_str();
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let dir = command.payload.get("dir").and_then(|v| v.as_str()).unwrap_or(DEFAULT_MOD_DIR).to_string();
+                let data_path = command
+                    .payload
+                    .get("data_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let filename = command
+                    .payload
+                    .get("filename")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let dir = command
+                    .payload
+                    .get("dir")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(DEFAULT_MOD_DIR)
+                    .to_string();
 
                 let result = if data_path.is_empty() || filename.is_empty() {
                     Err(format!("{cmd} payload missing required fields"))
@@ -227,11 +254,23 @@ async fn poll_and_dispatch(
             // it. Every one of them re-validates the world name locally — the
             // API is not trusted to have done so.
             "set_active_world" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let world = command.payload.get("world").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let data_path = command
+                    .payload
+                    .get("data_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let world = command
+                    .payload
+                    .get("world")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
 
                 if data_path.is_empty() || world.is_empty() {
-                    CommandResult::err("set_active_world payload missing required fields".to_string())
+                    CommandResult::err(
+                        "set_active_world payload missing required fields".to_string(),
+                    )
                 } else if !is_safe_world_name(&world) {
                     CommandResult::err(format!("set_active_world: unsafe world name {world}"))
                 } else {
@@ -251,8 +290,18 @@ async fn poll_and_dispatch(
             }
 
             "delete_world" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let world = command.payload.get("world").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let data_path = command
+                    .payload
+                    .get("data_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let world = command
+                    .payload
+                    .get("world")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
 
                 if data_path.is_empty() || world.is_empty() {
                     CommandResult::err("delete_world payload missing required fields".to_string())
@@ -279,11 +328,22 @@ async fn poll_and_dispatch(
             }
 
             "write_mod_config" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let config = command.payload.get("config").cloned().unwrap_or(serde_json::Value::Null);
+                let data_path = command
+                    .payload
+                    .get("data_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let config = command
+                    .payload
+                    .get("config")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
 
                 if data_path.is_empty() || config.is_null() {
-                    CommandResult::err("write_mod_config payload missing required fields".to_string())
+                    CommandResult::err(
+                        "write_mod_config payload missing required fields".to_string(),
+                    )
                 } else {
                     match write_mod_config_file(&data_path, &config).await {
                         Ok(()) => {
@@ -338,7 +398,11 @@ const MOD_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// the address that was checked so DNS cannot rebind between check and use.
 /// The body is streamed into a temp file next to the target, capped at
 /// `MAX_MOD_DOWNLOAD_BYTES`, and renamed into place only on success.
-async fn download_and_install_mod(url: &str, data_path: &str, filename: &str) -> anyhow::Result<()> {
+async fn download_and_install_mod(
+    url: &str,
+    data_path: &str,
+    filename: &str,
+) -> anyhow::Result<()> {
     if !is_safe_mod_filename(filename) {
         anyhow::bail!("unsafe filename {filename}");
     }
@@ -351,14 +415,20 @@ async fn download_and_install_mod(url: &str, data_path: &str, filename: &str) ->
     let tmp = mods_dir.join(format!(".{filename}.part"));
     let mut file = create_fresh_temp(&tmp).await?;
 
-    let result = match tokio::time::timeout(MOD_DOWNLOAD_TIMEOUT, fetch_mod_into(url, &mut file)).await {
-        Ok(r) => r,
-        Err(_) => Err(anyhow::anyhow!("download timed out after {}s", MOD_DOWNLOAD_TIMEOUT.as_secs())),
-    };
+    let result =
+        match tokio::time::timeout(MOD_DOWNLOAD_TIMEOUT, fetch_mod_into(url, &mut file)).await {
+            Ok(r) => r,
+            Err(_) => Err(anyhow::anyhow!(
+                "download timed out after {}s",
+                MOD_DOWNLOAD_TIMEOUT.as_secs()
+            )),
+        };
     let result = match result {
         Ok(()) => {
             drop(file);
-            tokio::fs::rename(&tmp, &target).await.map_err(anyhow::Error::from)
+            tokio::fs::rename(&tmp, &target)
+                .await
+                .map_err(anyhow::Error::from)
         }
         Err(e) => {
             drop(file);
@@ -380,8 +450,13 @@ async fn fetch_mod_into(raw_url: &str, file: &mut tokio::fs::File) -> anyhow::Re
     let mut url = reqwest::Url::parse(raw_url).map_err(|e| anyhow::anyhow!("invalid url: {e}"))?;
     let mut redirects = 0;
     let mut resp = loop {
-        let target = resolve_download_target(&url).await.map_err(anyhow::Error::msg)?;
-        let resp = pinned_download_client(&target)?.get(url.clone()).send().await?;
+        let target = resolve_download_target(&url)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let resp = pinned_download_client(&target)?
+            .get(url.clone())
+            .send()
+            .await?;
         if !resp.status().is_redirection() {
             break resp;
         }
@@ -403,15 +478,24 @@ async fn fetch_mod_into(raw_url: &str, file: &mut tokio::fs::File) -> anyhow::Re
     if !resp.status().is_success() {
         anyhow::bail!("Download failed: HTTP {}", resp.status());
     }
-    if resp.content_length().is_some_and(|len| len > MAX_MOD_DOWNLOAD_BYTES) {
-        anyhow::bail!("download exceeds the {} MiB limit", MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024));
+    if resp
+        .content_length()
+        .is_some_and(|len| len > MAX_MOD_DOWNLOAD_BYTES)
+    {
+        anyhow::bail!(
+            "download exceeds the {} MiB limit",
+            MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024)
+        );
     }
 
     let mut written: u64 = 0;
     while let Some(chunk) = resp.chunk().await? {
         written += chunk.len() as u64;
         if written > MAX_MOD_DOWNLOAD_BYTES {
-            anyhow::bail!("download exceeds the {} MiB limit", MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024));
+            anyhow::bail!(
+                "download exceeds the {} MiB limit",
+                MAX_MOD_DOWNLOAD_BYTES / (1024 * 1024)
+            );
         }
         file.write_all(&chunk).await?;
     }
@@ -444,7 +528,9 @@ async fn resolve_download_target(url: &reqwest::Url) -> Result<DownloadTarget, S
     if port != 443 {
         return Err("download URLs must use the default https port".to_string());
     }
-    let host = url.host_str().ok_or_else(|| "url has no host".to_string())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "url has no host".to_string())?;
 
     // The url crate normalises IP literals (incl. octal/hex IPv4 forms), so a
     // literal here parses as an address and is checked without DNS.
@@ -457,7 +543,10 @@ async fn resolve_download_target(url: &reqwest::Url) -> Result<DownloadTarget, S
         if !is_public_ip(ip) {
             return Err("download host is not a public address".to_string());
         }
-        return Ok(DownloadTarget { domain: None, addr: std::net::SocketAddr::new(ip, port) });
+        return Ok(DownloadTarget {
+            domain: None,
+            addr: std::net::SocketAddr::new(ip, port),
+        });
     }
 
     let lower = host.trim_end_matches('.').to_ascii_lowercase();
@@ -468,12 +557,17 @@ async fn resolve_download_target(url: &reqwest::Url) -> Result<DownloadTarget, S
         .await
         .map_err(|e| format!("could not resolve download host: {e}"))?
         .collect();
-    let first = *addrs.first().ok_or_else(|| "download host did not resolve".to_string())?;
+    let first = *addrs
+        .first()
+        .ok_or_else(|| "download host did not resolve".to_string())?;
     // Refuse if *any* answer is internal: a mixed answer is a rebinding setup.
     if addrs.iter().any(|a| !is_public_ip(a.ip())) {
         return Err("download host resolves to a disallowed address".to_string());
     }
-    Ok(DownloadTarget { domain: Some(host.to_string()), addr: first })
+    Ok(DownloadTarget {
+        domain: Some(host.to_string()),
+        addr: first,
+    })
 }
 
 /// A client for exactly one request to `target`: redirects off (the caller
@@ -529,7 +623,11 @@ async fn create_fresh_temp(tmp: &std::path::Path) -> anyhow::Result<tokio::fs::F
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    Ok(tokio::fs::OpenOptions::new().write(true).create_new(true).open(tmp).await?)
+    Ok(tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)
+        .await?)
 }
 
 /// Directory a mod/plugin toggle defaults to when the payload omits "dir".
@@ -581,7 +679,11 @@ fn is_safe_path_component(name: &str) -> bool {
 /// be one of the allowed ones and a real directory, not a symlink: a planted
 /// `mods -> ../<other server>/mods` would otherwise let this server's panel
 /// user delete or rename another server's files.
-fn mod_dir_path(data_path: &std::path::Path, dir: &str, filename: &str) -> Result<std::path::PathBuf, String> {
+fn mod_dir_path(
+    data_path: &std::path::Path,
+    dir: &str,
+    filename: &str,
+) -> Result<std::path::PathBuf, String> {
     if !is_allowed_mod_dir(dir) {
         return Err(format!("unsupported dir {dir}"));
     }
@@ -600,13 +702,19 @@ fn mod_dir_path(data_path: &std::path::Path, dir: &str, filename: &str) -> Resul
 
 /// True when `p` exists as a regular file (a symlink is never followed).
 fn is_plain_file(p: &std::path::Path) -> bool {
-    std::fs::symlink_metadata(p).map(|m| m.file_type().is_file()).unwrap_or(false)
+    std::fs::symlink_metadata(p)
+        .map(|m| m.file_type().is_file())
+        .unwrap_or(false)
 }
 
 /// Deletes `<dir>/<filename>` and its `.disabled` variant. Missing files are
 /// fine: the panel has already dropped the row, and the goal is that neither
 /// file is left behind for the next scan to re-add.
-fn remove_mod_file(data_path: &std::path::Path, dir: &str, filename: &str) -> Result<String, String> {
+fn remove_mod_file(
+    data_path: &std::path::Path,
+    dir: &str,
+    filename: &str,
+) -> Result<String, String> {
     let base = mod_dir_path(data_path, dir, filename)?;
     let mut removed = 0;
     for name in [filename.to_string(), format!("{filename}.disabled")] {
@@ -630,17 +738,31 @@ fn remove_mod_file(data_path: &std::path::Path, dir: &str, filename: &str) -> Re
 }
 
 /// Renames `<dir>/<filename>` to/from `<filename>.disabled`.
-fn set_mod_enabled(data_path: &std::path::Path, dir: &str, filename: &str, enable: bool) -> Result<String, String> {
+fn set_mod_enabled(
+    data_path: &std::path::Path,
+    dir: &str,
+    filename: &str,
+    enable: bool,
+) -> Result<String, String> {
     let base = mod_dir_path(data_path, dir, filename)?;
     let on = base.join(filename);
     let off = base.join(format!("{filename}.disabled"));
-    let (from, to, word) = if enable { (&off, &on, "enabled") } else { (&on, &off, "disabled") };
+    let (from, to, word) = if enable {
+        (&off, &on, "enabled")
+    } else {
+        (&on, &off, "disabled")
+    };
     if is_plain_file(from) {
         if std::fs::symlink_metadata(to).is_ok() {
-            return Err(format!("both {filename} and {filename}.disabled exist in {dir}/"));
+            return Err(format!(
+                "both {filename} and {filename}.disabled exist in {dir}/"
+            ));
         }
         std::fs::rename(from, to).map_err(|e| format!("rename failed: {e}"))?;
-        Ok(format!("{} {filename} in {dir}/", if enable { "Enabled" } else { "Disabled" }))
+        Ok(format!(
+            "{} {filename} in {dir}/",
+            if enable { "Enabled" } else { "Disabled" }
+        ))
     } else if is_plain_file(to) {
         Ok(format!("{filename} already {word}"))
     } else {
@@ -696,10 +818,10 @@ async fn write_active_world(data_path: &str, world: &str) -> anyhow::Result<()> 
     if !defaults.is_object() {
         anyhow::bail!("config.json: Defaults is not a JSON object");
     }
-    defaults
-        .as_object_mut()
-        .expect("checked above")
-        .insert("World".to_string(), serde_json::Value::String(world.to_string()));
+    defaults.as_object_mut().expect("checked above").insert(
+        "World".to_string(),
+        serde_json::Value::String(world.to_string()),
+    );
 
     // Write via a temp file + rename so a crash mid-write cannot leave the
     // server with a truncated config.json.
@@ -711,7 +833,11 @@ async fn write_active_world(data_path: &str, world: &str) -> anyhow::Result<()> 
 /// Replace `target` with `body` via `tmp` + rename, without following any
 /// symlink a tenant may have planted at either path: the target must not be a
 /// link, and the temp is always a freshly created regular file.
-async fn write_file_atomic(target: &std::path::Path, tmp: &std::path::Path, body: &[u8]) -> anyhow::Result<()> {
+async fn write_file_atomic(
+    target: &std::path::Path,
+    tmp: &std::path::Path,
+    body: &[u8],
+) -> anyhow::Result<()> {
     use tokio::io::AsyncWriteExt;
 
     refuse_symlink(target).await?;
@@ -725,7 +851,9 @@ async fn write_file_atomic(target: &std::path::Path, tmp: &std::path::Path, body
     .await;
     drop(file);
     let result = match result {
-        Ok(()) => tokio::fs::rename(tmp, target).await.map_err(anyhow::Error::from),
+        Ok(()) => tokio::fs::rename(tmp, target)
+            .await
+            .map_err(anyhow::Error::from),
         Err(e) => Err(e),
     };
     if result.is_err() {
@@ -743,13 +871,18 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
         anyhow::bail!("unsafe world name: {world}");
     }
 
-    let worlds_root = std::path::Path::new(data_path).join("universe").join("worlds");
+    let worlds_root = std::path::Path::new(data_path)
+        .join("universe")
+        .join("worlds");
     let target = worlds_root.join(world);
 
     // Belt and braces: the name is already a validated single component, but
     // re-assert that the join stayed inside the worlds root before deleting.
     if !target.starts_with(&worlds_root) {
-        anyhow::bail!("refusing to delete outside universe/worlds: {}", target.display());
+        anyhow::bail!(
+            "refusing to delete outside universe/worlds: {}",
+            target.display()
+        );
     }
 
     // universe/ and worlds/ are tenant-writable: never delete through a
@@ -763,7 +896,9 @@ async fn delete_world_dir(data_path: &str, world: &str) -> anyhow::Result<bool> 
         anyhow::bail!("universe/worlds is not a real directory");
     }
     match tokio::fs::symlink_metadata(&target).await {
-        Ok(md) if md.file_type().is_symlink() => anyhow::bail!("{} is a symbolic link", target.display()),
+        Ok(md) if md.file_type().is_symlink() => {
+            anyhow::bail!("{} is a symbolic link", target.display())
+        }
         Ok(md) if md.is_dir() => {
             tokio::fs::remove_dir_all(&target).await?;
             Ok(true)
@@ -846,7 +981,7 @@ fn is_public_ipv4(ip: std::net::Ipv4Addr) -> bool {
         || (a == 198 && (b & 0xFE) == 18)               // 198.18.0.0/15 benchmarking
         || (a == 198 && b == 51 && c == 100)            // 198.51.100.0/24 TEST-NET-2
         || (a == 203 && b == 0 && c == 113)             // 203.0.113.0/24 TEST-NET-3
-        || a >= 224;                                    // multicast, 240/4, broadcast
+        || a >= 224; // multicast, 240/4, broadcast
     !blocked
 }
 
@@ -867,14 +1002,18 @@ fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
     let blocked = (s[0] == 0x2001 && s[1] < 0x0200)     // 2001::/23 IETF protocol (Teredo, ORCHID, benchmarking)
         || (s[0] == 0x2001 && s[1] == 0x0db8)           // 2001:db8::/32 documentation
         || s[0] == 0x2002                               // 2002::/16 6to4, embeds an arbitrary IPv4
-        || (s[0] & 0xFFF0) == 0x3FF0;                   // 3fff::/20 documentation
+        || (s[0] & 0xFFF0) == 0x3FF0; // 3fff::/20 documentation
     !blocked
 }
 
 #[cfg(test)]
 mod tests {
     fn mod_scratch(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("tp-modops-{tag}-{}-{}", std::process::id(), uuid::Uuid::new_v4()));
+        let d = std::env::temp_dir().join(format!(
+            "tp-modops-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(d.join("mods")).unwrap();
         std::fs::create_dir_all(d.join("plugins")).unwrap();
         d
@@ -886,10 +1025,18 @@ mod tests {
         std::fs::write(d.join("plugins/p.jar.disabled"), b"x").unwrap();
         std::fs::write(d.join("mods/p.jar"), b"y").unwrap();
         remove_mod_file(&d, "plugins", "p.jar").unwrap();
-        assert!(!d.join("plugins/p.jar.disabled").exists(), "disabled plugin left behind");
-        assert!(d.join("mods/p.jar").exists(), "other directory must be untouched");
+        assert!(
+            !d.join("plugins/p.jar.disabled").exists(),
+            "disabled plugin left behind"
+        );
+        assert!(
+            d.join("mods/p.jar").exists(),
+            "other directory must be untouched"
+        );
         // Already gone is not an error.
-        assert!(remove_mod_file(&d, "plugins", "p.jar").unwrap().contains("already absent"));
+        assert!(remove_mod_file(&d, "plugins", "p.jar")
+            .unwrap()
+            .contains("already absent"));
         assert!(remove_mod_file(&d, "etc", "p.jar").is_err());
         assert!(remove_mod_file(&d, "mods", "../x.jar").is_err());
         let _ = std::fs::remove_dir_all(&d);
@@ -901,10 +1048,15 @@ mod tests {
         std::fs::write(d.join("plugins/p.jar"), b"x").unwrap();
         set_mod_enabled(&d, "plugins", "p.jar", false).unwrap();
         assert!(d.join("plugins/p.jar.disabled").exists());
-        assert!(set_mod_enabled(&d, "plugins", "p.jar", false).unwrap().contains("already"));
+        assert!(set_mod_enabled(&d, "plugins", "p.jar", false)
+            .unwrap()
+            .contains("already"));
         set_mod_enabled(&d, "plugins", "p.jar", true).unwrap();
         assert!(d.join("plugins/p.jar").exists());
-        assert!(set_mod_enabled(&d, "mods", "p.jar", true).is_err(), "not in mods/");
+        assert!(
+            set_mod_enabled(&d, "mods", "p.jar", true).is_err(),
+            "not in mods/"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -959,7 +1111,10 @@ mod tests {
             "/srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d\0",
             "srv/taledaemon/servers/0b7c5a3e-9f1d-4c2a-8e6b-1d2f3a4b5c6d",
         ] {
-            assert!(!is_server_data_path(bad, dir, id), "{bad:?} must be rejected");
+            assert!(
+                !is_server_data_path(bad, dir, id),
+                "{bad:?} must be rejected"
+            );
         }
 
         // The id must be a canonical UUID, not something path-shaped.
@@ -971,7 +1126,10 @@ mod tests {
             "0B7C5A3E-9F1D-4C2A-8E6B-1D2F3A4B5C6D",
             "0b7c5a3e9f1d4c2a8e6b1d2f3a4b5c6d",
         ] {
-            assert!(!is_server_data_path(&format!("{dir}/{bad_id}"), dir, bad_id), "{bad_id:?}");
+            assert!(
+                !is_server_data_path(&format!("{dir}/{bad_id}"), dir, bad_id),
+                "{bad_id:?}"
+            );
         }
         assert!(!is_server_data_path(&own, "", id));
         assert!(!is_server_data_path(&format!("/{id}"), "/", id));
@@ -985,18 +1143,18 @@ mod tests {
             "1.1.1.1",
             "8.8.8.8",
             "104.16.0.1",
-            "100.63.255.255",   // just below CGNAT
-            "100.128.0.0",      // just above CGNAT
-            "172.15.255.255",   // just below 172.16/12
-            "172.32.0.0",       // just above 172.16/12
-            "198.17.255.255",   // just below benchmarking
-            "198.20.0.0",       // just above benchmarking
-            "223.255.255.255",  // last unicast before multicast
+            "100.63.255.255",  // just below CGNAT
+            "100.128.0.0",     // just above CGNAT
+            "172.15.255.255",  // just below 172.16/12
+            "172.32.0.0",      // just above 172.16/12
+            "198.17.255.255",  // just below benchmarking
+            "198.20.0.0",      // just above benchmarking
+            "223.255.255.255", // last unicast before multicast
             "2606:4700:4700::1111",
             "2a00:1450:4001::200e",
             "2001:4860:4860::8888",
-            "2001:200::1",      // first address after 2001::/23
-            "::ffff:1.1.1.1",   // v4-mapped public
+            "2001:200::1",    // first address after 2001::/23
+            "::ffff:1.1.1.1", // v4-mapped public
         ] {
             let ip: std::net::IpAddr = addr.parse().unwrap();
             assert!(is_public_ip(ip), "{addr} should be public");
@@ -1011,11 +1169,11 @@ mod tests {
             "0.1.2.3",
             "10.0.0.1",
             "100.64.0.1",
-            "100.100.100.200",  // Alibaba metadata
+            "100.100.100.200", // Alibaba metadata
             "100.127.255.255",
             "127.0.0.1",
             "127.255.255.254",
-            "169.254.169.254",  // AWS/GCP/Azure metadata
+            "169.254.169.254", // AWS/GCP/Azure metadata
             "172.16.0.1",
             "172.31.255.255",
             "192.0.0.1",
@@ -1034,30 +1192,30 @@ mod tests {
             // IPv6
             "::",
             "::1",
-            "::ffff:10.0.0.1",          // v4-mapped private
+            "::ffff:10.0.0.1", // v4-mapped private
             "::ffff:127.0.0.1",
             "::ffff:169.254.169.254",
             "::ffff:100.100.100.200",
-            "::10.0.0.1",               // v4-compatible
-            "::8.8.8.8",                // v4-compatible, refused regardless
-            "64:ff9b::a00:1",           // NAT64 -> 10.0.0.1
-            "64:ff9b::808:808",         // NAT64, refused regardless
-            "64:ff9b:1::1",             // local-use NAT64
-            "100::1",                   // discard-only
+            "::10.0.0.1",       // v4-compatible
+            "::8.8.8.8",        // v4-compatible, refused regardless
+            "64:ff9b::a00:1",   // NAT64 -> 10.0.0.1
+            "64:ff9b::808:808", // NAT64, refused regardless
+            "64:ff9b:1::1",     // local-use NAT64
+            "100::1",           // discard-only
             "fc00::1",
-            "fd12:3456:789a::1",        // ULA
-            "fe80::1",                  // link-local
+            "fd12:3456:789a::1", // ULA
+            "fe80::1",           // link-local
             "febf::1",
-            "fec0::1",                  // site-local (deprecated)
-            "ff02::1",                  // multicast
+            "fec0::1", // site-local (deprecated)
+            "ff02::1", // multicast
             "ff0e::1",
-            "2001::1",                  // Teredo
-            "2001:2::1",                // benchmarking
-            "2001:10::1",               // ORCHID
-            "2001:db8::1",              // documentation
-            "2002:a00:1::1",            // 6to4 -> 10.0.0.1
-            "3fff::1",                  // documentation (RFC 9637)
-            "4000::1",                  // outside 2000::/3
+            "2001::1",       // Teredo
+            "2001:2::1",     // benchmarking
+            "2001:10::1",    // ORCHID
+            "2001:db8::1",   // documentation
+            "2002:a00:1::1", // 6to4 -> 10.0.0.1
+            "3fff::1",       // documentation (RFC 9637)
+            "4000::1",       // outside 2000::/3
         ] {
             let ip: std::net::IpAddr = addr.parse().unwrap();
             assert!(!is_public_ip(ip), "{addr} must be blocked");
@@ -1075,35 +1233,53 @@ mod tests {
     #[tokio::test]
     async fn download_target_rejects_unsafe_urls_without_dns() {
         assert!(target_err("http://1.1.1.1/m.jar").await.contains("https"));
-        assert!(target_err("https://1.1.1.1:8443/m.jar").await.contains("port"));
-        assert!(target_err("https://u:p@1.1.1.1/m.jar").await.contains("credentials"));
-        assert!(target_err("https://localhost/m.jar").await.contains("not allowed"));
-        assert!(target_err("https://metadata.google.internal/m.jar").await.contains("not allowed"));
+        assert!(target_err("https://1.1.1.1:8443/m.jar")
+            .await
+            .contains("port"));
+        assert!(target_err("https://u:p@1.1.1.1/m.jar")
+            .await
+            .contains("credentials"));
+        assert!(target_err("https://localhost/m.jar")
+            .await
+            .contains("not allowed"));
+        assert!(target_err("https://metadata.google.internal/m.jar")
+            .await
+            .contains("not allowed"));
         for raw in [
             "https://169.254.169.254/latest/meta-data/",
             "https://100.100.100.200/",
             "https://127.0.0.1/m.jar",
-            "https://0x7f.1/m.jar",          // url crate normalises to 127.0.0.1
-            "https://2130706433/m.jar",      // ditto, decimal form
+            "https://0x7f.1/m.jar",     // url crate normalises to 127.0.0.1
+            "https://2130706433/m.jar", // ditto, decimal form
             "https://[::1]/m.jar",
             "https://[::ffff:10.0.0.1]/m.jar",
             "https://[fd00::1]/m.jar",
             "https://[fe80::1]/m.jar",
         ] {
-            assert!(target_err(raw).await.contains("not a public address"), "{raw}");
+            assert!(
+                target_err(raw).await.contains("not a public address"),
+                "{raw}"
+            );
         }
     }
 
     #[tokio::test]
     async fn download_target_accepts_public_ip_literal_unpinned() {
         let url = reqwest::Url::parse("https://1.1.1.1/m.jar").unwrap();
-        let t = resolve_download_target(&url).await.expect("public literal is fine");
+        let t = resolve_download_target(&url)
+            .await
+            .expect("public literal is fine");
         assert!(t.domain.is_none());
         assert_eq!(t.addr, "1.1.1.1:443".parse().unwrap());
 
         let url = reqwest::Url::parse("https://[2606:4700:4700::1111]/m.jar").unwrap();
-        let t = resolve_download_target(&url).await.expect("public v6 literal is fine");
-        assert_eq!(t.addr.ip(), "2606:4700:4700::1111".parse::<std::net::IpAddr>().unwrap());
+        let t = resolve_download_target(&url)
+            .await
+            .expect("public v6 literal is fine");
+        assert_eq!(
+            t.addr.ip(),
+            "2606:4700:4700::1111".parse::<std::net::IpAddr>().unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1111,14 +1287,21 @@ mod tests {
         let root = scratch_dir("mod-ssrf");
         let data_path = root.join("server");
 
-        let err = download_and_install_mod("https://169.254.169.254/latest", data_path.to_str().unwrap(), "x.jar")
-            .await
-            .expect_err("internal target must be refused");
+        let err = download_and_install_mod(
+            "https://169.254.169.254/latest",
+            data_path.to_str().unwrap(),
+            "x.jar",
+        )
+        .await
+        .expect_err("internal target must be refused");
         assert!(err.to_string().contains("not a public address"), "{err}");
 
         let mods = data_path.join("mods");
         assert!(!mods.join("x.jar").exists());
-        assert!(!mods.join(".x.jar.part").exists(), "partial download must be removed");
+        assert!(
+            !mods.join(".x.jar.part").exists(),
+            "partial download must be removed"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1133,11 +1316,19 @@ mod tests {
         std::fs::create_dir_all(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, data_path.join("mods")).unwrap();
 
-        let err = download_and_install_mod("https://1.1.1.1/x.jar", data_path.to_str().unwrap(), "x.jar")
-            .await
-            .expect_err("symlinked mods/ must be refused");
+        let err = download_and_install_mod(
+            "https://1.1.1.1/x.jar",
+            data_path.to_str().unwrap(),
+            "x.jar",
+        )
+        .await
+        .expect_err("symlinked mods/ must be refused");
         assert!(err.to_string().contains("not a real directory"), "{err}");
-        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing written through the link");
+        assert_eq!(
+            std::fs::read_dir(&elsewhere).unwrap().count(),
+            0,
+            "nothing written through the link"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1152,12 +1343,21 @@ mod tests {
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();
 
         let mut f = create_fresh_temp(&tmp).await.expect("temp must be created");
-        tokio::io::AsyncWriteExt::write_all(&mut f, b"new").await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut f, b"new")
+            .await
+            .unwrap();
         tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
         drop(f);
 
-        assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
-        assert!(!std::fs::symlink_metadata(&tmp).unwrap().file_type().is_symlink());
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"keep",
+            "link target must be untouched"
+        );
+        assert!(!std::fs::symlink_metadata(&tmp)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1196,10 +1396,18 @@ mod tests {
             .await
             .expect("write should succeed");
 
-        assert_eq!(std::fs::read(&victim).unwrap(), b"keep", "link target must be untouched");
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"keep",
+            "link target must be untouched"
+        );
         let cfg = data_path.join("config.json");
-        assert!(!std::fs::symlink_metadata(&cfg).unwrap().file_type().is_symlink());
-        let parsed: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert!(!std::fs::symlink_metadata(&cfg)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         assert_eq!(parsed["Defaults"]["World"], "w");
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1228,7 +1436,8 @@ mod tests {
         let victim = elsewhere.join("victim.json");
         std::fs::write(&victim, b"keep").unwrap();
         std::fs::create_dir_all(data_path.join("talepanel")).unwrap();
-        std::os::unix::fs::symlink(&victim, data_path.join("talepanel").join("network.json")).unwrap();
+        std::os::unix::fs::symlink(&victim, data_path.join("talepanel").join("network.json"))
+            .unwrap();
         let err = write_mod_config_file(data_path.to_str().unwrap(), &config)
             .await
             .expect_err("symlinked network.json must be refused");
@@ -1239,11 +1448,15 @@ mod tests {
         // Legacy cleanup must not delete through mods/talepanel-network -> elsewhere.
         std::fs::write(elsewhere.join("config.json"), b"keep").unwrap();
         std::fs::create_dir_all(data_path.join("mods")).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, data_path.join("mods").join("talepanel-network")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, data_path.join("mods").join("talepanel-network"))
+            .unwrap();
         write_mod_config_file(data_path.to_str().unwrap(), &config)
             .await
             .expect("write should succeed");
-        assert!(elsewhere.join("config.json").exists(), "cleanup must not follow the link");
+        assert!(
+            elsewhere.join("config.json").exists(),
+            "cleanup must not follow the link"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1253,7 +1466,8 @@ mod tests {
     /// Create a unique, empty scratch directory under the OS temp dir.
     fn scratch_dir(tag: &str) -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("taledaemon-test-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("taledaemon-test-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
         dir
@@ -1301,7 +1515,10 @@ mod tests {
         for dir in ["", "..", "../mods", "config", "universe", "/etc"] {
             assert!(!is_allowed_mod_dir(dir), "{dir:?} must be rejected");
         }
-        assert_eq!(DEFAULT_MOD_DIR, "mods", "default must stay backwards compatible");
+        assert_eq!(
+            DEFAULT_MOD_DIR, "mods",
+            "default must stay backwards compatible"
+        );
     }
 
     // ── delete_world ──────────────────────────────────────────────────────────
@@ -1345,8 +1562,15 @@ mod tests {
             );
         }
 
-        assert!(secret.join("keys.txt").exists(), "guard must not delete outside universe/worlds");
-        assert!(data_path.join("universe").join("worlds").join("overworld").exists());
+        assert!(
+            secret.join("keys.txt").exists(),
+            "guard must not delete outside universe/worlds"
+        );
+        assert!(data_path
+            .join("universe")
+            .join("worlds")
+            .join("overworld")
+            .exists());
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1375,7 +1599,9 @@ mod tests {
         std::fs::create_dir_all(&data_path).unwrap();
         std::os::unix::fs::symlink(victim.join("universe"), data_path.join("universe")).unwrap();
 
-        assert!(delete_world_dir(data_path.to_str().unwrap(), "precious").await.is_err());
+        assert!(delete_world_dir(data_path.to_str().unwrap(), "precious")
+            .await
+            .is_err());
         assert!(victim_world.exists(), "another server's world must survive");
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1401,9 +1627,18 @@ mod tests {
         let raw = std::fs::read_to_string(data_path.join("config.json")).unwrap();
         let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(cfg["Defaults"]["World"], "newworld");
-        assert_eq!(cfg["Defaults"]["GameMode"], "survival", "unrelated keys must survive");
-        assert_eq!(cfg["Network"]["Port"], 25565, "unrelated sections must survive");
-        assert!(!data_path.join("config.json.tmp").exists(), "temp file must be renamed away");
+        assert_eq!(
+            cfg["Defaults"]["GameMode"], "survival",
+            "unrelated keys must survive"
+        );
+        assert_eq!(
+            cfg["Network"]["Port"], 25565,
+            "unrelated sections must survive"
+        );
+        assert!(
+            !data_path.join("config.json.tmp").exists(),
+            "temp file must be renamed away"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1435,7 +1670,10 @@ mod tests {
             .await
             .expect_err("traversal must be rejected");
         assert!(err.to_string().contains("unsafe world name"));
-        assert!(!data_path.join("config.json").exists(), "nothing must be written");
+        assert!(
+            !data_path.join("config.json").exists(),
+            "nothing must be written"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1468,10 +1706,16 @@ mod tests {
         assert_eq!(parsed["role"], "hub");
         assert_eq!(parsed["secrets"][0], "deadbeef");
         assert!(
-            !data_path.join("talepanel").join("network.json.tmp").exists(),
+            !data_path
+                .join("talepanel")
+                .join("network.json.tmp")
+                .exists(),
             "temp file must be renamed away"
         );
-        assert!(!legacy_dir.exists(), "the legacy config dir in mods/ must be removed");
+        assert!(
+            !legacy_dir.exists(),
+            "the legacy config dir in mods/ must be removed"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

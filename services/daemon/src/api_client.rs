@@ -53,7 +53,11 @@ pub struct CsrUnsupported(pub reqwest::StatusCode);
 
 impl std::fmt::Display for CsrUnsupported {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "panel does not support node CSR enrollment (HTTP {})", self.0)
+        write!(
+            f,
+            "panel does not support node CSR enrollment (HTTP {})",
+            self.0
+        )
     }
 }
 
@@ -186,7 +190,12 @@ impl ApiClient {
     /// * `base_url`   – e.g. `"http://panel.example.com:8080"` (no trailing slash)
     /// * `node_token` – Bearer token issued by TalePanel for this node
     /// * `node_id`    – UUID string identifying this node
-    pub fn new(base_url: impl Into<String>, node_token: impl Into<String>, node_id: impl Into<String>, insecure_tls: bool) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        node_token: impl Into<String>,
+        node_id: impl Into<String>,
+        insecure_tls: bool,
+    ) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("TaleDaemon/0.1.0")
@@ -264,7 +273,9 @@ impl ApiClient {
             .context("HTTP request failed for node CSR")?;
 
         let status = resp.status();
-        if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+        if status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+        {
             return Err(CsrUnsupported(status).into());
         }
         if !status.is_success() {
@@ -371,7 +382,8 @@ impl ApiClient {
     /// `"stopped"`, `"crashed"`.
     #[instrument(skip(self), fields(server_id, status))]
     pub async fn report_server_status(&self, server_id: &str, status: &str) -> Result<()> {
-        self.report_server_status_with_exit(server_id, status, None).await
+        self.report_server_status_with_exit(server_id, status, None)
+            .await
     }
 
     /// Like `report_server_status`, plus the process exit code of a crash so
@@ -441,8 +453,17 @@ impl ApiClient {
 
     /// Report a player join/leave event parsed from the server's log stream.
     /// action is "join" or "leave". Fire-and-forget; non-2xx is logged.
-    pub async fn report_player_event(&self, server_id: &str, action: &str, username: &str, hytale_uuid: &str) -> Result<()> {
-        let url = format!("{}/api/v1/servers/{}/daemon/players", self.base_url, server_id);
+    pub async fn report_player_event(
+        &self,
+        server_id: &str,
+        action: &str,
+        username: &str,
+        hytale_uuid: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/api/v1/servers/{}/daemon/players",
+            self.base_url, server_id
+        );
         let body = serde_json::json!({
             "action": action,
             "username": username,
@@ -468,7 +489,10 @@ impl ApiClient {
     /// `None` when the panel has no Hytale account linked (204); the server
     /// then starts unauthenticated, as before.
     pub async fn fetch_game_session(&self, server_id: &str) -> Result<Option<GameSession>> {
-        let url = format!("{}/api/v1/servers/{}/daemon/game-session", self.base_url, server_id);
+        let url = format!(
+            "{}/api/v1/servers/{}/daemon/game-session",
+            self.base_url, server_id
+        );
         let resp = self
             .http
             .post(&url)
@@ -488,8 +512,16 @@ impl ApiClient {
     }
 
     /// Report the worlds discovered on disk plus the active world (config.json).
-    pub async fn report_worlds(&self, server_id: &str, worlds: &[ScannedWorld], active_world: &str) -> Result<()> {
-        let url = format!("{}/api/v1/servers/{}/daemon/worlds", self.base_url, server_id);
+    pub async fn report_worlds(
+        &self,
+        server_id: &str,
+        worlds: &[ScannedWorld],
+        active_world: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/api/v1/servers/{}/daemon/worlds",
+            self.base_url, server_id
+        );
         let body = serde_json::json!({
             "worlds": worlds,
             "active_world": active_world,
@@ -512,7 +544,11 @@ impl ApiClient {
 
     /// Report detected plugins for a server to the TalePanel API.
     #[instrument(skip(self, plugins), fields(server_id, plugin_count = plugins.len()))]
-    pub async fn report_plugins(&self, server_id: &str, plugins: &[crate::plugin_scanner::DetectedPlugin]) -> Result<()> {
+    pub async fn report_plugins(
+        &self,
+        server_id: &str,
+        plugins: &[crate::plugin_scanner::DetectedPlugin],
+    ) -> Result<()> {
         let url = format!(
             "{}/api/v1/servers/{}/daemon/plugins",
             self.base_url, server_id
@@ -606,11 +642,17 @@ mod heartbeat_body_tests {
     #[test]
     fn heartbeat_body_includes_mtls_fields() {
         let not_after = Utc::now();
-        let m = metrics(Some(MtlsAdvert { serial: "1a2b".into(), not_after }));
+        let m = metrics(Some(MtlsAdvert {
+            serial: "1a2b".into(),
+            not_after,
+        }));
         let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
         assert_eq!(v["mtls_ready"], true);
         assert_eq!(v["cert_serial"], "1a2b");
-        assert_eq!(v["cert_not_after"], serde_json::to_value(not_after).unwrap());
+        assert_eq!(
+            v["cert_not_after"],
+            serde_json::to_value(not_after).unwrap()
+        );
         assert_eq!(v["status"], "online");
         assert_eq!(v["server_count"], 0);
 

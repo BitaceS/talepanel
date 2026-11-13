@@ -285,36 +285,58 @@ impl NetMonitor {
         let st = self.state.read().await;
 
         // Current rates from the latest sample.
-        let current = st.samples.back().map(|s| CurrentRates {
-            pps_in: s.pps_in,
-            pps_out: s.pps_out,
-            bps_in: s.bps_in,
-            bps_out: s.bps_out,
-            udp_pps_in: s.udp_pps_in,
-            udp_noports_pps: s.udp_noports_pps,
-            total_connections: 0, // filled below
-        }).unwrap_or_default();
+        let current = st
+            .samples
+            .back()
+            .map(|s| CurrentRates {
+                pps_in: s.pps_in,
+                pps_out: s.pps_out,
+                bps_in: s.bps_in,
+                bps_out: s.bps_out,
+                udp_pps_in: s.udp_pps_in,
+                udp_noports_pps: s.udp_noports_pps,
+                total_connections: 0, // filled below
+            })
+            .unwrap_or_default();
 
         // Averages
         let avg_5 = avg_window(&st.samples, 5);
         let avg_30 = avg_window(&st.samples, 30);
 
         // Peaks
-        let peak_pps = st.samples.iter().rev().take(30).map(|s| s.pps_in).fold(0.0f64, f64::max);
-        let peak_bps = st.samples.iter().rev().take(30).map(|s| s.bps_in).fold(0.0f64, f64::max);
+        let peak_pps = st
+            .samples
+            .iter()
+            .rev()
+            .take(30)
+            .map(|s| s.pps_in)
+            .fold(0.0f64, f64::max);
+        let peak_bps = st
+            .samples
+            .iter()
+            .rev()
+            .take(30)
+            .map(|s| s.bps_in)
+            .fold(0.0f64, f64::max);
 
         // History for chart
-        let history: Vec<HistorySample> = st.samples.iter().map(|s| HistorySample {
-            ts: s.timestamp.timestamp(),
-            pps_in: s.pps_in,
-            pps_out: s.pps_out,
-            bps_in: s.bps_in,
-            bps_out: s.bps_out,
-            udp_pps: s.udp_pps_in,
-        }).collect();
+        let history: Vec<HistorySample> = st
+            .samples
+            .iter()
+            .map(|s| HistorySample {
+                ts: s.timestamp.timestamp(),
+                pps_in: s.pps_in,
+                pps_out: s.pps_out,
+                bps_in: s.bps_in,
+                bps_out: s.bps_out,
+                udp_pps: s.udp_pps_in,
+            })
+            .collect();
 
         // Interfaces from latest sample
-        let interfaces = st.samples.back()
+        let interfaces = st
+            .samples
+            .back()
             .map(|s| s.iface_rates.clone())
             .unwrap_or_default();
 
@@ -329,7 +351,9 @@ impl NetMonitor {
         let udp_flood = current.udp_pps_in > THRESH_PPS_WARN;
         let spike = if let (Some(cur), avg30) = (st.samples.back(), avg_30.pps_in) {
             avg30 > 0.0 && cur.pps_in / avg30 > THRESH_SPIKE_RATIO
-        } else { false };
+        } else {
+            false
+        };
 
         // Top talkers from conntrack (if available)
         let top_talkers = read_top_talkers(&st.blacklist).await;
@@ -345,7 +369,9 @@ impl NetMonitor {
             top_talkers,
         };
 
-        let blacklisted: Vec<BlacklistEntry> = st.blacklist.values()
+        let blacklisted: Vec<BlacklistEntry> = st
+            .blacklist
+            .values()
             .filter(|b| b.expires_at > Utc::now())
             .cloned()
             .collect();
@@ -363,8 +389,14 @@ impl NetMonitor {
 
         NetMonitorSnapshot {
             current,
-            averages: avg_5.merge_30(&Avg30s { pps_in: avg_30.pps_in, bps_in: avg_30.bps_in }),
-            peaks: PeakRates { pps_in_30s: peak_pps, bps_in_30s: peak_bps },
+            averages: avg_5.merge_30(&Avg30s {
+                pps_in: avg_30.pps_in,
+                bps_in: avg_30.bps_in,
+            }),
+            peaks: PeakRates {
+                pps_in_30s: peak_pps,
+                bps_in_30s: peak_bps,
+            },
             history,
             interfaces,
             game_ports,
@@ -380,7 +412,11 @@ impl NetMonitor {
         let mut st = self.state.write().await;
 
         if let Some(prev) = &st.prev {
-            let dt = raw.timestamp.duration_since(prev.timestamp).as_secs_f64().max(0.001);
+            let dt = raw
+                .timestamp
+                .duration_since(prev.timestamp)
+                .as_secs_f64()
+                .max(0.001);
 
             // Compute per-interface deltas
             let mut total_pps_in = 0.0f64;
@@ -390,7 +426,9 @@ impl NetMonitor {
             let mut iface_rates = Vec::new();
 
             for cur_if in &raw.interfaces {
-                if cur_if.name == "lo" { continue; }
+                if cur_if.name == "lo" {
+                    continue;
+                }
                 if let Some(prev_if) = prev.interfaces.iter().find(|i| i.name == cur_if.name) {
                     let d_rx_p = cur_if.rx_packets.saturating_sub(prev_if.rx_packets) as f64 / dt;
                     let d_tx_p = cur_if.tx_packets.saturating_sub(prev_if.tx_packets) as f64 / dt;
@@ -453,63 +491,94 @@ impl NetMonitor {
 
         // 1. Global PPS flood
         if sample.pps_in > THRESH_PPS_CRITICAL {
-            push_event(&mut st.events, ThreatEvent {
-                timestamp: now,
-                event_type: "pps_flood".into(),
-                severity: "critical".into(),
-                description: format!("Inbound PPS at {:.0} exceeds critical threshold ({:.0})", sample.pps_in, THRESH_PPS_CRITICAL),
-                source_ip: None,
-                auto_mitigated: st.nft_initialised,
-                metrics: HashMap::from([("pps".into(), sample.pps_in)]),
-            });
+            push_event(
+                &mut st.events,
+                ThreatEvent {
+                    timestamp: now,
+                    event_type: "pps_flood".into(),
+                    severity: "critical".into(),
+                    description: format!(
+                        "Inbound PPS at {:.0} exceeds critical threshold ({:.0})",
+                        sample.pps_in, THRESH_PPS_CRITICAL
+                    ),
+                    source_ip: None,
+                    auto_mitigated: st.nft_initialised,
+                    metrics: HashMap::from([("pps".into(), sample.pps_in)]),
+                },
+            );
             if st.nft_initialised {
                 st.mitigation_active = true;
             }
         } else if sample.pps_in > THRESH_PPS_HIGH {
-            push_event(&mut st.events, ThreatEvent {
-                timestamp: now,
-                event_type: "pps_flood".into(),
-                severity: "high".into(),
-                description: format!("Inbound PPS at {:.0} exceeds high threshold ({:.0})", sample.pps_in, THRESH_PPS_HIGH),
-                source_ip: None,
-                auto_mitigated: false,
-                metrics: HashMap::from([("pps".into(), sample.pps_in)]),
-            });
+            push_event(
+                &mut st.events,
+                ThreatEvent {
+                    timestamp: now,
+                    event_type: "pps_flood".into(),
+                    severity: "high".into(),
+                    description: format!(
+                        "Inbound PPS at {:.0} exceeds high threshold ({:.0})",
+                        sample.pps_in, THRESH_PPS_HIGH
+                    ),
+                    source_ip: None,
+                    auto_mitigated: false,
+                    metrics: HashMap::from([("pps".into(), sample.pps_in)]),
+                },
+            );
         } else if sample.pps_in > THRESH_PPS_WARN {
-            push_event(&mut st.events, ThreatEvent {
-                timestamp: now,
-                event_type: "pps_elevated".into(),
-                severity: "medium".into(),
-                description: format!("Inbound PPS at {:.0} exceeds warning threshold ({:.0})", sample.pps_in, THRESH_PPS_WARN),
-                source_ip: None,
-                auto_mitigated: false,
-                metrics: HashMap::from([("pps".into(), sample.pps_in)]),
-            });
+            push_event(
+                &mut st.events,
+                ThreatEvent {
+                    timestamp: now,
+                    event_type: "pps_elevated".into(),
+                    severity: "medium".into(),
+                    description: format!(
+                        "Inbound PPS at {:.0} exceeds warning threshold ({:.0})",
+                        sample.pps_in, THRESH_PPS_WARN
+                    ),
+                    source_ip: None,
+                    auto_mitigated: false,
+                    metrics: HashMap::from([("pps".into(), sample.pps_in)]),
+                },
+            );
         }
 
         // 2. PPS spike detection (sudden surge vs 30s avg)
         let avg_30 = if st.samples.len() >= 5 {
             let n = st.samples.len().min(30);
-            st.samples.iter().rev().take(n).map(|s| s.pps_in).sum::<f64>() / n as f64
-        } else { 0.0 };
+            st.samples
+                .iter()
+                .rev()
+                .take(n)
+                .map(|s| s.pps_in)
+                .sum::<f64>()
+                / n as f64
+        } else {
+            0.0
+        };
 
         if avg_30 > 100.0 && sample.pps_in / avg_30 > THRESH_SPIKE_RATIO {
-            push_event(&mut st.events, ThreatEvent {
-                timestamp: now,
-                event_type: "pps_spike".into(),
-                severity: "high".into(),
-                description: format!(
-                    "PPS spike detected: {:.0} PPS (avg {:.0}, ratio {:.1}x)",
-                    sample.pps_in, avg_30, sample.pps_in / avg_30
-                ),
-                source_ip: None,
-                auto_mitigated: false,
-                metrics: HashMap::from([
-                    ("current_pps".into(), sample.pps_in),
-                    ("avg_pps".into(), avg_30),
-                    ("ratio".into(), sample.pps_in / avg_30),
-                ]),
-            });
+            push_event(
+                &mut st.events,
+                ThreatEvent {
+                    timestamp: now,
+                    event_type: "pps_spike".into(),
+                    severity: "high".into(),
+                    description: format!(
+                        "PPS spike detected: {:.0} PPS (avg {:.0}, ratio {:.1}x)",
+                        sample.pps_in,
+                        avg_30,
+                        sample.pps_in / avg_30
+                    ),
+                    source_ip: None,
+                    auto_mitigated: false,
+                    metrics: HashMap::from([
+                        ("current_pps".into(), sample.pps_in),
+                        ("avg_pps".into(), avg_30),
+                        ("ratio".into(), sample.pps_in / avg_30),
+                    ]),
+                },
+            );
         }
 
         // 3. UDP NoPorts — indicates reflection/scanning
@@ -530,15 +599,23 @@ impl NetMonitor {
 
         // 4. UDP flood (high UDP datagram rate)
         if sample.udp_pps_in > THRESH_PPS_HIGH {
-            push_event(&mut st.events, ThreatEvent {
-                timestamp: now,
-                event_type: "udp_flood".into(),
-                severity: if sample.udp_pps_in > THRESH_PPS_CRITICAL { "critical" } else { "high" }.into(),
-                description: format!("UDP flood: {:.0} datagrams/s inbound", sample.udp_pps_in),
-                source_ip: None,
-                auto_mitigated: st.nft_initialised,
-                metrics: HashMap::from([("udp_pps".into(), sample.udp_pps_in)]),
-            });
+            push_event(
+                &mut st.events,
+                ThreatEvent {
+                    timestamp: now,
+                    event_type: "udp_flood".into(),
+                    severity: if sample.udp_pps_in > THRESH_PPS_CRITICAL {
+                        "critical"
+                    } else {
+                        "high"
+                    }
+                    .into(),
+                    description: format!("UDP flood: {:.0} datagrams/s inbound", sample.udp_pps_in),
+                    source_ip: None,
+                    auto_mitigated: st.nft_initialised,
+                    metrics: HashMap::from([("udp_pps".into(), sample.udp_pps_in)]),
+                },
+            );
         }
 
         // 5. Bridge high/critical floods to the panel's alert system (rate-limited).
@@ -564,7 +641,11 @@ impl NetMonitor {
         }
         st.last_ddos_report = Some(now);
 
-        let severity = if pps > THRESH_PPS_CRITICAL { "critical" } else { "high" };
+        let severity = if pps > THRESH_PPS_CRITICAL {
+            "critical"
+        } else {
+            "high"
+        };
         let description = format!("DDoS detected: {:.0} PPS inbound", pps);
         tokio::spawn(async move {
             if let Err(e) = reporter.report_ddos(severity, &description, pps).await {
@@ -650,7 +731,9 @@ async fn read_game_port_info() -> Vec<GamePortInfo> {
     let mut ports: HashMap<u16, GamePortInfo> = HashMap::new();
     for line in content.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 13 { continue; }
+        if fields.len() < 13 {
+            continue;
+        }
 
         // Parse local_address (hex IP:port)
         if let Some(port_hex) = fields[1].split(':').nth(1) {
@@ -658,10 +741,12 @@ async fn read_game_port_info() -> Vec<GamePortInfo> {
                 if (5520..=5600).contains(&port) {
                     // rx_queue:tx_queue at field[4]
                     let queues: Vec<&str> = fields[4].split(':').collect();
-                    let rx_q = queues.first()
+                    let rx_q = queues
+                        .first()
                         .and_then(|h| u64::from_str_radix(h, 16).ok())
                         .unwrap_or(0);
-                    let drops = fields.get(12)
+                    let drops = fields
+                        .get(12)
                         .and_then(|d| d.parse::<u64>().ok())
                         .unwrap_or(0);
 
@@ -683,12 +768,17 @@ async fn read_game_port_info() -> Vec<GamePortInfo> {
     if let Ok(tcp_content) = tokio::fs::read_to_string("/proc/net/tcp").await {
         for line in tcp_content.lines().skip(1) {
             let fields: Vec<&str> = line.split_whitespace().collect();
-            if fields.len() < 4 { continue; }
+            if fields.len() < 4 {
+                continue;
+            }
             if let Some(port_hex) = fields[1].split(':').nth(1) {
                 if let Ok(port) = u16::from_str_radix(port_hex, 16) {
                     if (5520..=5600).contains(&port) {
                         let entry = ports.entry(port).or_insert(GamePortInfo {
-                            port, rx_queue: 0, drops: 0, active_connections: 0,
+                            port,
+                            rx_queue: 0,
+                            drops: 0,
+                            active_connections: 0,
                         });
                         entry.active_connections += 1;
                     }
@@ -714,12 +804,15 @@ async fn read_connection_summary() -> (usize, usize) {
 
     for line in content.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 4 { continue; }
+        if fields.len() < 4 {
+            continue;
+        }
         if let Some(port_hex) = fields[1].split(':').nth(1) {
             if let Ok(port) = u16::from_str_radix(port_hex, 16) {
                 if (5520..=5600).contains(&port) {
                     total += 1;
-                    if fields[3] == "03" { // SYN_RECV
+                    if fields[3] == "03" {
+                        // SYN_RECV
                         syn_recv += 1;
                     }
                 }
@@ -748,7 +841,10 @@ async fn read_top_talkers(blacklist: &HashMap<String, BlacklistEntry>) -> Vec<To
                 for part in line.split_whitespace() {
                     if let Some(ip) = part.strip_prefix("src=") {
                         // Skip private/internal IPs
-                        if !ip.starts_with("10.") && !ip.starts_with("172.") && !ip.starts_with("127.") {
+                        if !ip.starts_with("10.")
+                            && !ip.starts_with("172.")
+                            && !ip.starts_with("127.")
+                        {
                             *ip_counts.entry(ip.to_string()).or_insert(0) += 1;
                         }
                     }
@@ -761,17 +857,26 @@ async fn read_top_talkers(blacklist: &HashMap<String, BlacklistEntry>) -> Vec<To
     if ip_counts.is_empty() {
         if let Ok(content) = tokio::fs::read_to_string("/proc/net/nf_conntrack").await {
             for line in content.lines() {
-                if !line.contains("udp") { continue; }
+                if !line.contains("udp") {
+                    continue;
+                }
                 // Check if it involves game ports
-                let has_game_port = line.contains("dport=5520") ||
-                    line.contains("dport=5521") || line.contains("dport=5522") ||
-                    line.contains("dport=5523") || line.contains("dport=5524") ||
-                    line.contains("dport=5525");
-                if !has_game_port { continue; }
+                let has_game_port = line.contains("dport=5520")
+                    || line.contains("dport=5521")
+                    || line.contains("dport=5522")
+                    || line.contains("dport=5523")
+                    || line.contains("dport=5524")
+                    || line.contains("dport=5525");
+                if !has_game_port {
+                    continue;
+                }
 
                 for part in line.split_whitespace() {
                     if let Some(ip) = part.strip_prefix("src=") {
-                        if !ip.starts_with("10.") && !ip.starts_with("172.") && !ip.starts_with("127.") {
+                        if !ip.starts_with("10.")
+                            && !ip.starts_with("172.")
+                            && !ip.starts_with("127.")
+                        {
                             *ip_counts.entry(ip.to_string()).or_insert(0) += 1;
                         }
                     }
@@ -780,14 +885,21 @@ async fn read_top_talkers(blacklist: &HashMap<String, BlacklistEntry>) -> Vec<To
         }
     }
 
-    let mut talkers: Vec<TopTalker> = ip_counts.into_iter()
+    let mut talkers: Vec<TopTalker> = ip_counts
+        .into_iter()
         .map(|(ip, count)| {
             let is_bl = blacklist.contains_key(&ip);
-            let severity = if count > 100 { "critical" }
-                else if count > 50 { "high" }
-                else if count > 20 { "medium" }
-                else if count > 10 { "low" }
-                else { "normal" };
+            let severity = if count > 100 {
+                "critical"
+            } else if count > 50 {
+                "high"
+            } else if count > 20 {
+                "medium"
+            } else if count > 10 {
+                "low"
+            } else {
+                "normal"
+            };
             TopTalker {
                 ip,
                 pps: count as f64, // conntrack entries, not actual PPS
@@ -866,7 +978,10 @@ async fn run_nft(rule: &str) -> anyhow::Result<()> {
 /// Add an IP to the nftables blacklist with a timeout.
 #[allow(dead_code)]
 async fn blacklist_ip(ip: &str, duration_secs: u64) -> anyhow::Result<()> {
-    let cmd = format!("add element inet taledaemon blacklist {{ {} timeout {}s }}", ip, duration_secs);
+    let cmd = format!(
+        "add element inet taledaemon blacklist {{ {} timeout {}s }}",
+        ip, duration_secs
+    );
     run_nft(&cmd).await?;
     info!(ip, duration_secs, "IP blacklisted via nftables");
     Ok(())
@@ -919,9 +1034,15 @@ impl Avg5s {
 fn avg_window(samples: &VecDeque<ComputedSample>, n: usize) -> Avg5s {
     let count = samples.len().min(n);
     if count == 0 {
-        return Avg5s { pps_in: 0.0, bps_in: 0.0 };
+        return Avg5s {
+            pps_in: 0.0,
+            bps_in: 0.0,
+        };
     }
-    let (sum_pps, sum_bps) = samples.iter().rev().take(count)
+    let (sum_pps, sum_bps) = samples
+        .iter()
+        .rev()
+        .take(count)
         .fold((0.0, 0.0), |(p, b), s| (p + s.pps_in, b + s.bps_in));
     Avg5s {
         pps_in: sum_pps / count as f64,
@@ -936,7 +1057,8 @@ fn compute_threat_level(st: &MonitorState, current: &CurrentRates, syn_count: us
     if current.pps_in > THRESH_PPS_HIGH || syn_count > THRESH_SYN_RECV * 2 {
         return "high".into();
     }
-    if current.pps_in > THRESH_PPS_WARN || syn_count > THRESH_SYN_RECV
+    if current.pps_in > THRESH_PPS_WARN
+        || syn_count > THRESH_SYN_RECV
         || current.udp_noports_pps > THRESH_NOPORTS_PPS
     {
         return "medium".into();
@@ -944,7 +1066,13 @@ fn compute_threat_level(st: &MonitorState, current: &CurrentRates, syn_count: us
 
     // Check spike
     if st.samples.len() >= 5 {
-        let avg = st.samples.iter().rev().take(30).map(|s| s.pps_in).sum::<f64>()
+        let avg = st
+            .samples
+            .iter()
+            .rev()
+            .take(30)
+            .map(|s| s.pps_in)
+            .sum::<f64>()
             / st.samples.len().min(30) as f64;
         if avg > 100.0 && current.pps_in / avg > THRESH_SPIKE_RATIO {
             return "high".into();
