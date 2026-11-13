@@ -36,7 +36,7 @@
 - Secret stored encrypted at rest (application-layer encryption)
 - On login with 2FA enabled: returns `requires_totp: true`, no full token
 - Full token only issued after valid TOTP code verification
-- Backup codes: TODO V2
+- Backup codes: not yet (roadmap); lost device → `tale-cli admin disable-2fa --email ...`
 
 ---
 
@@ -141,7 +141,7 @@ Content-Security-Policy: default-src 'self'
 - Refresh tokens: SHA-256 hashed
 - Node tokens: SHA-256 hashed
 - API keys: SHA-256 hashed
-- TOTP secrets: should be encrypted at rest (AES-256-GCM, key from env) — TODO V2
+- TOTP secrets: encrypted at rest (AES-256-GCM, key `TOTP_ENC_KEY`, since migration 013)
 - All connections use pgxpool with SSL in production
 
 ### Audit Trail
@@ -178,7 +178,7 @@ Content-Security-Policy: default-src 'self'
 - Password change optionally revokes all sessions
 
 ### Inactive Session Cleanup
-- DB: sessions past `expires_at` cleaned by scheduled job (TODO: cron worker)
+- DB: sessions more than 30 days past `expires_at` are deleted by a background job in the API (on start and every 6 h)
 - Redis: blacklist entries auto-expire via TTL
 
 ---

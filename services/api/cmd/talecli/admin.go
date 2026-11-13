@@ -24,6 +24,7 @@ func adminCmd() *cobra.Command {
 		Short: "User administration",
 	}
 	cmd.AddCommand(adminCreateCmd())
+	cmd.AddCommand(adminDisable2FACmd())
 	return cmd
 }
 
