@@ -2324,41 +2324,84 @@ async fn import_server(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("create server dir: {e}")}))).into_response();
     }
 
-    // Read the uploaded archive into memory (bounded), then extract in a blocking task.
-    const MAX_IMPORT: usize = 2 * 1024 * 1024 * 1024; // 2 GiB
-    let mut archive_bytes: Option<Vec<u8>> = None;
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() != Some("file") {
-            continue;
+    // Stream the uploaded archive to a temp file next to the server dirs
+    // (bounded), then extract it in a blocking task. A server archive is
+    // routinely hundreds of MB, so it must neither hit the 2 MB default body
+    // limit (disabled on this route) nor be buffered in memory.
+    let tmp_path = PathBuf::from(&state.servers_base_dir)
+        .join(format!(".import-{server_id}-{}.zip", uuid::Uuid::new_v4()));
+    let received = receive_import_archive(&mut multipart, &tmp_path, MAX_IMPORT_BYTES).await;
+    let archive_path = match received {
+        Ok(Some(())) => tmp_path.clone(),
+        Ok(None) => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "missing file field"}))).into_response();
         }
-        match field.bytes().await {
-            Ok(data) => {
-                if data.len() > MAX_IMPORT {
-                    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "import archive exceeds size limit"}))).into_response();
-                }
-                archive_bytes = Some(data.to_vec());
-            }
-            Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("failed to read upload: {e}")}))).into_response(),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
         }
-    }
-
-    let bytes = match archive_bytes {
-        Some(b) => b,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "missing file field"}))).into_response(),
     };
 
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
-        let reader = std::io::Cursor::new(bytes);
-        let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("read archive: {e}"))?;
+        let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
+        let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| format!("read archive: {e}"))?;
         let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
         Ok(stats.written)
     })
     .await;
+    let _ = tokio::fs::remove_file(&tmp_path).await;
 
     match result {
         Ok(Ok(count)) => ActionResponse::ok(format!("imported {count} entries")).into_response(),
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("import task failed: {e}")}))).into_response(),
+    }
+}
+
+/// Largest server archive `import_server` accepts.
+const MAX_IMPORT_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
+
+/// Writes the multipart field named "file" to `dest` chunk by chunk.
+/// Returns `Ok(None)` when the request has no such field, and an error when
+/// the upload is unreadable or larger than `max_bytes`. The caller removes
+/// `dest` on every outcome.
+async fn receive_import_archive(
+    multipart: &mut Multipart,
+    dest: &std::path::Path,
+    max_bytes: u64,
+) -> Result<Option<()>, String> {
+    loop {
+        let mut field = match multipart.next_field().await {
+            Ok(Some(f)) => f,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(format!("failed to read upload: {e}")),
+        };
+        if field.name() != Some("file") {
+            continue;
+        }
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dest)
+            .await
+            .map_err(|e| format!("create temp file: {e}"))?;
+        let mut written: u64 = 0;
+        loop {
+            match field.chunk().await {
+                Ok(Some(chunk)) => {
+                    written += chunk.len() as u64;
+                    if written > max_bytes {
+                        return Err("import archive exceeds size limit".to_string());
+                    }
+                    file.write_all(&chunk).await.map_err(|e| format!("write temp file: {e}"))?;
+                }
+                Ok(None) => break,
+                Err(e) => return Err(format!("failed to read upload: {e}")),
+            }
+        }
+        file.flush().await.map_err(|e| format!("write temp file: {e}"))?;
+        return Ok(Some(()));
     }
 }
 
@@ -2460,7 +2503,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/servers/:id/backup/upload", post(upload_backup))
         .route("/servers/:id/backup/remote-delete", post(delete_remote_backup))
         .route("/rclone/test", post(test_remote))
-        .route("/servers/:id/import", post(import_server))
+        .route(
+            "/servers/:id/import",
+            // A whole server archive: streamed to disk, capped at 2 GiB.
+            post(import_server).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     Router::new()
@@ -3327,6 +3374,73 @@ mod tests {
             };
             let out = format!("{sec:?}");
             assert!(!out.contains(&f.node.key_pem) && !out.contains("PRIVATE KEY"), "{out}");
+        }
+
+        /// A migration ships the whole server directory. Archives above axum's
+        /// 2 MB default body limit used to be rejected, so every real
+        /// cross-node migration failed.
+        #[tokio::test]
+        async fn import_accepts_archive_larger_than_default_body_limit() {
+            let base = super::scratch_dir("import-big");
+            let mut state = test_state();
+            state.servers_base_dir = base.to_string_lossy().into_owned();
+
+            // ~3 MB of incompressible data, stored (not deflated).
+            let mut payload = vec![0u8; 3 * 1024 * 1024];
+            let mut x: u32 = 0x1234_5678;
+            for b in payload.iter_mut() {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                *b = x as u8;
+            }
+            let zip = super::zip_bytes(|w| {
+                let opts = zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored);
+                w.start_file("universe/worlds/default/chunk.bin", opts).unwrap();
+                w.write_all(&payload).unwrap();
+            });
+            assert!(zip.len() > 2 * 1024 * 1024);
+
+            let boundary = "tpimportboundary";
+            let mut body = format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"server.zip\"\r\nContent-Type: application/zip\r\n\r\n"
+            )
+            .into_bytes();
+            body.extend_from_slice(&zip);
+            body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let security = ListenerSecurity { pki: None, allow_legacy_bearer: true, require_mtls: false };
+            tokio::spawn(serve_listener(listener, build_router(state), security));
+
+            let resp = reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap()
+                .post(format!("http://{addr}/servers/{}/import", super::SID))
+                .bearer_auth(TOKEN)
+                .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+            let code = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            assert_eq!(code, 200, "{text}");
+
+            let written = std::fs::read(base.join(super::SID).join("universe/worlds/default/chunk.bin")).unwrap();
+            assert_eq!(written.len(), payload.len());
+            assert!(written == payload);
+            // The temp archive is gone.
+            let leftovers: Vec<_> = std::fs::read_dir(&base)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().starts_with(".import-"))
+                .collect();
+            assert!(leftovers.is_empty(), "temp archive left behind");
+            let _ = std::fs::remove_dir_all(&base);
         }
     }
 }
