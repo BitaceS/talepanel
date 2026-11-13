@@ -107,7 +107,6 @@ interface BackendNotifPref {
 }
 
 async function saveNotifPrefs() {
-  const changed = notifPrefs.find(p => p.key === arguments[0])
   const writes = notifPrefs.map(p =>
     api.put('/auth/profile/notifications', {
       alert_type: p.key,
@@ -122,7 +121,6 @@ async function saveNotifPrefs() {
   } catch (err) {
     showToast((err as Error).message || 'Failed to save preferences', 'error')
   }
-  void changed
 }
 
 async function loadNotifPrefs() {

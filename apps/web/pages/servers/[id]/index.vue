@@ -525,7 +525,8 @@ const urlRegex = /(https?:\/\/[^\s"'<>]+)/g
 
 // The Hytale server writes ANSI colour/reset sequences (ESC [ ... m) into its
 // log; drop them so they don't show up as "[m" noise in the console.
-const ansiRegex = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g
+// eslint-disable-next-line no-control-regex -- matching ESC is the point
+const ansiRegex = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 
 function renderLogMessage(message: string): string {
   const safe = escapeHtml(message.replace(ansiRegex, ''))

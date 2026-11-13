@@ -481,7 +481,8 @@ function permState(key: string): 'grant' | 'deny' | 'inherit' {
 
 function setPermState(key: string, state: 'grant' | 'deny' | 'inherit') {
   if (state === 'inherit') {
-    delete permOverrides.value[key]
+    const { [key]: _removed, ...rest } = permOverrides.value
+    permOverrides.value = rest
   } else {
     permOverrides.value[key] = state === 'grant'
   }
