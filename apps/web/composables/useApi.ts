@@ -32,23 +32,25 @@ export const useApi = () => {
 
       // Handle 401: try to refresh token
       if (fetchErr.status === 401 && authStore.accessToken) {
+        // Only a failed refresh means the session is gone. A 401 from the
+        // retried request is that request's own answer (e.g. a wrong
+        // password) and must not sign the user out.
         try {
           await authStore.refresh()
-          // Retry with new token
-          headers['Authorization'] = `Bearer ${authStore.accessToken}`
-          return await $fetch<T>(`${config.public.apiBase}${path}`, {
-            ...options,
-            headers: {
-              ...headers,
-              ...(options.headers as Record<string, string> | undefined),
-            },
-            credentials: 'include',
-          })
         } catch {
           authStore.logout()
           await navigateTo('/auth/login')
           throw err
         }
+        headers['Authorization'] = `Bearer ${authStore.accessToken}`
+        return await $fetch<T>(`${config.public.apiBase}${path}`, {
+          ...options,
+          headers: {
+            ...headers,
+            ...(options.headers as Record<string, string> | undefined),
+          },
+          credentials: 'include',
+        })
       }
       throw err
     }

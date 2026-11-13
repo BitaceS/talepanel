@@ -247,7 +247,7 @@ func (h *AuthHandler) ConfirmTOTP(c *gin.Context) {
 	codes, err := h.svc.ConfirmTOTP(c.Request.Context(), user.ID, req.Code)
 	if err != nil {
 		if errors.Is(err, services.ErrTOTPInvalid) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid TOTP code"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "invalid TOTP code"})
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -334,7 +334,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	}
 	if err := h.svc.DisableTOTP(c.Request.Context(), user.ID, req.Password); err != nil {
 		if errors.Is(err, services.ErrInvalidCreds) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "password incorrect"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "password incorrect"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not disable 2FA"})
