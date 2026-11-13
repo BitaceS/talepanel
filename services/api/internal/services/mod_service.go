@@ -450,7 +450,7 @@ func (s *ModService) SyncDetectedPlugins(ctx context.Context, serverID uuid.UUID
 				INSERT INTO game_commands (server_id, category, name, description, command_template,
 					icon, params, sort_order, is_default, min_role, source, source_plugin)
 				VALUES ($1, 'Plugin Commands', $2, $3, $4, 'plug', '[]', 99, false, 'moderator', 'plugin', $5)
-				ON CONFLICT DO NOTHING
+				ON CONFLICT (server_id, command_template) WHERE source = 'plugin' DO NOTHING
 			`, serverID, cmd, "Command from "+p.PluginName, cmd, p.PluginName)
 			if err != nil {
 				// Non-fatal: log but continue.
