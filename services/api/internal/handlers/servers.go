@@ -288,6 +288,12 @@ func (h *ServerHandler) DeleteServer(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
+	// Check ownership before the daemon wipes the data directory: DeleteServer
+	// checks it again, but by then the files would already be gone.
+	if err := services.CanDeleteServer(server, user.ID, user.Role); err != nil {
+		serverError(c, err)
+		return
+	}
 
 	// Best-effort: ask the daemon to stop the process AND remove the on-disk
 	// data directory before we delete the DB row.  If the daemon is

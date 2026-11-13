@@ -715,14 +715,24 @@ func (s *ServerService) GetLogs(ctx context.Context, serverID uuid.UUID, limit i
 // DeleteServer removes a server record.  Callers must hold at least admin role
 // or be the server owner.  The handler is responsible for asking the daemon to
 // clean up on-disk data before calling this method.
+// CanDeleteServer reports whether the user may delete the server: only its
+// owner or global staff (admin/owner) may, whatever per-server permissions a
+// member holds. Callers must check this before any irreversible cleanup.
+func CanDeleteServer(server *models.Server, userID uuid.UUID, role string) error {
+	if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) && server.OwnerID != userID {
+		return ErrServerForbidden
+	}
+	return nil
+}
+
 func (s *ServerService) DeleteServer(ctx context.Context, serverID, userID uuid.UUID, role string) error {
 	server, err := s.GetServer(ctx, serverID, userID, role)
 	if err != nil {
 		return err
 	}
 
-	if models.RoleWeight(role) < models.RoleWeight(models.RoleAdmin) && server.OwnerID != userID {
-		return ErrServerForbidden
+	if err := CanDeleteServer(server, userID, role); err != nil {
+		return err
 	}
 
 	_, err = s.db.Exec(ctx, `DELETE FROM servers WHERE id = $1`, serverID)
