@@ -13,7 +13,13 @@
     # TLS: empty = automatic Let's Encrypt; "tls internal" = self-signed
     # (when the panel is bound to a raw IP and no domain is configured).
     {{TLS_DIRECTIVE}}
-    encode gzip
+
+    # Compress everything except the live event stream (Server-Sent
+    # Events). reverse_proxy already flushes text/event-stream responses
+    # immediately, so no flush_interval is needed; the stream is kept out
+    # of gzip so no encoder sits between an event and the browser.
+    @compressible not path /api/v1/servers/*/stream
+    encode @compressible gzip
 
     # API — proxy /api/* to the Go backend.
     handle /api/* {
