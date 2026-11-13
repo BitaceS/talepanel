@@ -313,12 +313,24 @@ interface Metrics {
 const metrics = ref<Metrics | null>(null)
 let metricsTimer: ReturnType<typeof setInterval>
 
+// Players online right now, from the sessions the panel records (the same
+// source as the dashboard). The players store holds everyone ever seen.
+const onlinePlayers = ref<number | null>(null)
+async function fetchOnlinePlayers() {
+  if (!serverId.value) return
+  try {
+    const data = await api.get<{ online_by_server: Record<string, number> }>('/servers/activity')
+    onlinePlayers.value = data.online_by_server?.[serverId.value] ?? 0
+  } catch { /* silent */ }
+}
+
 async function fetchMetrics() {
   if (!serverId.value || activeTab.value !== 'overview') return
   try {
     const data = await api.get<Metrics>(`/servers/${serverId.value}/metrics`)
     metrics.value = data
   } catch { /* silent */ }
+  void fetchOnlinePlayers()
 }
 
 watch(activeTab, (tab) => {
@@ -1298,9 +1310,9 @@ const sidebarMods = computed(() => {
             <Info class="w-3.5 h-3.5 text-tp-outline" />
           </div>
           <p class="text-tp-text font-display font-bold text-2xl">
-            {{ playersStore.players.length }}<span class="text-tp-outline text-lg font-normal">/64</span>
+            {{ onlinePlayers ?? '—' }}
           </p>
-          <p class="text-tp-muted text-xs mt-1">Connected players</p>
+          <p class="text-tp-muted text-xs mt-1">Players online now</p>
         </div>
 
         <div class="bg-tp-surface2 rounded-xl p-4">
