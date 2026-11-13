@@ -36,7 +36,8 @@
 - Secret stored encrypted at rest (application-layer encryption)
 - On login with 2FA enabled: returns `requires_totp: true`, no full token
 - Full token only issued after valid TOTP code verification
-- Backup codes: not yet (roadmap); lost device → `tale-cli admin disable-2fa --email ...`
+- Recovery codes: 10 single-use codes issued when 2FA is confirmed (`xxxxx-xxxxx`, Crockford base32 lower case, 50 bits each from `crypto/rand`). Returned once in the confirm response (`recovery_codes`), stored only as SHA-256 of the normalised code in `user_recovery_codes` (migration 044). The TOTP login step accepts a recovery code instead of the 6-digit code (dash, case and whitespace ignored); it is spent with `UPDATE … SET used_at = NOW() WHERE … AND used_at IS NULL RETURNING id`, so concurrent requests cannot reuse it, and each use is written to `activity_logs` (`auth.recovery_code.used`, without the code). `POST /auth/2fa/recovery-codes` (password + TOTP) replaces all codes; `GET /auth/2fa/recovery-codes/status` returns the remaining count. Disabling 2FA deletes the codes. The request audit log redacts `code` and `partial_token`.
+- Lost device and lost recovery codes → `tale-cli admin disable-2fa --email ...` (also deletes the codes)
 
 ---
 

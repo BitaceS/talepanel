@@ -47,7 +47,7 @@ Plus 18 bug fixes; see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-1
 | 2 | **Fix the remaining review findings** (see handoff: mod `mod_dir` handling in toggle/remove, concurrent start race in the daemon, streamed file downloads, `remove_mod` for `plugins/` and `.disabled` files) | Real bugs with a known fix; small enough to batch into a patch release. | M |
 | 3 | **ESLint for the web panel** (`@nuxt/eslint`, add `npm run lint` to CI) | `npm run lint` exists but there is no config, so it fails; CI does not run it. Cheap safety net. | S |
 | 4 | **`cargo fmt` once, then enforce in CI** | ~350 formatting hunks in the daemon today; one mechanical commit when no branch is open, then `cargo fmt --check` in CI. Same for `gofmt -l`. | S |
-| 5 | **2FA backup codes** | Listed in `SECURITY.md`. Today a lost device needs shell access to the panel host (`tale-cli admin disable-2fa`). 10 one-time codes, hashed (SHA-256), shown once on enable; accepted in the TOTP step. New table + small UI. | M |
+| 5 | ~~**2FA backup codes**~~ | Done (unreleased): 10 single-use recovery codes, SHA-256 hashed, shown once on enable, accepted in the TOTP step, regenerable under Settings → Security. | — |
 | 6 | **Server templates / "eggs light"** | Planned in the README. Save a server's settings (RAM, CPU, flags, mods list, config files) as a template and create new servers from it. Competitors offer one-click modpacks. | M |
 
 ### Next

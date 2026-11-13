@@ -34,6 +34,7 @@ A fresh install via `scripts/install.sh --mode panel` guarantees:
 - No seed account and no default password — the first owner is created during install via the setup wizard.
 - Owner and admin passwords enforce a 12-character + digit + symbol policy.
 - TOTP secrets are encrypted at rest with AES-256-GCM (`TOTP_ENC_KEY`).
+- Enabling 2FA issues ten single-use recovery codes (50 bits each, `crypto/rand`). They are shown once; only their SHA-256 hashes are stored, a code is spent atomically on use, each use is audit-logged, and 2FA codes are redacted from the request audit log. Users can regenerate them (password + current TOTP required) under Settings → Security.
 - Server backups are encrypted with ChaCha20-Poly1305 (streaming AEAD) under a panel-managed key before the archive is written on the node, so both the local copy and any off-site upload are sealed. The key is stored encrypted in the panel database, never on the daemon host; it can be rotated and older backups stay restorable.
 - Refresh tokens are stored hashed with SHA-256, access tokens signed with HS256, JTI blacklist on logout.
 - Rate limiting (Redis sliding window): 30 req/min on `/auth/*`, 120 req/min on the rest, per client IP.
@@ -61,7 +62,7 @@ These are on the roadmap but not yet implemented. Operators should know:
 - A node certificate is issued to whoever presents the node token, so a leaked node token alone can still obtain a valid node certificate. Treat the token like a private key; removing the node in the panel revokes it.
 - No certificate revocation lists and no automatic renewal while running: node and panel certificates are valid for 2 years and renewed on a restart within 30 days of expiry. Rotating the panel CA is not supported yet.
 - No process isolation per Hytale server. Every server managed by a single daemon runs under the same Linux user. A malicious server operator with shell access via plugins could interfere with others. Run one daemon per trust boundary for now.
-- No 2FA backup codes. If a user loses their TOTP device, an operator disables 2FA for them on the panel host: `docker compose run --rm api tale-cli admin disable-2fa --email user@example.com` (add `--revoke-sessions` to sign them out everywhere). The change is written to the audit log.
+- A user who lost both their TOTP device and their recovery codes needs an operator: on the panel host, `docker compose run --rm api tale-cli admin disable-2fa --email user@example.com` turns 2FA off and deletes the user's recovery codes (add `--revoke-sessions` to sign them out everywhere). The change is written to the audit log. There is no email-based self-service reset.
 - Admin routes are reachable from any address by default. Set `ADMIN_IP_ALLOWLIST` (comma-separated IPs/CIDRs) in the panel `.env` to restrict `/api/v1/admin/*` and the node management routes (`/api/v1/nodes`, not the daemon's own endpoints); requests from other addresses get 403. The client address is taken from `X-Forwarded-For` only for `TRUSTED_PROXIES` (the panel compose trusts the private Docker ranges, i.e. Caddy).
 - Automated test coverage is growing but incomplete. The injection-relevant paths (SQL identifiers, path confinement, archive extraction, SSRF filter, console input) have unit tests; the rest is reviewed by hand. It's a beta — treat it like one.
 
