@@ -91,8 +91,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in sessions" :key="s.joined_at" class="border-b border-tp-border/50 hover:bg-tp-surface2/50 transition-colors">
-              <td class="px-4 py-3 text-tp-text text-xs">{{ formatDate(s.joined_at) }}</td>
+            <tr v-for="s in sessions" :key="s.join_at" class="border-b border-tp-border/50 hover:bg-tp-surface2/50 transition-colors">
+              <td class="px-4 py-3 text-tp-text text-xs">{{ formatDate(s.join_at) }}</td>
               <td class="px-4 py-3 text-tp-muted text-xs">{{ s.left_at ? formatDate(s.left_at) : '—' }}</td>
               <td class="px-4 py-3 text-tp-muted text-xs">{{ s.duration_s != null ? formatDuration(s.duration_s) : '—' }}</td>
             </tr>

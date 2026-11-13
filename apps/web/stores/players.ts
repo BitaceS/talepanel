@@ -86,7 +86,8 @@ export const usePlayersStore = defineStore('players', () => {
   }
 
   async function fetchPlayer(serverId: string, playerId: string): Promise<Player> {
-    return await api.get<Player>(`/servers/${serverId}/players/${playerId}`)
+    const data = await api.get<{ player: Player }>(`/servers/${serverId}/players/${playerId}`)
+    return data.player
   }
 
   async function fetchPlayerSessions(serverId: string, playerId: string): Promise<PlayerSession[]> {

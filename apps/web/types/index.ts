@@ -179,7 +179,7 @@ export interface NetworkPlayer {
 }
 
 export interface PlayerSession {
-  joined_at: string
+  join_at: string
   left_at: string | null
   duration_s: number | null
 }
