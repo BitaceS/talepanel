@@ -185,99 +185,38 @@ async fn poll_and_dispatch(
                 }
             }
 
-            "remove_mod" => {
+            // `remove_mod`, `enable_mod` and `disable_mod` serve mods and
+            // plugins: the optional "dir" field selects the directory
+            // ("mods" | "plugins"). Omitting it keeps the historic behaviour
+            // (mods/), so panels that predate it keep working.
+            "remove_mod" | "enable_mod" | "disable_mod" => {
+                let cmd = command.command_type.as_str();
                 let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let dir = command.payload.get("dir").and_then(|v| v.as_str()).unwrap_or(DEFAULT_MOD_DIR).to_string();
 
-                if data_path.is_empty() || filename.is_empty() {
-                    CommandResult::err("remove_mod payload missing required fields".to_string())
-                } else if !is_safe_mod_filename(&filename) {
-                    CommandResult::err(format!("remove_mod: unsafe filename {filename}"))
+                let result = if data_path.is_empty() || filename.is_empty() {
+                    Err(format!("{cmd} payload missing required fields"))
                 } else {
-                    let path = format!("{data_path}/mods/{filename}");
-                    match tokio::fs::remove_file(&path).await {
-                        Ok(()) => {
-                            info!(%filename, "Mod removed");
-                            CommandResult::ok(format!("Removed mod {filename}"))
-                        }
-                        Err(err) => {
-                            warn!(%err, %path, "Failed to remove mod");
-                            CommandResult::err(err.to_string())
-                        }
+                    let (dp, f, d) = (data_path.clone(), filename.clone(), dir.clone());
+                    let op = cmd.to_string();
+                    tokio::task::spawn_blocking(move || match op.as_str() {
+                        "remove_mod" => remove_mod_file(std::path::Path::new(&dp), &d, &f),
+                        "enable_mod" => set_mod_enabled(std::path::Path::new(&dp), &d, &f, true),
+                        _ => set_mod_enabled(std::path::Path::new(&dp), &d, &f, false),
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(format!("task failed: {e}")))
+                    .map_err(|e| format!("{cmd}: {e}"))
+                };
+                match result {
+                    Ok(msg) => {
+                        info!(%filename, %dir, cmd, "{msg}");
+                        CommandResult::ok(msg)
                     }
-                }
-            }
-
-            // `enable_mod` / `disable_mod` also serve plugins: the optional
-            // "dir" field selects the target directory ("mods" | "plugins").
-            // Omitting it keeps the historic behaviour (mods/), so panels that
-            // predate plugin toggling keep working.
-            "enable_mod" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let dir = command.payload.get("dir").and_then(|v| v.as_str()).unwrap_or(DEFAULT_MOD_DIR);
-
-                if data_path.is_empty() || filename.is_empty() {
-                    CommandResult::err("enable_mod payload missing required fields".to_string())
-                } else if !is_safe_mod_filename(&filename) {
-                    CommandResult::err(format!("enable_mod: unsafe filename {filename}"))
-                } else if !is_allowed_mod_dir(dir) {
-                    CommandResult::err(format!("enable_mod: unsupported dir {dir}"))
-                } else {
-                    let disabled = format!("{data_path}/{dir}/{filename}.disabled");
-                    let enabled  = format!("{data_path}/{dir}/{filename}");
-                    if std::path::Path::new(&disabled).exists() {
-                        match std::fs::rename(&disabled, &enabled) {
-                            Ok(()) => {
-                                tracing::info!("enabled mod: {}/{}", dir, filename);
-                                CommandResult::ok(format!("Enabled {filename} in {dir}/"))
-                            }
-                            Err(err) => {
-                                warn!(%err, %filename, %dir, "enable_mod rename failed");
-                                CommandResult::err(format!("enable_mod rename failed: {err}"))
-                            }
-                        }
-                    } else if std::path::Path::new(&enabled).exists() {
-                        tracing::info!("enable_mod: {}/{} already enabled, no-op", dir, filename);
-                        CommandResult::ok(format!("{filename} already enabled"))
-                    } else {
-                        tracing::warn!("enable_mod: neither {0}/{1} nor {0}/{1}.disabled found", dir, filename);
-                        CommandResult::err(format!("enable_mod: {filename} not found in {dir}/"))
-                    }
-                }
-            }
-
-            "disable_mod" => {
-                let data_path = command.payload.get("data_path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let filename = command.payload.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let dir = command.payload.get("dir").and_then(|v| v.as_str()).unwrap_or(DEFAULT_MOD_DIR);
-
-                if data_path.is_empty() || filename.is_empty() {
-                    CommandResult::err("disable_mod payload missing required fields".to_string())
-                } else if !is_safe_mod_filename(&filename) {
-                    CommandResult::err(format!("disable_mod: unsafe filename {filename}"))
-                } else if !is_allowed_mod_dir(dir) {
-                    CommandResult::err(format!("disable_mod: unsupported dir {dir}"))
-                } else {
-                    let enabled  = format!("{data_path}/{dir}/{filename}");
-                    let disabled = format!("{data_path}/{dir}/{filename}.disabled");
-                    if std::path::Path::new(&enabled).exists() {
-                        match std::fs::rename(&enabled, &disabled) {
-                            Ok(()) => {
-                                tracing::info!("disabled mod: {}/{}", dir, filename);
-                                CommandResult::ok(format!("Disabled {filename} in {dir}/"))
-                            }
-                            Err(err) => {
-                                warn!(%err, %filename, %dir, "disable_mod rename failed");
-                                CommandResult::err(format!("disable_mod rename failed: {err}"))
-                            }
-                        }
-                    } else if std::path::Path::new(&disabled).exists() {
-                        tracing::info!("disable_mod: {}/{} already disabled, no-op", dir, filename);
-                        CommandResult::ok(format!("{filename} already disabled"))
-                    } else {
-                        tracing::warn!("disable_mod: {}/{} not found", dir, filename);
-                        CommandResult::err(format!("disable_mod: {filename} not found in {dir}/"))
+                    Err(err) => {
+                        warn!(%err, %filename, %dir, cmd, "mod file operation failed");
+                        CommandResult::err(err)
                     }
                 }
             }
@@ -638,6 +577,77 @@ fn is_safe_path_component(name: &str) -> bool {
 
 /// Reject mod filenames that could escape the mods directory, so
 /// `{data_path}/{dir}/{filename}` cannot be steered elsewhere on the node.
+/// Resolves `<data_path>/<dir>` for a mod file operation. The directory must
+/// be one of the allowed ones and a real directory, not a symlink: a planted
+/// `mods -> ../<other server>/mods` would otherwise let this server's panel
+/// user delete or rename another server's files.
+fn mod_dir_path(data_path: &std::path::Path, dir: &str, filename: &str) -> Result<std::path::PathBuf, String> {
+    if !is_allowed_mod_dir(dir) {
+        return Err(format!("unsupported dir {dir}"));
+    }
+    if !is_safe_mod_filename(filename) {
+        return Err(format!("unsafe filename {filename}"));
+    }
+    let base = data_path.join(dir);
+    match std::fs::symlink_metadata(&base) {
+        Ok(md) if md.file_type().is_symlink() => Err(format!("{dir}/ is a symbolic link")),
+        Ok(md) if md.is_dir() => Ok(base),
+        Ok(_) => Err(format!("{dir}/ is not a directory")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(base),
+        Err(e) => Err(format!("{dir}/: {e}")),
+    }
+}
+
+/// True when `p` exists as a regular file (a symlink is never followed).
+fn is_plain_file(p: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(p).map(|m| m.file_type().is_file()).unwrap_or(false)
+}
+
+/// Deletes `<dir>/<filename>` and its `.disabled` variant. Missing files are
+/// fine: the panel has already dropped the row, and the goal is that neither
+/// file is left behind for the next scan to re-add.
+fn remove_mod_file(data_path: &std::path::Path, dir: &str, filename: &str) -> Result<String, String> {
+    let base = mod_dir_path(data_path, dir, filename)?;
+    let mut removed = 0;
+    for name in [filename.to_string(), format!("{filename}.disabled")] {
+        let p = base.join(&name);
+        match std::fs::symlink_metadata(&p) {
+            Ok(md) if md.is_dir() => return Err(format!("{dir}/{name} is a directory")),
+            // remove_file on a symlink removes the link, never its target.
+            Ok(_) => {
+                std::fs::remove_file(&p).map_err(|e| format!("remove {dir}/{name}: {e}"))?;
+                removed += 1;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{dir}/{name}: {e}")),
+        }
+    }
+    Ok(if removed == 0 {
+        format!("{filename} already absent from {dir}/")
+    } else {
+        format!("Removed {filename} from {dir}/")
+    })
+}
+
+/// Renames `<dir>/<filename>` to/from `<filename>.disabled`.
+fn set_mod_enabled(data_path: &std::path::Path, dir: &str, filename: &str, enable: bool) -> Result<String, String> {
+    let base = mod_dir_path(data_path, dir, filename)?;
+    let on = base.join(filename);
+    let off = base.join(format!("{filename}.disabled"));
+    let (from, to, word) = if enable { (&off, &on, "enabled") } else { (&on, &off, "disabled") };
+    if is_plain_file(from) {
+        if std::fs::symlink_metadata(to).is_ok() {
+            return Err(format!("both {filename} and {filename}.disabled exist in {dir}/"));
+        }
+        std::fs::rename(from, to).map_err(|e| format!("rename failed: {e}"))?;
+        Ok(format!("{} {filename} in {dir}/", if enable { "Enabled" } else { "Disabled" }))
+    } else if is_plain_file(to) {
+        Ok(format!("{filename} already {word}"))
+    } else {
+        Err(format!("{filename} not found in {dir}/"))
+    }
+}
+
 fn is_safe_mod_filename(name: &str) -> bool {
     is_safe_path_component(name)
 }
@@ -852,6 +862,56 @@ fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
+    fn mod_scratch(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("tp-modops-{tag}-{}-{}", std::process::id(), uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(d.join("mods")).unwrap();
+        std::fs::create_dir_all(d.join("plugins")).unwrap();
+        d
+    }
+
+    #[test]
+    fn remove_mod_handles_plugins_and_disabled_files() {
+        let d = mod_scratch("rm");
+        std::fs::write(d.join("plugins/p.jar.disabled"), b"x").unwrap();
+        std::fs::write(d.join("mods/p.jar"), b"y").unwrap();
+        remove_mod_file(&d, "plugins", "p.jar").unwrap();
+        assert!(!d.join("plugins/p.jar.disabled").exists(), "disabled plugin left behind");
+        assert!(d.join("mods/p.jar").exists(), "other directory must be untouched");
+        // Already gone is not an error.
+        assert!(remove_mod_file(&d, "plugins", "p.jar").unwrap().contains("already absent"));
+        assert!(remove_mod_file(&d, "etc", "p.jar").is_err());
+        assert!(remove_mod_file(&d, "mods", "../x.jar").is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn toggle_renames_in_the_requested_directory() {
+        let d = mod_scratch("toggle");
+        std::fs::write(d.join("plugins/p.jar"), b"x").unwrap();
+        set_mod_enabled(&d, "plugins", "p.jar", false).unwrap();
+        assert!(d.join("plugins/p.jar.disabled").exists());
+        assert!(set_mod_enabled(&d, "plugins", "p.jar", false).unwrap().contains("already"));
+        set_mod_enabled(&d, "plugins", "p.jar", true).unwrap();
+        assert!(d.join("plugins/p.jar").exists());
+        assert!(set_mod_enabled(&d, "mods", "p.jar", true).is_err(), "not in mods/");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mod_ops_refuse_a_symlinked_directory() {
+        let victim = mod_scratch("victim");
+        std::fs::write(victim.join("mods/v.jar"), b"precious").unwrap();
+        let d = std::env::temp_dir().join(format!("tp-modops-attacker-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::os::unix::fs::symlink(victim.join("mods"), d.join("mods")).unwrap();
+        assert!(remove_mod_file(&d, "mods", "v.jar").is_err());
+        assert!(set_mod_enabled(&d, "mods", "v.jar", false).is_err());
+        assert!(victim.join("mods/v.jar").exists());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&victim);
+    }
+
     use super::*;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
