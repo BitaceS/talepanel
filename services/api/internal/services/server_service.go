@@ -34,18 +34,75 @@ var (
 )
 
 // CreateServerRequest carries the user-supplied fields for a new server.
-// Numeric resource limits are optional; defaults are applied by CreateServer.
+// Every setting is optional (nil = not given). With TemplateID, the template's
+// settings fill the fields the request leaves out; explicit fields win. The
+// merged request then goes through the same validation and permission checks
+// as a request without a template, so a template never grants the creator
+// more than they could ask for by hand.
 type CreateServerRequest struct {
-	Name          string `json:"name"          binding:"required,min=1,max=64"`
-	HytaleVersion string `json:"hytale_version"`
-	CPULimit      int    `json:"cpu_limit"`
-	RAMLimitMB    int    `json:"ram_limit_mb"`
-	DiskLimitMB   int    `json:"disk_limit_mb"`
-	AutoRestart   bool   `json:"auto_restart"`
+	Name          string     `json:"name"          binding:"required,min=1,max=64"`
+	TemplateID    *uuid.UUID `json:"template_id"`
+	HytaleVersion *string    `json:"hytale_version"`
+	CPULimit      *int       `json:"cpu_limit"`
+	RAMLimitMB    *int       `json:"ram_limit_mb"`
+	DiskLimitMB   *int       `json:"disk_limit_mb"`
+	AutoRestart   *bool      `json:"auto_restart"`
+	CrashLimit    *int       `json:"crash_limit"`
+	CrashWindowS  *int       `json:"crash_window_s"`
+	LaunchFlags   *[]string  `json:"launch_flags"` // admin-only flags need admin+
+	NetworkRole   *string    `json:"network_role"` // hub/gamemode need network.manage
 
 	// DataPath is set internally by the handler before calling CreateServer;
 	// it is the absolute path on the daemon node where server files will live.
 	DataPath string `json:"-"`
+}
+
+// Defaults for a new server when neither the request nor a template sets a
+// value.
+const (
+	DefaultServerRAMMB        = 2048
+	DefaultServerDiskMB       = 10240
+	DefaultServerCrashLimit   = 3
+	DefaultServerCrashWindowS = 300
+)
+
+// applyTemplate fills the fields req leaves unset from the template.
+func (req *CreateServerRequest) applyTemplate(t ServerTemplateSettings) {
+	if req.HytaleVersion == nil {
+		req.HytaleVersion = t.HytaleVersion
+	}
+	if req.CPULimit == nil {
+		req.CPULimit = t.CPULimit
+	}
+	if req.RAMLimitMB == nil {
+		req.RAMLimitMB = t.RAMLimitMB
+	}
+	if req.DiskLimitMB == nil {
+		req.DiskLimitMB = t.DiskLimitMB
+	}
+	if req.AutoRestart == nil {
+		req.AutoRestart = t.AutoRestart
+	}
+	if req.CrashLimit == nil {
+		req.CrashLimit = t.CrashLimit
+	}
+	if req.CrashWindowS == nil {
+		req.CrashWindowS = t.CrashWindowS
+	}
+	if req.LaunchFlags == nil {
+		req.LaunchFlags = t.LaunchFlags
+	}
+	if req.NetworkRole == nil {
+		req.NetworkRole = t.NetworkRole
+	}
+}
+
+// deref returns *p, or def when p is nil.
+func deref[T any](p *T, def T) T {
+	if p == nil {
+		return def
+	}
+	return *p
 }
 
 // UpdateServerRequest carries the fields that may be patched by a user.
@@ -196,33 +253,83 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 // CreateServer provisions a new server record and picks the node with the
 // most remaining server capacity.  File provisioning is dispatched to the
 // daemon asynchronously by the handler after this returns.
-func (s *ServerService) CreateServer(ctx context.Context, req CreateServerRequest, ownerID uuid.UUID) (*models.Server, error) {
+//
+// creator is the requesting user and becomes the owner. Their role and
+// permissions decide which settings they may choose (admin-only launch flags,
+// network roles), whether a value comes from the request or from a template.
+func (s *ServerService) CreateServer(ctx context.Context, req CreateServerRequest, creator *models.User) (*models.Server, error) {
+	if req.TemplateID != nil {
+		tmpl, err := getServerTemplate(ctx, s.db, *req.TemplateID)
+		if err != nil {
+			return nil, err
+		}
+		req.applyTemplate(tmpl.Settings)
+	}
+	isAdmin := models.RoleWeight(creator.Role) >= models.RoleWeight(models.RoleAdmin)
+
 	// Validate and normalise.
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		return nil, fmt.Errorf("server name cannot be empty")
+		return nil, fmt.Errorf("%w: server name cannot be empty", ErrInvalidServerSettings)
 	}
-	version, err := NormalizeHytaleVersion(req.HytaleVersion)
+	version, err := NormalizeHytaleVersion(deref(req.HytaleVersion, ""))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidServerSettings, err)
+	}
+	ram := deref(req.RAMLimitMB, 0)
+	if ram <= 0 {
+		ram = DefaultServerRAMMB
+	}
+	if ram < MinServerRAMMB {
+		return nil, fmt.Errorf("%w: ram_limit_mb must be at least %d", ErrInvalidServerSettings, MinServerRAMMB)
+	}
+	// CPU limit is a percentage of one core (100 = one core); 0 = unlimited.
+	cpu := max(deref(req.CPULimit, 0), 0)
+	disk := deref(req.DiskLimitMB, 0)
+	if disk <= 0 {
+		disk = DefaultServerDiskMB
+	}
+	autoRestart := deref(req.AutoRestart, false)
+	crashLimit := deref(req.CrashLimit, DefaultServerCrashLimit)
+	if crashLimit < 0 {
+		return nil, fmt.Errorf("%w: crash_limit cannot be negative", ErrInvalidServerSettings)
+	}
+	crashWindow := deref(req.CrashWindowS, DefaultServerCrashWindowS)
+	if crashWindow <= 0 {
+		return nil, fmt.Errorf("%w: crash_window_s must be positive", ErrInvalidServerSettings)
+	}
+	flags, err := normalizeLaunchFlags(deref(req.LaunchFlags, nil))
 	if err != nil {
 		return nil, err
 	}
-	req.HytaleVersion = version
-	if req.RAMLimitMB <= 0 {
-		req.RAMLimitMB = 2048
+	if !isAdmin {
+		for _, f := range AdminOnlyLaunchFlags {
+			if slices.Contains(flags, f) {
+				return nil, fmt.Errorf("%w: only an admin can enable %s", ErrServerForbidden, f)
+			}
+		}
 	}
-	// CPU limit is a percentage of one core (100 = one core); 0 = unlimited.
-	if req.CPULimit < 0 {
-		req.CPULimit = 0
+	role, err := normalizeNetworkRole(deref(req.NetworkRole, ""))
+	if err != nil {
+		return nil, fmt.Errorf("%w: network_role must be hub, gamemode or none", ErrInvalidServerSettings)
 	}
-	if req.DiskLimitMB <= 0 {
-		req.DiskLimitMB = 10240
+	if role != nil {
+		// Same permission as POST /network/servers/:id/role.
+		ok, err := NewPermissionService(s.db).HasPermission(ctx, creator, "network.manage")
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("%w: a network role needs the network.manage permission", ErrServerForbidden)
+		}
 	}
 
 	// Find best available node — prefer lowest recent CPU load; fall back to
 	// server count for nodes that have not yet reported metrics.
 	var nodeID uuid.UUID
+	var nodeRAM int
 	err = s.db.QueryRow(ctx, `
-		SELECT n.id
+		SELECT n.id, n.total_ram_mb
 		FROM nodes n
 		WHERE n.status = 'online'
 		  AND n.max_servers > (
@@ -235,12 +342,17 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 		    (SELECT COUNT(*) * 10.0 FROM servers s WHERE s.node_id = n.id)
 		  ) ASC
 		LIMIT 1
-	`).Scan(&nodeID)
+	`).Scan(&nodeID, &nodeRAM)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNoAvailableNode
 		}
 		return nil, fmt.Errorf("selecting node: %w", err)
+	}
+	// Same bound as UpdateServer: no server gets more memory than its node
+	// has. A node that has not reported its RAM yet (0) is not checked.
+	if nodeRAM > 0 && ram > nodeRAM {
+		return nil, fmt.Errorf("%w: ram_limit_mb must be between %d and the node's %d MB", ErrInvalidServerSettings, MinServerRAMMB, nodeRAM)
 	}
 
 	// Allocate the next available port on this node.
@@ -263,36 +375,23 @@ func (s *ServerService) CreateServer(ctx context.Context, req CreateServerReques
 			id, name, node_id, owner_id, status, hytale_version,
 			cpu_limit, ram_limit_mb, disk_limit_mb, port, data_path,
 			auto_restart, crash_limit, crash_window_s, active_world,
-			created_at, updated_at
+			created_at, updated_at, launch_flags, network_role
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11,
-			$12, 3, 300, '',
-			$13, $13
+			$12, $13, $14, '',
+			$15, $15, $16, $17
 		)
-		RETURNING id, name, node_id, owner_id, status, hytale_version,
-		          cpu_limit, ram_limit_mb, disk_limit_mb, port, data_path,
-		          auto_restart, crash_limit, crash_window_s, active_world,
-		          created_at, updated_at, metadata
 	`
-
-	server := &models.Server{}
-	err = s.db.QueryRow(ctx, q,
-		id, req.Name, nodeID, ownerID, models.StatusInstalling, req.HytaleVersion,
-		req.CPULimit, req.RAMLimitMB, req.DiskLimitMB, port, req.DataPath,
-		req.AutoRestart, now,
-	).Scan(
-		&server.ID, &server.Name, &server.NodeID, &server.OwnerID, &server.Status,
-		&server.HytaleVersion, &server.CPULimit, &server.RAMLimitMB, &server.DiskLimitMB,
-		&server.Port, &server.DataPath, &server.AutoRestart, &server.CrashLimit,
-		&server.CrashWindowS, &server.ActiveWorld, &server.CreatedAt, &server.UpdatedAt,
-		&server.Metadata,
-	)
-	if err != nil {
+	if _, err := s.db.Exec(ctx, q,
+		id, req.Name, nodeID, creator.ID, models.StatusInstalling, version,
+		cpu, ram, disk, port, req.DataPath,
+		autoRestart, crashLimit, crashWindow, now, flags, role,
+	); err != nil {
 		return nil, fmt.Errorf("inserting server: %w", err)
 	}
 
-	return server, nil
+	return s.GetServer(ctx, id, creator.ID, creator.Role)
 }
 
 // ─── UpdateServer ─────────────────────────────────────────────────────────────

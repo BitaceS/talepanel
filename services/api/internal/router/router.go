@@ -129,6 +129,8 @@ func SetupRouter(
 	authH := handlers.NewAuthHandler(authSvc, cfg.JWTSecret, secureCookie)
 	serverH := handlers.NewServerHandler(serverSvc, nodeSvc, daemonPool, cfg.DaemonServersDir, log, alertSvc)
 	serverH.SetDatabaseService(dbSvc)
+	serverH.SetNetworkRouting(networkRoutingSvc)
+	templateH := handlers.NewServerTemplateHandler(services.NewServerTemplateService(db), log)
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
@@ -359,6 +361,9 @@ func SetupRouter(
 		backupGroup.POST("/:backupId/upload", backupH.RetryUpload)
 	}
 
+	// Server templates for the create-server form (managed under /admin).
+	v1.GET("/server-templates", authRequired, generalLimiter, templateH.List)
+
 	// Off-site destinations picker (names only; managed under /admin).
 	v1.GET("/backup-destinations", authRequired, generalLimiter, backupDestH.ListSummaries)
 
@@ -439,6 +444,13 @@ func SetupRouter(
 		adminGroup.POST("/hytale-auth/device/poll", hytaleH.PollDeviceLogin)
 		adminGroup.PUT("/hytale-auth/profile", hytaleH.SelectProfile)
 		adminGroup.DELETE("/hytale-auth", hytaleH.Unlink)
+
+		// Server templates. Built-ins are read-only; custom ones can be saved
+		// from an existing server's settings.
+		adminGroup.POST("/server-templates", templateH.Create)
+		adminGroup.PATCH("/server-templates/:id", templateH.Update)
+		adminGroup.DELETE("/server-templates/:id", templateH.Delete)
+		adminGroup.POST("/server-templates/from-server/:id", templateH.CreateFromServer)
 	}
 
 	// Public enrollment redemption — the token itself is the authentication.

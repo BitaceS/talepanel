@@ -26,8 +26,9 @@ type ServerHandler struct {
 	serversBaseDir string // base dir on daemon nodes, e.g. /srv/taledaemon/servers
 	log            *zap.Logger
 	alertSvc       *services.AlertService
-	hytaleAuth     *services.HytaleAuthService // optional; nil = servers start unauthenticated
-	dbSvc          *services.DatabaseService   // optional; drops a server's MariaDB database on delete
+	hytaleAuth     *services.HytaleAuthService     // optional; nil = servers start unauthenticated
+	dbSvc          *services.DatabaseService       // optional; drops a server's MariaDB database on delete
+	networkRouting *services.NetworkRoutingService // optional; nil = no config fan-out on create
 
 	sessionMu    sync.Mutex
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
@@ -71,6 +72,12 @@ func (h *ServerHandler) SetDatabaseService(dbSvc *services.DatabaseService) {
 // SetHytaleAuth enables minting Hytale game sessions for daemon server starts.
 func (h *ServerHandler) SetHytaleAuth(auth *services.HytaleAuthService) {
 	h.hytaleAuth = auth
+}
+
+// SetNetworkRouting lets CreateServer distribute the network mod config when
+// a new server is created with a network role.
+func (h *ServerHandler) SetNetworkRouting(svc *services.NetworkRoutingService) {
+	h.networkRouting = svc
 }
 
 // DaemonGameSession hands a daemon a fresh Hytale game session for a server
@@ -174,13 +181,20 @@ func (h *ServerHandler) CreateServer(c *gin.Context) {
 	// service will replace using the generated ID.
 	// NOTE: We pass an empty DataPath; the service generates the UUID and we
 	// reconstruct the path after the insert returns the server record.
-	server, err := h.svc.CreateServer(c.Request.Context(), req, user.ID)
+	server, err := h.svc.CreateServer(c.Request.Context(), req, user)
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrNoAvailableNode):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no available node to host the server"})
-		default:
+		case errors.Is(err, services.ErrServerTemplateNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "server template not found"})
+		case errors.Is(err, services.ErrServerForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrInvalidServerSettings):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			h.log.Error("create server failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create server"})
 		}
 		return
 	}
@@ -195,6 +209,16 @@ func (h *ServerHandler) CreateServer(c *gin.Context) {
 
 	// Kick off file provisioning on the assigned daemon node asynchronously.
 	go h.dispatchProvision(server)
+
+	// A server that joins the network (e.g. from the lobby template) changes
+	// the hub's gamemode list, so every networked server needs its mod config
+	// re-written — the same as after POST /network/servers/:id/role.
+	if server.NetworkRole != nil && h.networkRouting != nil {
+		if err := h.networkRouting.DistributeAll(c.Request.Context()); err != nil {
+			h.log.Warn("distributing network config after create failed",
+				zap.String("server_id", server.ID.String()), zap.Error(err))
+		}
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"server": server})
 }
