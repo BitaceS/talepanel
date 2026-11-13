@@ -103,6 +103,12 @@ services:
       CURSEFORGE_GAME_ID: "70216"
       DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-solo}
       SETUP_CODE_HASH: ${SETUP_CODE_HASH:-}
+      # The API is only reachable through Caddy on the internal Docker
+      # network (port 8080 is not published), so trust X-Forwarded-For from
+      # private addresses. Without this every request appears to come from
+      # Caddy: all users share one auth rate limit and the audit log records
+      # Caddy's IP. Caddy itself ignores X-Forwarded-For sent by clients.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
     networks:
       - talepanel
     extra_hosts:
