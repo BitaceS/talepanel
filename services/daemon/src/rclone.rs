@@ -912,7 +912,8 @@ mod tests {
         .expect("null lists must deserialize");
         assert!(spec.obscure.is_empty());
         assert!(spec.options.is_empty());
-        let spec: RemoteSpec = serde_json::from_str(r#"{"backend":"s3","base_path":"tp"}"#).unwrap();
+        let spec: RemoteSpec =
+            serde_json::from_str(r#"{"backend":"s3","base_path":"tp"}"#).unwrap();
         assert!(spec.obscure.is_empty());
     }
 
