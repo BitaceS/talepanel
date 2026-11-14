@@ -25,6 +25,7 @@ func adminCmd() *cobra.Command {
 	}
 	cmd.AddCommand(adminCreateCmd())
 	cmd.AddCommand(adminDisable2FACmd())
+	cmd.AddCommand(adminResetPasswordCmd())
 	return cmd
 }
 
