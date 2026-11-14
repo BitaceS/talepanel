@@ -554,14 +554,17 @@ done
     /// The returned map is keyed by server_id.  Servers that fail to report
     /// metrics are silently omitted.
     pub async fn collect_all_metrics(&self) -> HashMap<String, ServerMetrics> {
-        let mut out = HashMap::with_capacity(self.processes.len());
+        // Snapshot first: the iterator holds a shard read lock for as long as
+        // it lives, so awaiting inside the loop kept the lock across every
+        // get_metrics() call even after dropping the entry.
+        let snapshot: Vec<(String, Arc<HytaleServerProcess>)> = self
+            .processes
+            .iter()
+            .map(|e| (e.key().clone(), Arc::clone(e.value())))
+            .collect();
 
-        for entry in self.processes.iter() {
-            let server_id = entry.key().clone();
-            let process = entry.value().clone();
-            // Drop the DashMap guard before awaiting.
-            drop(entry);
-
+        let mut out = HashMap::with_capacity(snapshot.len());
+        for (server_id, process) in snapshot {
             let metrics = process.get_metrics().await;
             out.insert(server_id, metrics);
         }
