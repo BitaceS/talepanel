@@ -119,8 +119,9 @@ func (h *InvitationHandler) AcceptInvitation(c *gin.Context) {
 // DeclineInvitation handles POST /invitations/:token/decline.
 func (h *InvitationHandler) DeclineInvitation(c *gin.Context) {
 	token := c.Param("token")
+	user := mustUser(c)
 
-	if err := h.invSvc.DeclineInvitation(c.Request.Context(), token); err != nil {
+	if err := h.invSvc.DeclineInvitation(c.Request.Context(), token, user.Email); err != nil {
 		if errors.Is(err, services.ErrInvitationNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found"})
 			return

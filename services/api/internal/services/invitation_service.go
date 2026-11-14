@@ -255,11 +255,14 @@ func (s *InvitationService) grantedPermissions(ctx context.Context, inv *models.
 	return perms, nil
 }
 
-// DeclineInvitation declines an invitation by token.
-func (s *InvitationService) DeclineInvitation(ctx context.Context, token string) error {
+// DeclineInvitation declines an invitation by token. Only the invitee may
+// decline it (emails compared case-insensitively, like AcceptInvitation);
+// for anyone else the invitation does not exist.
+func (s *InvitationService) DeclineInvitation(ctx context.Context, token, inviteeEmail string) error {
 	ct, err := s.db.Exec(ctx,
-		`UPDATE server_invitations SET status = 'declined' WHERE token = $1 AND status = 'pending'`,
-		token,
+		`UPDATE server_invitations SET status = 'declined'
+		  WHERE token = $1 AND status = 'pending' AND lower(invitee_email) = lower($2)`,
+		token, inviteeEmail,
 	)
 	if err != nil {
 		return fmt.Errorf("declining invitation: %w", err)

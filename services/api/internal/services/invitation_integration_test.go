@@ -219,3 +219,30 @@ func TestListMyInvitations_IgnoresEmailCase(t *testing.T) {
 		t.Fatalf("want 1 invitation for %s, got %d", email, len(invs))
 	}
 }
+
+// Only the invitee can decline an invitation; for anyone else it does not exist.
+func TestDeclineInvitation_OnlyTheInvitee(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	invSvc := NewInvitationService(pool)
+
+	ownerID := seedTestUser(t, pool, "user")
+	inviteeID := seedTestUser(t, pool, "user")
+	strangerID := seedTestUser(t, pool, "user")
+	serverID := seedTestServer(t, pool, ownerID)
+	owner := &models.User{ID: ownerID, Role: "user"}
+	email := testUserEmail(t, pool, inviteeID)
+
+	inv, err := invSvc.CreateInvitation(ctx, serverID, owner, CreateInvitationRequest{
+		InviteeEmail: strings.ToUpper(email), Role: "viewer",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := invSvc.DeclineInvitation(ctx, inv.Token, testUserEmail(t, pool, strangerID)); !errors.Is(err, ErrInvitationNotFound) {
+		t.Fatalf("stranger decline: err = %v, want not found", err)
+	}
+	if err := invSvc.DeclineInvitation(ctx, inv.Token, email); err != nil {
+		t.Fatalf("invitee decline: %v", err)
+	}
+}
