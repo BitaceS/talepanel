@@ -10,6 +10,7 @@ Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a 
 - Theme switch in the user menu (top right): **Classic** or **Game**. The choice is stored per browser. Classic is the default.
 - Game theme: a hand-drawn pixel-art night scene behind the panel (moon, pine forest, campfire and torches), stone-framed panels and game-style buttons. The server list becomes a server select like in a game's multiplayer menu: tabs for all/online/stopped servers, a block icon per server status, keyboard selection (arrow keys, Enter to open, double-click) and Open, Start/Stop, Restart, New Server and Delete buttons. The scene is drawn in the browser, no image files are downloaded; with "reduce motion" enabled in the operating system it stays still, and it pauses in background tabs.
 - `tale-cli admin disable-2fa --email <address> [--revoke-sessions]`: turns off 2FA for a user who lost their authenticator, writes an audit entry. Replaces the SQL workaround in `SECURITY.md`.
+- `tale-cli admin reset-password --email <address>`: sets a new password (owner policy) for a user who forgot it, signs them out everywhere and writes an audit entry.
 - 2FA recovery codes. Enabling 2FA now shows ten single-use recovery codes (with Copy and Download .txt); each one signs you in once in place of the authenticator code ("Use a recovery code" on the 2FA login step, dash and case don't matter). Settings → Security shows how many are left and can generate a new set (asks for your password and an authenticator code; the old codes stop working). New endpoints `POST /api/v1/auth/2fa/recovery-codes` and `GET /api/v1/auth/2fa/recovery-codes/status`; the confirm response carries `recovery_codes`. Migration 044 adds the `user_recovery_codes` table. Users who enabled 2FA before this release have no codes yet and can generate them under Settings → Security.
 - Optional `ADMIN_IP_ALLOWLIST` (comma-separated IPs/CIDRs) restricts `/api/v1/admin/*` and the admin node routes to known addresses. Empty (the default) changes nothing; a malformed value stops the API at startup.
 - GitHub issue forms (bug report, feature request), contact links and a pull request template.
@@ -28,6 +29,17 @@ Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a 
 - Login and registration use plain wording ("Sign in", "Password", "Create account"); the help menu links to the docs, Discord and GitHub issues and shows the installed version.
 
 ### Fixed
+- Off-site backups to OneDrive, Google Drive, Dropbox, S3 and B2 failed: the panel sent `"obscure": null`, which the node rejected. The panel now sends an empty list and the node accepts both.
+- Webhook and Discord alerts were mostly never delivered: they were sent with the request context, which is cancelled as soon as the API has answered.
+- Deleting a server you may not delete: the node wiped the server's files before the API checked the permission. The check now runs first.
+- Anyone who knew an invitation's token could decline it; now only the invitee can.
+- `crash_limit: 0` in the server settings caused a database error (500) instead of a validation error (400).
+- Migrating a server onto a node that already runs a server on the same port was allowed; it is now refused.
+- Failed node calls lost the node's error text, so the panel showed a generic error.
+- An interrupted file upload reported "N file(s) uploaded" although files were missing.
+- The player page showed "Invalid Date" in the session history: the API sent `join_at`, the panel reads `joined_at`.
+- The node held a lock across the metrics read, so a slow server could stall start, stop and crash handling of other servers.
+- The session cleanup worker now stops on API shutdown.
 - CPU, RAM and disk alert rules never fired: the event was stored with the node ID in the server column, which the database rejected. A global rule now also raises its own event for each affected node instead of being suppressed for 15 minutes after the first one.
 - Node RAM was reported 1024 times too high (sysinfo 0.30 reports bytes, the daemon divided by 1024 once). Existing nodes correct their stored total on the next daemon start.
 - Per-server CPU always showed 0 % and node CPU was the average since boot; the daemon now measures CPU between samples.

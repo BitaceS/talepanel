@@ -4,7 +4,7 @@ _Stand: 13.11.2026. Recherche per GitHub-Suche (API) und Websuche. Sternzahlen u
 
 Ziel: TalePanel soll auf GitHub und bei Google für **„Hytale panel“, „Hytale server panel“, „Hytale server manager“, „Hytale hosting panel“** weit oben stehen.
 
-Legende: 🔧 = nur der Owner kann das (GitHub-Einstellungen, Accounts, Posts) · ✅ = auf dem Branch `cloud/nacht-2026-11-13` bereits erledigt
+Legende: 🔧 = nur der Owner kann das (GitHub-Einstellungen, Accounts, Posts) · ✅ = im Repo bereits erledigt
 
 ---
 

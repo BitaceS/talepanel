@@ -478,7 +478,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Live console, logs, status and metrics over SSE (polling as fallback) | Unreleased |
 | Server templates (5 built-in + your own) | Unreleased |
 | Scheduled restarts, commands and broadcasts | Unreleased |
-| 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` | Unreleased |
+| 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Unreleased |
 | Local demo with simulated servers (`examples/demo`) | Unreleased |
 | Per-server process isolation | Next |
 | Auto-update per server with Release / Pre-release channel | Next |

@@ -80,7 +80,7 @@ Ziel: Suchmaschinen finden TalePanel für die Haupt-Keywords; Entwickler kommen 
 
 Ziel: v1.0 mit Launch-Paket. Voraussetzung für das Label „1.0“ (Vorschlag, vom Owner zu bestätigen):
 
-- [ ] Kein bekannter Bug der Kategorie Datenverlust/Sicherheit offen (siehe Abschnitt „Gefunden, aber NICHT behoben“ in `docs/handoff-2026-11-13.md`).
+- [ ] Kein bekannter Bug der Kategorie Datenverlust/Sicherheit offen.
 - [ ] WebSocket/SSE-Konsole (ROADMAP #1) – das ist der Punkt, an dem Vergleiche TalePanel heute schlagen.
 - [ ] mTLS standardmäßig erzwungen oder klarer Upgrade-Pfad dafür (ROADMAP #15).
 - [ ] Upgrade von v0.12 → v1.0 auf frischer VM getestet (`--mode upgrade`).

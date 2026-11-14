@@ -24,11 +24,11 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Game theme, real dashboard data, self-hosted fonts/icons | unreleased |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
-## Implemented on 2026-11-13 (branch `cloud/nacht-2026-11-13`)
+## Implemented in November 2026
 
 | Item | Notes |
 |---|---|
-| `tale-cli admin disable-2fa --email … [--revoke-sessions]` | Recovery path for a lost authenticator that `SECURITY.md` promised. Audit-logged. Integration test. |
+| `tale-cli admin disable-2fa --email … [--revoke-sessions]`, `tale-cli admin reset-password --email …` | Recovery paths for a lost authenticator or a forgotten password. Audit-logged, revoke sessions. Integration tests. |
 | `ADMIN_IP_ALLOWLIST` for `/api/v1/admin/*` and admin node routes | Open item in `SECURITY.md` and `production-hardening.md`. Off by default. Unit tests. |
 | `TRUSTED_PROXIES` set in the panel compose | Not a roadmap item but a prerequisite for any per-IP feature (rate limit, allowlist, audit IPs). |
 | Issue forms + PR template | Community files for contributors. |
@@ -40,7 +40,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Local demo + API example | `examples/demo/run-demo.sh` (full stack, simulated Hytale servers, seeded data), `examples/demo/screenshots.mjs`, `examples/api/talepanel.sh`. |
 | ESLint + format checks in CI | `@nuxt/eslint`, `gofmt`, `cargo fmt --check`, daemon tests in CI. |
 
-Plus about 40 bug fixes (all review findings from the night run included); see `CHANGELOG.md` → Unreleased and `docs/handoff-2026-11-13.md`.
+Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 
 ---
 
