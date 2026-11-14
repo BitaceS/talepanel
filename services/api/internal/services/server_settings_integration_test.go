@@ -194,3 +194,18 @@ func TestUpdateServer_InvitedServerAdminMayUpdate(t *testing.T) {
 		t.Fatal("stranger could update the server")
 	}
 }
+
+func TestUpdateServer_CrashLimitZeroIsInvalidNotInternal(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	serverID := seedServerWithLimits(t, pool, ownerID)
+
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser, UpdateServerRequest{CrashLimit: ptr(0)}); !errors.Is(err, ErrInvalidServerSettings) {
+		t.Fatalf("crash_limit 0: err = %v, want ErrInvalidServerSettings", err)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser, UpdateServerRequest{CrashLimit: ptr(5)}); err != nil {
+		t.Fatalf("crash_limit 5: %v", err)
+	}
+}

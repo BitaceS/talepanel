@@ -443,8 +443,10 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 		argIdx++
 	}
 	if req.CrashLimit != nil {
-		if *req.CrashLimit < 0 {
-			return nil, fmt.Errorf("%w: crash_limit cannot be negative", ErrInvalidServerSettings)
+		// The column has CHECK (crash_limit > 0); 0 used to reach the
+		// database and come back as a 500.
+		if *req.CrashLimit < 1 {
+			return nil, fmt.Errorf("%w: crash_limit must be at least 1", ErrInvalidServerSettings)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("crash_limit = $%d", argIdx))
 		args = append(args, *req.CrashLimit)
