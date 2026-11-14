@@ -1158,7 +1158,7 @@ async fn read_file(
     // take the size from the opened handle, then read at most the limit.
     let (file, len) = match open_regular_nofollow(target).await {
         Ok(v) => v,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     if len > FILE_SIZE_LIMIT {
         return (
@@ -1703,7 +1703,7 @@ async fn download_file(
     // gigabytes).
     let (file, len) = match open_regular_nofollow(target).await {
         Ok(v) => v,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     stream_file_response(
         file,
@@ -1718,7 +1718,7 @@ async fn download_file(
 /// that it is a regular file. Returns the file and its length.
 async fn open_regular_nofollow(
     path: PathBuf,
-) -> Result<(tokio::fs::File, u64), axum::response::Response> {
+) -> Result<(tokio::fs::File, u64), Box<axum::response::Response>> {
     let opened = tokio::task::spawn_blocking(move || {
         let f = safe_fs::open_nofollow(&path)?;
         let md = f.metadata()?;
@@ -1731,27 +1731,32 @@ async fn open_regular_nofollow(
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "file not found"})),
         )
-            .into_response()),
+            .into_response()
+            .into()),
         Ok(Err(e)) if e.raw_os_error() == Some(libc::ELOOP) => Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "symbolic links are not allowed"})),
         )
-            .into_response()),
+            .into_response()
+            .into()),
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Err((
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "file not found"})),
         )
-            .into_response()),
+            .into_response()
+            .into()),
         Ok(Err(e)) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("failed to open file: {e}")})),
         )
-            .into_response()),
+            .into_response()
+            .into()),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("open task failed: {e}")})),
         )
-            .into_response()),
+            .into_response()
+            .into()),
     }
 }
 
