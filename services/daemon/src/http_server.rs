@@ -1441,7 +1441,23 @@ async fn upload_file(
 
     let mut saved = 0u32;
 
-    while let Ok(Some(mut field)) = multipart.next_field().await {
+    loop {
+        // A broken multipart stream must fail the request: `while let Ok(..)`
+        // ended the loop on the error and reported the partial upload as
+        // a success.
+        let mut field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": format!("upload interrupted after {saved} file(s): {e}")
+                    })),
+                )
+                    .into_response();
+            }
+        };
         // The multipart filename may carry a relative sub-path (e.g.
         // `mods/foo.jar`) when a whole folder is uploaded via the browser's
         // `webkitdirectory` input. Sanitize each component and rebuild a safe
