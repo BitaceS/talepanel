@@ -121,11 +121,12 @@ Content-Security-Policy: default-src 'self'
   - API verifies certificate fingerprint matches registered node
   - Prevents rogue nodes from impersonating registered ones
 
-### Process Isolation (TODO: Production)
-- Each Hytale server process should run as a dedicated system user
-- `cgroups` v2 for CPU/RAM enforcement
-- `seccomp` profiles to restrict syscalls
-- Separate `/srv/taledaemon/{server_id}/` data roots
+### Process Isolation
+- Done: each Hytale server process runs under its own UID/GID (`server_uid_base + n`, default from 200000), no supplementary groups, `no_new_privs`, umask 007 (`services/daemon/src/isolation.rs`)
+- Done: `/srv/taledaemon/servers/{server_id}/` belongs to that UID with mode 0700; `/srv/taledaemon` and `servers/` are 0711, everything else under the data root, the PKI dir and the config file are root-only
+- Done: files the daemon writes into a server directory are handed to the server afterwards by a walk that never follows symlinks and skips foreign hard links
+- Done: `cgroups` v2 for CPU limits
+- Open: `seccomp` profiles, a separate network namespace or container per server
 
 ---
 
