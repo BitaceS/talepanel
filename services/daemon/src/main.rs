@@ -5,6 +5,7 @@ mod config;
 mod downloader;
 mod heartbeat;
 mod http_server;
+mod isolation;
 mod machine_id;
 mod net_monitor;
 mod pki;
@@ -72,7 +73,35 @@ async fn main() -> Result<()> {
         config.daemon.insecure_tls,
     ));
 
-    let process_manager = ProcessManager::new(Arc::clone(&api_client), Arc::clone(&config));
+    // Per-server isolation: every game server under its own UID. A setting
+    // that cannot be honoured (uid requested but not root, bad UID base) is
+    // fatal rather than silently running servers as root.
+    let isolation =
+        Arc::new(isolation::Isolation::from_config(&config).context("Per-server isolation")?);
+    if isolation.is_enabled() {
+        isolation.secure_node_layout(
+            std::path::Path::new(&config.daemon.data_root),
+            &[
+                std::path::Path::new(&config.daemon.pki_dir),
+                std::path::Path::new("/etc/taledaemon/config.toml"),
+            ],
+        );
+        // In the background: a node with large worlds should not wait for
+        // the walk before it registers. Starts take the same lock, so a
+        // server started meanwhile is still prepared correctly.
+        let sweep = Arc::clone(&isolation);
+        tokio::spawn(async move { sweep.claim_all().await });
+    } else if config.is_production() {
+        warn!(
+            "Per-server isolation is OFF: every game server runs as the daemon's user and can              read the node token, the node's TLS key and the other servers' files"
+        );
+    }
+
+    let process_manager = ProcessManager::new(
+        Arc::clone(&api_client),
+        Arc::clone(&config),
+        Arc::clone(&isolation),
+    );
 
     // ── 4. Register this node with the TalePanel API ────────────────────────
     //

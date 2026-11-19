@@ -369,12 +369,33 @@ async fn poll_and_dispatch(
             }
         };
 
+        // Per-server isolation: files these commands wrote belong to root
+        // until they are handed to the server's own UID.
+        if writes_server_files(command_type) {
+            if let Err(err) = process_manager.isolation().repair(&server_id).await {
+                warn!(%server_id, %command_type, %err, "Could not hand written files to the server's user");
+            }
+        }
+
         // Always acknowledge, even on failure, so the API does not retry
         // indefinitely for commands the daemon does not support.
         if let Err(err) = api_client.ack_command(&command_id, result).await {
             warn!(%err, %command_id, "Failed to acknowledge command");
         }
     }
+}
+
+/// Commands that create or change files in the server's directory.
+fn writes_server_files(command_type: &str) -> bool {
+    matches!(
+        command_type,
+        "install_mod"
+            | "remove_mod"
+            | "enable_mod"
+            | "disable_mod"
+            | "set_active_world"
+            | "write_mod_config"
+    )
 }
 
 /// Hard cap on a single mod download. The body is streamed to disk and the

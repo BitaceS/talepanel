@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,7 @@ use crate::api_client::ApiClient;
 use crate::config::Config;
 use crate::downloader;
 use crate::http_server::safe_fs;
+use crate::isolation::Isolation;
 
 use super::hytale::{HytaleServerProcess, ServerConfig, ServerMetrics};
 use super::restart::{CrashHistory, NoRestartReason, RestartDecision, RestartPolicy};
@@ -53,6 +54,8 @@ pub struct ProcessManager {
     starting: Arc<DashMap<String, ()>>,
     /// Lets background tasks (status watcher, restart timer) call back in.
     weak_self: Weak<ProcessManager>,
+    /// Per-server UID isolation (off on non-root daemons).
+    isolation: Arc<Isolation>,
 }
 
 /// Holds a server's slot in `ProcessManager::starting`; releases it on drop,
@@ -85,8 +88,13 @@ impl Drop for StartReservation {
 }
 
 impl ProcessManager {
-    pub fn new(api_client: Arc<ApiClient>, config: Arc<Config>) -> Arc<Self> {
+    pub fn new(
+        api_client: Arc<ApiClient>,
+        config: Arc<Config>,
+        isolation: Arc<Isolation>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|weak_self| Self {
+            isolation,
             processes: Arc::new(DashMap::new()),
             log_relay_handles: Arc::new(DashMap::new()),
             status_watcher_handles: Arc::new(DashMap::new()),
@@ -97,6 +105,12 @@ impl ProcessManager {
             starting: Arc::new(DashMap::new()),
             weak_self: weak_self.clone(),
         })
+    }
+
+    /// The node's isolation settings, for handlers that write into server
+    /// directories and must hand the files to the server afterwards.
+    pub fn isolation(&self) -> &Arc<Isolation> {
+        &self.isolation
     }
 
     // -----------------------------------------------------------------------
@@ -156,7 +170,15 @@ impl ProcessManager {
                 None
             }
         };
-        process.start(session.as_ref()).await?;
+        // Isolation: pick the server's UID and hand its directory to it. If
+        // that fails the server does not start: running it as root instead
+        // would silently undo the isolation.
+        let identity = self
+            .isolation
+            .prepare(&server_id)
+            .await
+            .with_context(|| format!("preparing the isolated user for server {server_id}"))?;
+        process.start(session.as_ref(), identity).await?;
 
         // Spawn the log relay task.
         let relay_handle = self.spawn_log_relay(&server_id, Arc::clone(&process));
@@ -278,7 +300,13 @@ impl ProcessManager {
         let data_root = self.config.daemon.data_root.clone();
         let dev_stub_allowed = self.config.dev_stub_allowed();
 
+        // Hand the new files to the server's own UID once provisioning ends,
+        // whatever the outcome, so a server that is never started is not
+        // left root-owned and world-readable.
+        let isolation = Arc::clone(&self.isolation);
+        let isolated_id = server_id.clone();
         tokio::spawn(async move {
+            async move {
             let set_aside = if reinstall {
                 let target = PathBuf::from(&data_path);
                 tokio::task::spawn_blocking(move || set_aside_server_binaries(&target))
@@ -510,6 +538,11 @@ done
                         message: "Reinstall did not produce new server files — the previous ones were restored".to_string(),
                     }]).await;
                 }
+            }
+        }
+            .await;
+            if let Err(e) = isolation.repair(&isolated_id).await {
+                warn!(server_id = %isolated_id, error = %e, "Could not hand the provisioned files to the server's user");
             }
         });
 

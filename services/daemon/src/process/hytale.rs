@@ -26,6 +26,7 @@ use super::restart::ProcessExit;
 use super::{LogLine, ServerStatus};
 use crate::api_client::GameSession;
 use crate::config::HytaleConfig;
+use crate::isolation::ServerIdentity;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ServerConfig
@@ -89,6 +90,35 @@ fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
 /// Daemon secrets and settings a game server must not inherit: any plugin
 /// can read its JVM's environment, and the node token would let it act as
 /// this node towards the panel.
+/// Makes `cmd` run as the server's own unprivileged user: its UID/GID with
+/// no supplementary groups (std drops them when root sets a UID), no way to
+/// regain privileges through setuid binaries, and files it creates closed to
+/// others. HOME/USER point at the server's directory and account, which the
+/// JVM uses for `user.home` / `user.name` as a fallback.
+#[cfg(unix)]
+fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
+    cmd.uid(id.uid);
+    cmd.gid(id.gid);
+    cmd.env("HOME", data_path);
+    cmd.env("USER", id.account_name());
+    cmd.env("LOGNAME", id.account_name());
+    // SAFETY: the closure runs between fork and exec and only calls the
+    // async-signal-safe prctl(2) and umask(2).
+    unsafe {
+        cmd.pre_exec(|| {
+            #[cfg(target_os = "linux")]
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            libc::umask(0o007);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn run_as(_: &mut Command, _: ServerIdentity, _: &str) {}
+
 fn is_daemon_env(key: &str) -> bool {
     key.starts_with("TALEDAEMON_")
         || matches!(
@@ -239,8 +269,15 @@ impl HytaleServerProcess {
     ///
     /// `session` (from the panel's linked Hytale account) makes the server
     /// boot authenticated; without it the server starts unauthenticated.
+    ///
+    /// `identity` (per-server isolation) makes the process run under that
+    /// unprivileged UID/GID instead of the daemon's user.
     #[instrument(skip(self, session), fields(server_id = %self.server_id))]
-    pub async fn start(&self, session: Option<&GameSession>) -> Result<()> {
+    pub async fn start(
+        &self,
+        session: Option<&GameSession>,
+        identity: Option<ServerIdentity>,
+    ) -> Result<()> {
         let current = self.get_status();
         if current != ServerStatus::Stopped && current != ServerStatus::Crashed {
             bail!(
@@ -346,6 +383,11 @@ impl HytaleServerProcess {
             if key.to_str().is_some_and(is_daemon_env) {
                 cmd.env_remove(key);
             }
+        }
+
+        if let Some(id) = identity {
+            run_as(&mut cmd, id, &self.config.data_path);
+            info!(server_id = %self.server_id, uid = id.uid, "Starting under the server's own UID");
         }
 
         cmd.current_dir(&self.config.data_path)
