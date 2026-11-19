@@ -1,0 +1,133 @@
+# TalePanel demo in Docker: the whole stack with simulated Hytale servers.
+#
+#   docker compose -f examples/demo/compose.yml up -d --build
+#   → http://localhost:14000   admin@demo.local / Demo-Password-2026!
+#   docker compose -f examples/demo/compose.yml down -v   # stop and forget
+#
+# Only Docker is needed. The first start builds the images (a few minutes).
+#
+# NOT for production: fixed demo secrets, the node runs in development mode
+# with the dev stub enabled, and nothing is exposed beyond localhost.
+name: talepanel-demo
+
+x-demo-secrets: &demo-secrets
+  # Demo-only values. Never reuse them anywhere else.
+  JWT_SECRET: demo-jwt-secret-0123456789abcdef0123456789abcdef
+  JWT_REFRESH_SECRET: demo-refresh-secret-0123456789abcdef0123456789ab
+  TOTP_ENC_KEY: 9f1c2b7d4e6a8f0c1b3d5e7f9a2c4e6f8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: talepanel
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: talepanel
+    volumes:
+      - pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "talepanel"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "demo", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "demo", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ../../services/api
+      target: production
+    image: talepanel-demo/api
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      <<: *demo-secrets
+      SERVER_PORT: "8080"
+      ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://talepanel:demo@postgres:5432/talepanel?sslmode=disable
+      REDIS_URL: redis://:demo@redis:6379/0
+      CORS_ORIGINS: http://localhost:${DEMO_PORT:-14000}
+      DAEMON_SERVERS_DIR: /srv/taledaemon/servers
+      TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # One-shot: owner account, node enrollment, simulated Hytale binaries and
+  # demo servers. Safe to re-run; it skips what already exists.
+  seed:
+    image: talepanel-demo/api
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      <<: *demo-secrets
+      DATABASE_URL: postgres://talepanel:demo@postgres:5432/talepanel?sslmode=disable
+    # tr: tolerate CRLF checkouts on Windows.
+    entrypoint: ["/bin/sh", "-c", "tr -d '\r' < /demo/seed.sh | sh"]
+    volumes:
+      - ./seed.sh:/demo/seed.sh:ro
+      - ./fake-hytale-server.sh:/demo/fake-hytale-server.sh:ro
+      - node:/srv/taledaemon
+      - state:/state
+    restart: "no"
+
+  daemon:
+    build:
+      context: ../../services/daemon
+    image: talepanel-demo/daemon
+    depends_on:
+      api: { condition: service_healthy }
+    # The node identity comes from the enrollment done by `seed`.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until [ -f /state/node.env ]; do echo "waiting for enrollment"; sleep 2; done
+        set -a; . /state/node.env; set +a
+        exec taledaemon
+    environment:
+      TALEDAEMON_API_URL: http://api:8080
+      TALEDAEMON_LISTEN_PORT: "8444"
+      TALEDAEMON_DATA_ROOT: /srv/taledaemon
+      TALEDAEMON_PKI_DIR: /srv/taledaemon/pki
+      TALEDAEMON_ENV: development
+      TALEDAEMON_ALLOW_DEV_STUB: "1"
+      TALEDAEMON_HEARTBEAT_INTERVAL_S: "5"
+      TALEDAEMON_COMMAND_POLL_INTERVAL_S: "2"
+    volumes:
+      - node:/srv/taledaemon
+      - state:/state:ro
+
+  web:
+    build:
+      context: ../../apps/web
+      args:
+        NUXT_PUBLIC_API_BASE: /api/v1
+    image: talepanel-demo/web
+    environment:
+      NUXT_PUBLIC_API_BASE: /api/v1
+
+  # Same-origin proxy, as in production: /api/* → API, the rest → web.
+  proxy:
+    image: caddy:2-alpine
+    depends_on: [api, web]
+    ports:
+      - "127.0.0.1:${DEMO_PORT:-14000}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  pg:
+  node:
+  state:
