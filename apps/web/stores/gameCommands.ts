@@ -78,8 +78,8 @@ export const useGameCommandsStore = defineStore('gameCommands', {
         const api = useApi()
         const data = await api.get<GameCommand[]>(`/servers/${serverId}/game-commands`)
         this.commands = Array.isArray(data) ? data : []
-      } catch (e: any) {
-        this.error = e?.message || 'Failed to load commands'
+      } catch (e: unknown) {
+        this.error = (e as Error | undefined)?.message || 'Failed to load commands'
         this.commands = []
       } finally {
         this.loading = false
@@ -101,8 +101,8 @@ export const useGameCommandsStore = defineStore('gameCommands', {
           }
         )
         this.lastResult = result
-      } catch (e: any) {
-        this.error = e?.message || 'Failed to execute command'
+      } catch (e: unknown) {
+        this.error = (e as Error | undefined)?.message || 'Failed to execute command'
       } finally {
         this.executing = null
       }
@@ -114,8 +114,8 @@ export const useGameCommandsStore = defineStore('gameCommands', {
         const api = useApi()
         await api.post(`/servers/${serverId}/game-commands`, cmd)
         await this.fetchCommands(serverId)
-      } catch (e: any) {
-        this.error = e?.message || 'Failed to create command'
+      } catch (e: unknown) {
+        this.error = (e as Error | undefined)?.message || 'Failed to create command'
       }
     },
 
@@ -125,8 +125,8 @@ export const useGameCommandsStore = defineStore('gameCommands', {
         const api = useApi()
         await api.delete(`/servers/${serverId}/game-commands/${cmdId}`)
         this.commands = this.commands.filter((c) => c.id !== cmdId)
-      } catch (e: any) {
-        this.error = e?.message || 'Failed to delete command'
+      } catch (e: unknown) {
+        this.error = (e as Error | undefined)?.message || 'Failed to delete command'
       }
     },
   },

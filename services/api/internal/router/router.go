@@ -118,6 +118,7 @@ func SetupRouter(
 	permSvc := services.NewPermissionService(db)
 	hytaleVersionSvc := services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log)
 	serverUpdateSvc := services.NewServerUpdateService(serverSvc, hytaleVersionSvc, backupSvc, daemonPool, log)
+	go serverUpdateSvc.RunStaleInstallSweeper(ctx)
 	serverTaskSvc := services.NewServerTaskService(db, permSvc,
 		services.NewDaemonTaskExecutor(serverSvc, daemonPool, serverUpdateSvc), log)
 	go serverTaskSvc.StartScheduler(ctx)

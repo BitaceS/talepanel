@@ -149,6 +149,53 @@ func (s *ServerUpdateService) ExpectBuild(ctx context.Context, server *models.Se
 	}
 }
 
+// staleInstallAfter is how long a server may stay "installing" before it is
+// treated as an install that will never report back (API restarted mid-update,
+// daemon lost the job). Longer than any download the panel waits for.
+const staleInstallAfter = 60 * time.Minute
+
+// ReleaseStaleInstalls sets servers stuck in "installing" for longer than
+// staleInstallAfter back to "stopped" and forgets their expected build, so
+// they can be started or reinstalled again. Servers with an update running
+// in this process are left alone. Returns how many were released.
+func (s *ServerUpdateService) ReleaseStaleInstalls(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	busy := make([]uuid.UUID, 0, len(s.running))
+	for id := range s.running {
+		busy = append(busy, id)
+	}
+	s.mu.Unlock()
+
+	ids, err := s.servers.releaseStaleInstalls(ctx, staleInstallAfter, busy)
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		s.servers.PanelLog(ctx, id, "WARN", fmt.Sprintf(
+			"The install did not report back within %s; the server is set to stopped. Start it to check the files, or reinstall.",
+			staleInstallAfter))
+		s.log.Warn("released a server stuck in installing", zap.String("server_id", id.String()))
+	}
+	return len(ids), nil
+}
+
+// RunStaleInstallSweeper calls ReleaseStaleInstalls at start and every 10
+// minutes until ctx is cancelled.
+func (s *ServerUpdateService) RunStaleInstallSweeper(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if _, err := s.ReleaseStaleInstalls(ctx); err != nil && ctx.Err() == nil {
+			s.log.Warn("releasing stale installs failed", zap.Error(err))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 // claim marks an update of serverID as running; false if one already is.
 func (s *ServerUpdateService) claim(serverID uuid.UUID) bool {
 	s.mu.Lock()

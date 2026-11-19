@@ -10,7 +10,12 @@ interface Props {
   autocomplete?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
+  modelValue: undefined,
+  placeholder: undefined,
+  label: undefined,
+  error: undefined,
+  autocomplete: undefined,
   type: 'text',
   required: false,
   disabled: false,

@@ -359,3 +359,61 @@ func TestDecideUpdate(t *testing.T) {
 		}
 	}
 }
+
+// backdateServer sets a server's status and updated_at, bypassing the
+// trigger that stamps updated_at on every update.
+func backdateServer(t *testing.T, pool *pgxpool.Pool, serverID uuid.UUID, status string, age time.Duration) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE servers SET status = $2, installing_build = '0.6.8', updated_at = NOW() - make_interval(secs => $3) WHERE id = $1`,
+		serverID, status, age.Seconds()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReleaseStaleInstalls(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	owner := seedTestUser(t, pool, models.RoleUser)
+	stale := seedTestServer(t, pool, owner)
+	fresh := seedTestServer(t, pool, owner)
+	updating := seedTestServer(t, pool, owner)
+	running := seedTestServer(t, pool, owner)
+	backdateServer(t, pool, stale, models.StatusInstalling, 2*time.Hour)
+	backdateServer(t, pool, fresh, models.StatusInstalling, 5*time.Minute)
+	backdateServer(t, pool, updating, models.StatusInstalling, 2*time.Hour)
+	backdateServer(t, pool, running, models.StatusRunning, 2*time.Hour)
+
+	svc, _, _ := newTestUpdateService(t, pool, ProvisionDownloaded)
+	svc.running[updating] = true // an update of this process owns it
+
+	if _, err := svc.ReleaseStaleInstalls(ctx); err != nil {
+		t.Fatal(err)
+	}
+	servers := NewServerService(pool)
+	want := map[uuid.UUID]string{
+		stale: models.StatusStopped, fresh: models.StatusInstalling,
+		updating: models.StatusInstalling, running: models.StatusRunning,
+	}
+	for id, w := range want {
+		if got, _ := servers.GetServerStatus(ctx, id); got != w {
+			t.Errorf("server %s: status %s, want %s", id, got, w)
+		}
+	}
+	var expected *string
+	if err := pool.QueryRow(ctx, `SELECT installing_build FROM servers WHERE id = $1`, stale).Scan(&expected); err != nil || expected != nil {
+		t.Errorf("released server still expects build %v (%v)", expected, err)
+	}
+}

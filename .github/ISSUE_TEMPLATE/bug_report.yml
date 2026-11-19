@@ -11,7 +11,7 @@ body:
     attributes:
       label: TalePanel version
       description: Shown in the help menu of the panel, or the release tag / commit you installed.
-      placeholder: v0.12.0-beta
+      placeholder: v0.13.0
     validations:
       required: true
   - type: dropdown

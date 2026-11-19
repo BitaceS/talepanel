@@ -32,7 +32,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hyta
 
 It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed, public beta. Latest release: [v0.12.0-beta](https://github.com/BitaceS/talepanel/releases/tag/v0.12.0-beta) (2026-10-30), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed. Latest release: [v0.13.0](https://github.com/BitaceS/talepanel/releases/tag/v0.13.0) (2026-11-19), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ### At a glance
 
@@ -103,7 +103,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 **Not there yet (roadmap, tracked publicly):**
 
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
-- **Container-level isolation per server** — each server already runs under its own Linux user (unreleased); a container or seccomp profile per server is next. See [`SECURITY.md`](SECURITY.md).
+- **Container-level isolation per server** — each server already runs under its own Linux user (v0.13); a container or seccomp profile per server is next. See [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -475,15 +475,15 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |
 | mTLS panel ↔ daemon | Shipped (v0.12) |
 | Alerts via Discord, webhook and email | Shipped |
-| Live console, logs, status and metrics over SSE (polling as fallback) | Unreleased |
-| Server templates (5 built-in + your own) | Unreleased |
-| Scheduled restarts, commands and broadcasts | Unreleased |
-| 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Unreleased |
-| Local demo with simulated servers (`examples/demo`) | Unreleased |
-| Per-server process isolation, step 1: own Linux user per server | Unreleased |
+| Live console, logs, status and metrics over SSE (polling as fallback) | Shipped (v0.13) |
+| Server templates (5 built-in + your own) | Shipped (v0.13) |
+| Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
+| 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
+| Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
+| Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |
 | Per-server process isolation, step 2: container per server | Next |
-| Auto-update per server with Release / Pre-release channel | Unreleased |
-| API keys with scopes and server limits | Unreleased |
+| Auto-update per server with Release / Pre-release channel | Shipped (v0.13) |
+| API keys with scopes and server limits | Shipped (v0.13) |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).

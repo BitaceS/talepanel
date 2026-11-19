@@ -66,7 +66,19 @@ Run the installer's **Upgrade** mode on the panel **and on every node**. The new
 
 ---
 
-## v0.11.0-beta → v1.0.0 (planned)
+## v0.12.0-beta → v0.13.0
+
+Run the installer's **Upgrade** mode on the panel **and on every node**. Migrations 042–047 run automatically when the API starts.
+
+- **Game servers run under their own Linux user.** On first start, the new daemon converts every existing server: it creates a `tpsrv<uid>` user per server and gives it the server's directory (mode 0700). Big servers take a moment. If the data directory is on a file system that does not keep file owners, isolation stays off and the daemon logs why. `TALEDAEMON_SERVER_ISOLATION=off` keeps the old behaviour.
+- **Hytale server updates are off until you turn them on.** After the upgrade the panel does not yet know which build each server runs; it learns it on the server's next install or update. Turn on automatic updates per server under **Schedules** (task type *Update*).
+- **API keys** start empty. The unused `api_keys` table from the first migration is replaced (migration 047); nothing in it was ever used.
+- **Version check:** the panel now shows its own version (`v0.13.0`) without `APP_VERSION`. If you set `APP_VERSION` yourself, remove it or keep it in sync, or the update notice compares against the wrong version.
+- **Pre-releases:** from this release on, normal releases are not marked as pre-releases and have no `-beta` suffix.
+
+---
+
+## v0.13.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

@@ -4,7 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a try-it-locally demo, a new look with an optional game theme, and a long list of fixes.
+## [0.13.0] — 2026-11-19
+
+The first release that is not marked as a pre-release. Hytale server updates with a maintenance window, API keys for automation, each game server under its own Linux user, a live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a try-it-locally demo, a new look with an optional game theme, and a long list of fixes.
 
 ### Added
 - API keys for scripts, bots and monitoring: **Settings → API keys**. A key acts as its user but only with the rights picked for it (Power, Console, Manage, Backups, Players; reading servers is always allowed) and, optionally, only on chosen servers. It never gets more than its user has on a server, and it never reaches account, admin, node, file manager, mod, invitation or key-management routes: keys may only call an explicit list of server routes (`models.APIKeyRoutes`), everything else is refused. Keys look like `tp_…` and are sent as `Authorization: Bearer tp_…`; only their SHA-256 hash is stored, the key is shown once. Each key has an optional expiry (30 days, 90 days, 1 year or never), shows when and from where it was last used, and can be revoked at once; a disabled account's keys stop working. At most 25 keys per account. Actions made with a key are marked with the key's name in the audit log. API: `GET`/`POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/:id`. Migration 047 replaces the unused `api_keys` table from the first schema. `examples/api/talepanel.sh` takes `TALEPANEL_API_KEY` and prints the API's error message when a call fails.
@@ -26,6 +28,8 @@ Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a 
 - Live console: log lines, status changes and metrics now reach the server page over Server-Sent Events instead of being polled every second. A reconnect resumes after the last line shown, so nothing is lost or shown twice; streams end after 30 minutes and reconnect on their own. If the stream cannot connect three times in a row the page falls back to polling; the console header shows **Live** or **Polling** (click it to retry). API: `POST /api/v1/servers/:id/stream-ticket` returns a single-use ticket (valid 30 s) and `GET /api/v1/servers/:id/stream?ticket=…[&after=<log id>]` streams `log`, `status` and `metrics` events (permission `server.view`, at most 10 open streams per user). The access token is never put in a URL, and the request log redacts `ticket` query parameters. The Caddy template keeps the stream out of gzip.
 
 ### Changed
+- Releases are no longer marked as pre-releases on GitHub and drop the `-beta` suffix (this is `v0.13.0`). The version stays below 1.0 while larger changes are still expected.
+- The panel knows its own version without `APP_VERSION` (it is built into the API), and the update notice under Admin appears only for a strictly newer release. Before, every release was a GitHub pre-release, so the check always got a 404 and never showed an update.
 - New default look, matching talepanel.com: warm dark palette with gold and ember accents, Alegreya and JetBrains Mono fonts, the voxel logo in the sidebar, on the login page and as favicon, squarer corners and visible borders on form fields. Fonts and icons are now served by the panel itself; the panel no longer loads anything from Google Fonts.
 - The dashboard shows real data: servers and how many are running, nodes with online/offline count (offline nodes shown as a warning), players online, node CPU/RAM/disk usage for admins, and player activity per hour. Values that aren't known yet show a dash instead of a number.
 - The notification bell lists open alert events and links to Alerts.
@@ -33,6 +37,8 @@ Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a 
 - Login and registration use plain wording ("Sign in", "Password", "Create account"); the help menu links to the docs, Discord and GitHub issues and shows the installed version.
 
 ### Fixed
+- A server stayed "installing" for good when the API restarted during an update or reinstall. A server that has been installing for more than 60 minutes is now set to stopped (with a note in its console log), so it can be started or reinstalled again.
+- `TestNodeCSR_signsForAuthedNode` failed when the router tests ran before it: they left the panel CA in the shared test database.
 - After a reinstall whose download failed, the node reported the server as stopped before it had put the old server files back, so a start right then could find no server files.
 - Off-site backups to OneDrive, Google Drive, Dropbox, S3 and B2 failed: the panel sent `"obscure": null`, which the node rejected. The panel now sends an empty list and the node accepts both.
 - Webhook and Discord alerts were mostly never delivered: they were sent with the request context, which is cancelled as soon as the API has answered.
@@ -84,7 +90,11 @@ Live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a 
 - 2FA recovery codes are stored only as SHA-256 hashes and spent atomically, so the same code cannot sign in twice, even in parallel. Every use is audit-logged (without the code). Disabling 2FA, by the user or with `tale-cli admin disable-2fa`, deletes them.
 - The request audit log now redacts `code` (TOTP and recovery codes) and `partial_token` from `/auth/totp/*` bodies; before, the TOTP codes and the 5-minute partial login token were stored in plain text.
 
+### Upgrade notes
+- Run the installer's **Upgrade** mode on the panel **and on every node**: server updates and per-server isolation need the new daemon. Migrations 042–047 run when the API starts. See `UPGRADING.md`.
+
 ### Build
+- The web panel has no ESLint warnings left (unused code removed, `any` types replaced).
 - CI runs `gofmt`, ESLint (`@nuxt/eslint`, new), `cargo fmt --check` and the daemon's test suite. The daemon was reformatted once with `cargo fmt`.
 - Release images are built per architecture on native GitHub runners (amd64 and arm64) instead of under QEMU emulation, with a build cache and timeouts. The v0.12.0-beta release hung for hours in the emulated arm64 web build. A release can be re-run for an existing tag from the Actions tab.
 

@@ -4,7 +4,7 @@ interface Props {
   hoverable?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   padding: 'md',
   hoverable: false,
 })

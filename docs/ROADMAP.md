@@ -21,7 +21,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Quick setup (`install.sh --quick`) + browser setup wizard | v0.11 |
 | Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV), auto restart, CPU limit (cgroup v2), SMTP in the panel | v0.11 |
 | Encrypted backups (ChaCha20-Poly1305) with key rotation, mutual TLS panel ↔ node | v0.12 |
-| Game theme, real dashboard data, self-hosted fonts/icons | unreleased |
+| Game theme, real dashboard data, self-hosted fonts/icons, SSE console, schedules, templates, 2FA recovery codes, per-server Linux user, Hytale server updates, API keys | v0.13 |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
 ## Implemented in November 2026
@@ -40,7 +40,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Local demo + API example | `examples/demo/run-demo.sh` (full stack, simulated Hytale servers, seeded data), `examples/demo/screenshots.mjs`, `examples/api/talepanel.sh`. |
 | ESLint + format checks in CI | `@nuxt/eslint`, `gofmt`, `cargo fmt --check`, daemon tests in CI. |
 
-Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
+Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 
 ---
 
@@ -50,25 +50,25 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 1 | ~~**WebSocket/SSE console, logs and metrics**~~ | Done (unreleased): Server-Sent Events stream for logs, status and metrics; the panel falls back to polling when the stream cannot connect. Commands keep using POST. | — |
+| 1 | ~~**WebSocket/SSE console, logs and metrics**~~ | Done (v0.13.0): Server-Sent Events stream for logs, status and metrics; the panel falls back to polling when the stream cannot connect. Commands keep using POST. | — |
 | 2 | ~~**Fix the remaining review findings**~~ | Done: mod `dir` handling, start race, streamed downloads, symlinked dirs, `wait_for_status`, MariaDB cleanup. | — |
 | 3 | ~~**ESLint for the web panel**~~ | Done: `@nuxt/eslint`, lint in CI (0 errors; ~28 warnings left to clean up). | — |
 | 4 | ~~**`cargo fmt` once, then enforce in CI**~~ | Done, plus `gofmt` and the daemon tests in CI. | — |
-| 5 | ~~**2FA backup codes**~~ | Done (unreleased). | — |
-| 6 | ~~**Server templates**~~ | Done (unreleased). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
-| 7 | **Release v0.13.0-beta** | Everything above is unreleased. Ship it with the screenshots and the demo; see `docs/marketing/LAUNCH-PLAN.md`. | S |
-| 8 | ~~**Docker-only demo**~~ | Done (unreleased): `docker compose -f examples/demo/compose.yml up -d --build` builds the images from source, so it works before v0.13. Once release images exist, the compose file can pull them instead of building. | — |
-| 9 | ~~**Per-server process isolation, step 1**~~ | Done (unreleased): own UID per server (not reused), 0700 data dir, root-only node files, daemon file work with the server's own file permissions, leftover processes killed, minimal environment. Step 2 (container or seccomp per server) stays in Next #7. Needs one test on a node with a real Hytale server before the release. | — |
+| 5 | ~~**2FA backup codes**~~ | Done (v0.13.0). | — |
+| 6 | ~~**Server templates**~~ | Done (v0.13.0). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
+| 7 | ~~**Release v0.13.0**~~ | Done: first release not marked as a pre-release. Launch posts: see `docs/marketing/LAUNCH-PLAN.md`. | — |
+| 8 | ~~**Docker-only demo**~~ | Done (v0.13.0): `docker compose -f examples/demo/compose.yml up -d --build` builds the images from source, so it works before v0.13. Once release images exist, the compose file can pull them instead of building. | — |
+| 9 | ~~**Per-server process isolation, step 1**~~ | Done (v0.13.0): own UID per server (not reused), 0700 data dir, root-only node files, daemon file work with the server's own file permissions, leftover processes killed, minimal environment. Step 2 (container or seccomp per server) stays in Next #7. Needs one test on a node with a real Hytale server before the release. | — |
 
 ### Next
 
 | # | Item | Why | Effort |
 |---|---|---|---|
 | 7 | **Per-server process isolation, step 2** (container or seccomp per server) | Step 1 is done (Now #9): every server has its own unprivileged UID and cannot read node files or other servers. Step 2 limits what a server can do inside the node (syscalls, network, mounts) with an optional container per server. | L |
-| 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (unreleased): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
-| 9 | ~~**Scheduled tasks beyond backups**~~ | Done (unreleased): restart, command, broadcast. | — |
+| 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (v0.13.0): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
+| 9 | ~~**Scheduled tasks beyond backups**~~ | Done (v0.13.0): restart, command, broadcast. | — |
 | 10 | **Login notification emails** (new device / IP) | Open box in `production-hardening.md`; SMTP is already configurable. | S–M |
-| 11 | ~~**API keys for automation** (scoped, hashed)~~ | Done (unreleased): per-user keys with scopes (power, console, manage, backups, players; read always), optional server list, expiry, last use, revoke; SHA-256 hashed; explicit route allowlist, no account/admin/node access. Next step, if hosters ask: admin-scoped keys for user and server provisioning. | — |
+| 11 | ~~**API keys for automation** (scoped, hashed)~~ | Done (v0.13.0): per-user keys with scopes (power, console, manage, backups, players; read always), optional server list, expiry, last use, revoke; SHA-256 hashed; explicit route allowlist, no account/admin/node access. Next step, if hosters ask: admin-scoped keys for user and server provisioning. | — |
 | 12 | **Performance graphs per server** (CPU, RAM, players over time) | Metrics are collected (and now correct); the node has `node_metrics`, servers need a small time series + chart. | M |
 | 13 | **Modtale as a second mod source** | Ketbome, nebula and KyuubiSoft support Modtale besides CurseForge. Same install path as CurseForge. | M |
 | 14 | **Panel CA rotation and certificate renewal while running** | `SECURITY.md` known limitation. | M |

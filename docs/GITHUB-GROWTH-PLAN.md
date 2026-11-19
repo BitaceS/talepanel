@@ -126,7 +126,7 @@ Regel: pro Kanal max. ein Post pro Release, immer mit Mehrwert (Changelog, Anlei
 
 #### 3.11 Release-Kadenz
 - **Alle 2 Wochen ein Release** (auch kleine `v0.12.x`-Patches), mit ausführlichen Release-Notes (aus `CHANGELOG.md`) und 1–2 Bildern. Releases erscheinen im Feed aller Watcher und zählen als Aktivität.
-- Release-Titel mit Keyword: „v0.13.0-beta – Hytale server panel: WebSocket console“.
+- Release-Titel mit Keyword: „v0.13.0 – Hytale server panel: WebSocket console“.
 - Ziel **v1.0** mit Launch-Paket (Product Hunt, Reddit, Blogpost).
 - 🔧 Discussions aktivieren (Settings → Features) – CONTRIBUTING.md verweist bereits darauf.
 
