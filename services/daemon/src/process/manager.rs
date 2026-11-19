@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument, warn};
 
-use crate::api_client::ApiClient;
+use crate::api_client::{ApiClient, ProvisionResult};
 use crate::config::Config;
 use crate::downloader;
 use crate::http_server::safe_fs;
@@ -332,7 +332,7 @@ impl ProcessManager {
         let isolation = Arc::clone(&self.isolation);
         let isolated_id = server_id.clone();
         tokio::spawn(async move {
-            async move {
+            let (outcome, restored, api_client) = async move {
             let set_aside = if reinstall {
                 let target = PathBuf::from(&data_path);
                 tokio::task::spawn_blocking(move || set_aside_server_binaries(&target))
@@ -356,8 +356,11 @@ impl ProcessManager {
             }
 
             // Inner block so its early `return`s still reach the reinstall
-            // cleanup below.
-            async {
+            // cleanup below. `None`: provisioning failed and "crashed" was
+            // reported; `Some`: what it did, reported once the cleanup and
+            // the ownership hand-over are done (the panel may start the
+            // server as soon as it sees "stopped").
+            let outcome: Option<(ProvisionResult, Option<String>)> = async {
             info!(%server_id, %version, %data_path, "Starting server provisioning");
 
             // Helper to push a single log line to the panel console
@@ -383,8 +386,7 @@ impl ProcessManager {
             if jar_path.exists() {
                 info!(%server_id, "Server files already present — skipping download");
                 push_log("Server files already present — skipping download".into(), "INFO").await;
-                let _ = api_client.report_server_status(&server_id, "stopped").await;
-                return;
+                return Some((ProvisionResult::Kept, None));
             }
 
             // Local-bin fallback: before hitting the Hytale CDN, check whether
@@ -403,15 +405,15 @@ impl ProcessManager {
                 if let Err(e) = placed {
                     push_log(e, "ERROR").await;
                     let _ = api_client.report_server_status(&server_id, "crashed").await;
-                    return;
+                    return None;
                 }
                 push_log("Provisioning complete via local hytale-bin".into(), "INFO").await;
-                let _ = api_client.report_server_status(&server_id, "stopped").await;
-                return;
+                return Some((ProvisionResult::Local, None));
             }
 
             // Try downloading from the official Hytale Downloader.
             let tool_dir = PathBuf::from(&data_root).join("tools");
+            let mut fetched: Option<(bool, Option<String>)> = None;
             let download_ok = match downloader::fetch_downloader_cli(&tool_dir).await {
                 Ok(downloader_bin) => {
                     push_log(format!("Downloader CLI ready at {}", downloader_bin.display()), "INFO").await;
@@ -441,6 +443,7 @@ impl ProcessManager {
                             );
                             info!(%server_id, path = %r.data_path.display(), version = %r.version, "Provisioning complete");
                             push_log(msg, "INFO").await;
+                            fetched = Some((r.downloaded, r.build.clone()));
                             true
                         }
                         Err(e) => {
@@ -473,7 +476,7 @@ impl ProcessManager {
                 error!(%server_id, "Provisioning failed and dev stub is not allowed");
                 push_log(msg, "ERROR").await;
                 let _ = api_client.report_server_status(&server_id, "crashed").await;
-                return;
+                return None;
             }
 
             if !download_ok {
@@ -495,7 +498,7 @@ impl ProcessManager {
                     error!(%server_id, error = %e, "Failed to create server directory");
                     push_log(msg, "ERROR").await;
                     let _ = api_client.report_server_status(&server_id, "crashed").await;
-                    return;
+                    return None;
                 }
 
                 // Create a minimal shell script that mimics a game server:
@@ -516,7 +519,7 @@ done
                     error!(%server_id, error = %e, "Failed to write dev stub");
                     push_log(format!("Failed to write dev stub: {e}"), "ERROR").await;
                     let _ = api_client.report_server_status(&server_id, "crashed").await;
-                    return;
+                    return None;
                 }
 
                 // Make executable
@@ -547,13 +550,20 @@ done
                 push_log("Dev-mode server stub ready — NOT a real Hytale server".into(), "WARN").await;
             }
 
-            let _ = api_client.report_server_status(&server_id, "stopped").await;
+            if !download_ok {
+                return Some((ProvisionResult::Stub, None));
+            }
+            match fetched {
+                Some((true, build)) => Some((ProvisionResult::Downloaded, build)),
+                _ => Some((ProvisionResult::Kept, None)),
+            }
             }
             .await;
 
+            let mut restored = false;
             if reinstall {
                 let target = PathBuf::from(&data_path);
-                let restored =
+                restored =
                     tokio::task::spawn_blocking(move || finish_reinstall(&target, set_aside))
                         .await
                         .unwrap_or(false);
@@ -565,12 +575,23 @@ done
                     }]).await;
                 }
             }
+            (outcome, restored, api_client)
         }
             .await;
             if let Err(e) = isolation.repair(&isolated_id).await {
                 warn!(server_id = %isolated_id, error = %e, "Could not hand the provisioned files to the server's user");
             }
             drop(provisioning);
+            if let Some((result, build)) = outcome {
+                let result = if restored {
+                    ProvisionResult::Restored
+                } else {
+                    result
+                };
+                let _ = api_client
+                    .report_provisioned(&isolated_id, result, build.as_deref())
+                    .await;
+            }
         });
 
         Ok(())

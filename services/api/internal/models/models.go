@@ -137,6 +137,23 @@ type Server struct {
 	// whether joins must carry a hub referral. Populated by GetServer.
 	NetworkRole     *string `json:"network_role"`
 	RequireReferral bool    `json:"require_referral"`
+
+	// The Hytale server build installed by the last provisioning run that
+	// downloaded new files, and its patchline; nil while unknown (installed
+	// before builds were tracked, local hytale-bin, dev stub). Populated by
+	// GetServer.
+	InstalledBuild     *string    `json:"installed_build"`
+	InstalledPatchline *string    `json:"installed_patchline"`
+	InstalledAt        *time.Time `json:"installed_at"`
+}
+
+// HytalePatchline maps a server's hytale_version to the downloader patchline
+// it installs from ("latest" means release).
+func HytalePatchline(hytaleVersion string) string {
+	if hytaleVersion == "" || hytaleVersion == "latest" {
+		return "release"
+	}
+	return hytaleVersion
 }
 
 // ExitCodeNeedsReinstall reports whether a Hytale exit code means the server

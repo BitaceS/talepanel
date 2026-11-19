@@ -40,7 +40,7 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 |---|---|
 | **Install** | One command (`install.sh --quick`), automatic HTTPS via Let's Encrypt, no domain needed (`sslip.io`) |
 | **Servers** | Create from templates, start / stop / restart / kill, live console (SSE), RAM + CPU limits, auto restart after crashes |
-| **Automation** | Scheduled restarts (with in-game warning), console commands and broadcasts; scheduled backups; API for scripts ([example](examples/api/)) |
+| **Automation** | Scheduled restarts (with in-game warning), Hytale updates in a maintenance window (backup first), console commands and broadcasts; scheduled backups; API for scripts ([example](examples/api/)) |
 | **Hytale-native** | Launch flags, auth modes, exit codes, Release / Pre-release builds, Hytale account link (OAuth device flow) |
 | **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
 | **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
@@ -482,7 +482,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Local demo with simulated servers (`examples/demo`) | Unreleased |
 | Per-server process isolation, step 1: own Linux user per server | Unreleased |
 | Per-server process isolation, step 2: container per server | Next |
-| Auto-update per server with Release / Pre-release channel | Next |
+| Auto-update per server with Release / Pre-release channel | Unreleased |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).

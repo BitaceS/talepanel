@@ -167,6 +167,61 @@ func (s *BackupService) CreateBackup(ctx context.Context, req CreateBackupReques
 	return s.createBackup(ctx, req, "manual")
 }
 
+// CreateUpdateBackup starts a local full backup taken right before a
+// server update (triggered_by "update"). Poll BackupStatus for the outcome.
+func (s *BackupService) CreateUpdateBackup(ctx context.Context, serverID uuid.UUID) (*models.Backup, error) {
+	return s.createBackup(ctx, CreateBackupRequest{ServerID: serverID, Type: "full"}, "update")
+}
+
+// BackupStatus returns a backup's status (pending, running, completed,
+// failed) and its error text.
+func (s *BackupService) BackupStatus(ctx context.Context, backupID uuid.UUID) (string, string, error) {
+	var status string
+	var msg *string
+	err := s.db.QueryRow(ctx, `SELECT status::text, error FROM backups WHERE id = $1`, backupID).Scan(&status, &msg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrBackupNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if msg != nil {
+		return status, *msg, nil
+	}
+	return status, "", nil
+}
+
+// PruneUpdateBackups deletes all but the newest keep completed pre-update
+// backups of a server. Manual and scheduled backups are not touched.
+func (s *BackupService) PruneUpdateBackups(ctx context.Context, serverID uuid.UUID, keep int) error {
+	rows, err := s.db.Query(ctx, `
+		SELECT id FROM backups
+		WHERE server_id = $1 AND triggered_by = 'update' AND status = 'completed'
+		ORDER BY created_at DESC OFFSET $2`, serverID, keep)
+	if err != nil {
+		return err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.DeleteBackup(ctx, id); err != nil && !errors.Is(err, ErrBackupNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 // checkDestination verifies an optional destination id exists.
 func (s *BackupService) checkDestination(ctx context.Context, id *uuid.UUID) error {
 	if id == nil {

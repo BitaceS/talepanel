@@ -22,6 +22,11 @@ pub struct DownloadResult {
     pub data_path: PathBuf,
     /// The Hytale server version string (from downloader output)
     pub version: String,
+    /// False when nothing was downloaded because the server JAR was already
+    /// there.
+    pub downloaded: bool,
+    /// The build the downloader reported, when its output names one.
+    pub build: Option<String>,
 }
 
 /// Download the Hytale Downloader CLI into the given directory and return the
@@ -173,6 +178,8 @@ pub async fn download_server_files(
         return Ok(DownloadResult {
             data_path: server_data_path.to_path_buf(),
             version: version.to_string(),
+            downloaded: false,
+            build: None,
         });
     }
 
@@ -365,8 +372,8 @@ pub async fn download_server_files(
     }
 
     // Parse version from downloader output if available
-    let downloaded_version =
-        parse_version_from_output(&stdout_str).unwrap_or_else(|| version.to_string());
+    let build = parse_version_from_output(&stdout_str);
+    let downloaded_version = build.clone().unwrap_or_else(|| version.to_string());
 
     info!(
         path = %server_data_path.display(),
@@ -377,6 +384,8 @@ pub async fn download_server_files(
     Ok(DownloadResult {
         data_path: server_data_path.to_path_buf(),
         version: downloaded_version,
+        downloaded: true,
+        build,
     })
 }
 

@@ -17,6 +17,7 @@ type fakeTaskExecutor struct {
 	mu       sync.Mutex
 	commands []string
 	restarts int
+	updates  []int
 }
 
 func (f *fakeTaskExecutor) SendCommand(_ context.Context, _ uuid.UUID, cmd string) error {
@@ -31,6 +32,13 @@ func (f *fakeTaskExecutor) Restart(context.Context, uuid.UUID) error {
 	defer f.mu.Unlock()
 	f.restarts++
 	return nil
+}
+
+func (f *fakeTaskExecutor) Update(_ context.Context, _ uuid.UUID, warn int) (string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates = append(f.updates, warn)
+	return models.TaskStatusOK, "updated"
 }
 
 func newTestTaskService(t *testing.T, pool *pgxpool.Pool) (*ServerTaskService, *fakeTaskExecutor) {

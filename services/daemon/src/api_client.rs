@@ -169,6 +169,40 @@ struct ServerStatusBody<'a> {
     /// Process exit code on an unexpected exit (status "crashed").
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_code: Option<i32>,
+    /// With "stopped" after provisioning: what provisioning did, so the
+    /// panel knows whether a new server build is in place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provision_result: Option<&'a str>,
+    /// The build the downloader reported, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    build: Option<&'a str>,
+}
+
+/// What a provisioning run did with the server files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvisionResult {
+    /// New files from the Hytale Downloader.
+    Downloaded,
+    /// The server files were already there; nothing was downloaded.
+    Kept,
+    /// Copied from the operator's local `hytale-bin` (build unknown).
+    Local,
+    /// A reinstall got no new files; the previous ones were put back.
+    Restored,
+    /// Dev-mode stub, not a real server.
+    Stub,
+}
+
+impl ProvisionResult {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Downloaded => "downloaded",
+            Self::Kept => "kept",
+            Self::Local => "local",
+            Self::Restored => "restored",
+            Self::Stub => "stub",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -394,19 +428,44 @@ impl ApiClient {
         status: &str,
         exit_code: Option<i32>,
     ) -> Result<()> {
+        debug!(%server_id, %status, ?exit_code, "Reporting server status");
+        let body = ServerStatusBody {
+            status,
+            exit_code,
+            provision_result: None,
+            build: None,
+        };
+        self.post_server_status(server_id, &body).await
+    }
+
+    /// Reports the end of a successful provisioning run ("stopped") with
+    /// what it did and, if known, the installed build.
+    pub async fn report_provisioned(
+        &self,
+        server_id: &str,
+        result: ProvisionResult,
+        build: Option<&str>,
+    ) -> Result<()> {
+        let body = ServerStatusBody {
+            status: "stopped",
+            exit_code: None,
+            provision_result: Some(result.as_str()),
+            build,
+        };
+        self.post_server_status(server_id, &body).await
+    }
+
+    async fn post_server_status(&self, server_id: &str, body: &ServerStatusBody<'_>) -> Result<()> {
         let url = format!(
             "{}/api/v1/servers/{}/daemon/status",
             self.base_url, server_id
         );
-        debug!(%url, %status, ?exit_code, "Reporting server status");
-
-        let body = ServerStatusBody { status, exit_code };
 
         let resp = self
             .http
             .post(&url)
             .header("Authorization", self.auth_header())
-            .json(&body)
+            .json(body)
             .send()
             .await
             .context("HTTP request failed for report_server_status")?;

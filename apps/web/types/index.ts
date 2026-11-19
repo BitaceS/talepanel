@@ -36,6 +36,21 @@ export interface Server {
   // Network routing role (detail view only); null = not in the network.
   network_role?: 'hub' | 'gamemode' | null
   require_referral?: boolean
+  // Hytale build installed by the panel (detail view only); null = unknown.
+  installed_build?: string | null
+  installed_patchline?: string | null
+  installed_at?: string | null
+}
+
+// GET /servers/:id/update
+export interface ServerUpdateInfo {
+  patchline: 'release' | 'pre-release' | string
+  installed: string | null
+  latest: string
+  available: boolean
+  reason: string
+  blocked: boolean
+  running: boolean
 }
 
 // Settings a server template presets. Every field is optional; a missing one

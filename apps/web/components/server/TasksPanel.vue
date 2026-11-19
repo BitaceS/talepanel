@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { CalendarClock, Plus, Trash2, Loader2, RotateCcw, Terminal, Megaphone, Power, PowerOff } from '@lucide/vue'
+import { CalendarClock, Plus, Trash2, Loader2, RotateCcw, Terminal, Megaphone, Power, PowerOff, DownloadCloud } from '@lucide/vue'
 import { useApi } from '~/composables/useApi'
 
-// Scheduled tasks of one server: restarts, console commands and broadcasts
-// on a 5-field cron. Tasks run as the user who saved them, with that user's
-// console role, and only while the server is running.
+// Scheduled tasks of one server: restarts, Hytale updates, console commands
+// and broadcasts on a 5-field cron. Tasks run as the user who saved them,
+// with that user's console role. Updates also run on a stopped server (it
+// stays stopped); everything else only while the server is running.
 
-type TaskType = 'restart' | 'command' | 'broadcast'
+type TaskType = 'restart' | 'update' | 'command' | 'broadcast'
 
 interface TaskPayload {
   command?: string
@@ -127,7 +128,7 @@ function openForm() {
 async function createTask() {
   formError.value = ''
   const payload: TaskPayload = {}
-  if (form.type === 'restart') payload.warn_minutes = Number(form.warn_minutes) || 0
+  if (form.type === 'restart' || form.type === 'update') payload.warn_minutes = Number(form.warn_minutes) || 0
   if (form.type === 'command') payload.command = form.command.trim()
   if (form.type === 'broadcast') payload.message = form.message.trim()
   saving.value = true
@@ -182,6 +183,7 @@ async function remove(task: ServerTask) {
 // ── Display helpers ────────────────────────────────────────────────────────
 const TYPE_LABEL: Record<TaskType, string> = {
   restart: 'Restart',
+  update: 'Hytale update',
   command: 'Console command',
   broadcast: 'Broadcast',
 }
@@ -189,6 +191,7 @@ const TYPE_LABEL: Record<TaskType, string> = {
 function taskIcon(type: TaskType) {
   if (type === 'command') return Terminal
   if (type === 'broadcast') return Megaphone
+  if (type === 'update') return DownloadCloud
   return RotateCcw
 }
 
@@ -196,7 +199,8 @@ function taskDetail(task: ServerTask): string {
   if (task.type === 'command') return task.payload.command ?? ''
   if (task.type === 'broadcast') return `say ${task.payload.message ?? ''}`
   const warn = task.payload.warn_minutes ?? 0
-  return warn > 0 ? `Warns players ${warn} minute${warn === 1 ? '' : 's'} before` : 'No warning'
+  const warning = warn > 0 ? `Warns players ${warn} minute${warn === 1 ? '' : 's'} before` : 'No warning'
+  return task.type === 'update' ? `Only when a newer build exists · backup first · ${warning}` : warning
 }
 
 function statusVariant(status?: string): 'success' | 'warning' | 'danger' | 'muted' | 'primary' {
@@ -222,7 +226,7 @@ const labelClass = 'block text-[10px] uppercase tracking-widest font-semibold te
     <div class="flex items-center justify-between gap-3">
       <div>
         <h3 class="text-tp-text font-display font-semibold text-lg">Scheduled tasks</h3>
-        <p class="text-tp-muted text-sm">Restarts, console commands and broadcasts on a schedule. Tasks only run while the server is running.</p>
+        <p class="text-tp-muted text-sm">Restarts, Hytale updates, console commands and broadcasts on a schedule. Updates also run on a stopped server; everything else only while it is running.</p>
       </div>
       <UiButton v-if="!showForm" variant="primary" size="sm" @click="openForm">
         <Plus class="w-3.5 h-3.5" /> New Task
@@ -236,6 +240,7 @@ const labelClass = 'block text-[10px] uppercase tracking-widest font-semibold te
           <label :class="labelClass">Action</label>
           <select v-model="form.type" :class="inputClass">
             <option value="restart">Restart server</option>
+            <option value="update">Hytale update (maintenance window)</option>
             <option value="command">Console command</option>
             <option value="broadcast">Broadcast message</option>
           </select>
@@ -257,9 +262,13 @@ const labelClass = 'block text-[10px] uppercase tracking-widest font-semibold te
         </p>
       </div>
 
-      <div v-if="form.type === 'restart'">
+      <div v-if="form.type === 'restart' || form.type === 'update'">
         <label :class="labelClass">Warn players beforehand (minutes, 0–15)</label>
         <input v-model.number="form.warn_minutes" type="number" min="0" max="15" :class="inputClass" />
+        <p v-if="form.type === 'update'" class="text-tp-muted text-xs mt-1">
+          At each run the panel checks the server's channel for a newer build. Only then it warns the players,
+          takes a backup, stops the server, installs the build and starts it again. Nothing happens when it is up to date.
+        </p>
       </div>
       <div v-else-if="form.type === 'command'">
         <label :class="labelClass">Command</label>
@@ -303,7 +312,7 @@ const labelClass = 'block text-[10px] uppercase tracking-widest font-semibold te
               <span class="text-tp-muted font-normal">· {{ describeCron(t.cron_expr) }}</span>
               <code class="ml-1 text-[11px] text-tp-outline font-mono">{{ t.cron_expr }}</code>
             </p>
-            <p class="text-tp-muted text-xs truncate" :class="{ 'font-mono': t.type !== 'restart' }">{{ taskDetail(t) }}</p>
+            <p class="text-tp-muted text-xs truncate" :class="{ 'font-mono': t.type === 'command' || t.type === 'broadcast' }">{{ taskDetail(t) }}</p>
             <p class="text-tp-muted text-xs mt-1">
               Next: {{ t.enabled ? fmtTime(t.next_run_at) : 'disabled' }} · Last: {{ fmtTime(t.last_run_at) }}
             </p>
