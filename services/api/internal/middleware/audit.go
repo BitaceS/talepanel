@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,13 +81,18 @@ func AuditLog(db *pgxpool.Pool, logger *zap.Logger) gin.HandlerFunc {
 		requestID := GetRequestID(c)
 
 		var userID *uuid.UUID
+		var viaKey *models.APIKeyAuth
 		if user, ok := GetUserFromCtx(c); ok {
 			id := user.ID
 			userID = &id
+			viaKey = user.APIKey
 		}
 
 		action := buildActionName(method, path)
 		payload := sanitizePayload(bodyBytes)
+		if viaKey != nil {
+			payload = withAPIKey(payload, viaKey)
+		}
 
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -180,6 +186,18 @@ func extractTargetType(path string) string {
 
 // sanitizePayload unmarshals JSON body, redacts sensitive keys, and
 // re-marshals to a json.RawMessage.  Non-JSON bodies are stored as null.
+// withAPIKey records in an audit payload which API key made the request.
+func withAPIKey(payload json.RawMessage, k *models.APIKeyAuth) json.RawMessage {
+	data := map[string]interface{}{}
+	_ = json.Unmarshal(payload, &data) // "null" or a non-object leaves it empty
+	data["via_api_key"] = map[string]string{"id": k.ID.String(), "name": k.Name, "prefix": k.Prefix}
+	out, err := json.Marshal(data)
+	if err != nil {
+		return payload
+	}
+	return out
+}
+
 func sanitizePayload(body []byte) json.RawMessage {
 	if len(body) == 0 {
 		return json.RawMessage("null")

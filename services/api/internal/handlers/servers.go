@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -172,6 +173,10 @@ func (h *ServerHandler) ListServers(c *gin.Context) {
 
 	if servers == nil {
 		servers = []*models.Server{}
+	}
+	// An API key limited to some servers lists only those.
+	if user.APIKey != nil {
+		servers = slices.DeleteFunc(servers, func(s *models.Server) bool { return !user.APIKey.AllowsServer(s.ID) })
 	}
 
 	c.JSON(http.StatusOK, gin.H{"servers": servers})

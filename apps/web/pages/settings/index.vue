@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { User, Lock, Shield, Bell, Puzzle } from '@lucide/vue'
+import { User, Lock, Shield, Bell, Puzzle, KeyRound } from '@lucide/vue'
 import { useAuthStore } from '~/stores/auth'
 import { useModulesStore } from '~/stores/modules'
 import { useApi } from '~/composables/useApi'
@@ -10,7 +10,7 @@ const authStore = useAuthStore()
 const modulesStore = useModulesStore()
 const api = useApi()
 
-type Section = 'profile' | 'security' | 'notifications' | 'modules'
+type Section = 'profile' | 'security' | 'api-keys' | 'notifications' | 'modules'
 const activeSection = ref<Section>('profile')
 
 const isAdmin = computed(() => authStore.user?.role === 'admin' || authStore.user?.role === 'owner')
@@ -19,6 +19,7 @@ const sections = computed(() => {
   const base = [
     { id: 'profile' as Section,       label: 'Profile',       icon: User },
     { id: 'security' as Section,      label: 'Security',      icon: Lock },
+    { id: 'api-keys' as Section,      label: 'API keys',      icon: KeyRound },
     { id: 'notifications' as Section, label: 'Notifications', icon: Bell },
   ]
   if (isAdmin.value) {
@@ -261,6 +262,11 @@ onMounted(() => {
         </template>
 
         <!-- ── Notifications ──────────────────────────────────────────────── -->
+        <!-- ── API keys ───────────────────────────────────────────────────── -->
+        <template v-else-if="activeSection === 'api-keys'">
+          <SettingsApiKeysPanel @toast="showToast" />
+        </template>
+
         <template v-else-if="activeSection === 'notifications'">
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">

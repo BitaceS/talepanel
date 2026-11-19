@@ -25,6 +25,11 @@ func NewPermissionService(db *pgxpool.Pool) *PermissionService {
 // Check order: user_permissions override → role_permissions defaults.
 // Owners always have all permissions.
 func (s *PermissionService) HasPermission(ctx context.Context, user *models.User, perm string) (bool, error) {
+	// An API key never gets more than its scopes allow, whatever its user's
+	// role; this check comes before every shortcut below.
+	if user.APIKey != nil && !user.APIKey.AllowsPermission(perm) {
+		return false, nil
+	}
 	if user.Role == models.RoleOwner {
 		return true, nil
 	}
@@ -66,6 +71,11 @@ func (s *PermissionService) HasPermission(ctx context.Context, user *models.User
 //  3. Not a server member → deny.
 //  4. Member: per-server permissions override → else global role default.
 func (s *PermissionService) HasServerPermission(ctx context.Context, user *models.User, serverID uuid.UUID, perm string) (bool, error) {
+	// An API key is limited to its scopes and servers, before any shortcut.
+	if k := user.APIKey; k != nil && (!k.AllowsPermission(perm) || !k.AllowsServer(serverID)) {
+		return false, nil
+	}
+
 	// Cluster-level staff manage all servers.
 	if user.Role == models.RoleOwner || user.Role == models.RoleAdmin {
 		return true, nil

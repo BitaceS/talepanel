@@ -372,6 +372,17 @@ func SetupRouter(
 		cfGroup.GET("/mods/:mod_id/files", modH.GetModFiles)
 	}
 
+	// API keys — a signed-in user's own keys. Keys cannot call these routes
+	// (they are not in models.APIKeyRoutes), so a key cannot mint keys.
+	apiKeyH := handlers.NewAPIKeyHandler(services.NewAPIKeyService(db, permSvc), log)
+	apiKeyGroup := v1.Group("/api-keys")
+	apiKeyGroup.Use(authRequired, generalLimiter)
+	{
+		apiKeyGroup.GET("", apiKeyH.List)
+		apiKeyGroup.POST("", apiKeyH.Create)
+		apiKeyGroup.DELETE("/:keyId", apiKeyH.Delete)
+	}
+
 	// Backups — requires user authentication, general rate limit
 	backupGroup := v1.Group("/backups")
 	backupGroup.Use(authRequired, generalLimiter)
