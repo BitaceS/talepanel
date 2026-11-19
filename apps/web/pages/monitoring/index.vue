@@ -68,9 +68,6 @@ const totalCpu = computed(() => {
   return Math.round(vals.reduce((acc, m) => acc + (m.cpu?.usage_percent ?? 0), 0) / vals.length)
 })
 
-const totalRamUsed = computed(() =>
-  Object.values(metricsMap.value).reduce((acc, m) => acc + (m.memory?.used_mb ?? 0), 0)
-)
 
 // ── Network monitor data ─────────────────────────────────────────────────────
 interface HistorySample { ts: number; pps_in: number; pps_out: number; bps_in: number; bps_out: number; udp_pps: number }
@@ -109,7 +106,7 @@ async function fetchNetworkStats() {
   try {
     const data = await api.get<NetSnapshot>(`/nodes/${nodeId}/network-stats`)
     net.value = data
-    detailedTelemetrySupported.value = !!(data && (data as any).current && (data as any).averages)
+    detailedTelemetrySupported.value = !!(data?.current && data?.averages)
   } catch { /* daemon may not be reachable */ }
   finally { networkLoading.value = false }
 }
@@ -149,10 +146,6 @@ function formatUptime(seconds: number): string {
   return `${s}s`
 }
 
-function formatMB(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${mb} MB`
-}
 
 function formatBytes(b: number): string {
   if (b >= 1073741824) return `${(b / 1073741824).toFixed(2)} GB`

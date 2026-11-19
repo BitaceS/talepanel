@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BitaceS/talepanel/api/internal/version"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -94,7 +95,9 @@ func (s *UpdateService) fetchFromGitHub(ctx context.Context) (*UpdateInfo, error
 		return nil, err
 	}
 
-	hasUpdate := release.TagName != "" && release.TagName != s.currentVersion && s.currentVersion != "dev"
+	// Only a strictly newer release counts, so a panel built from main after
+	// a release (or a "dev" build) is not told to "update" to an older tag.
+	hasUpdate := version.Newer(release.TagName, s.currentVersion)
 
 	return &UpdateInfo{
 		CurrentVersion: s.currentVersion,

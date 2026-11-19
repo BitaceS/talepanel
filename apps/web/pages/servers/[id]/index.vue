@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
   Play, Square, RotateCcw, Zap,
-  Cpu, MemoryStick, Clock, Users,
+  Cpu, Users,
   ArrowLeft, Terminal, FolderOpen, Puzzle,
   Globe, DatabaseBackup, Settings,
   Send, ChevronRight, Search, Download, Trash2, Package, ExternalLink,
   Gamepad2, Loader2, Plus, Database,
-  File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X, Pencil,
+  File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X,
   Upload, PackageOpen, Copy, Info, CalendarClock,
 } from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
@@ -17,8 +17,8 @@ import { usePlayersStore } from '~/stores/players'
 import { useBackupsStore } from '~/stores/backups'
 import { useInvitationsStore } from '~/stores/invitations'
 import { useApi } from '~/composables/useApi'
-import type { CFMod, CFModFile, ServerUpdateInfo } from '~/types'
-import type { GameCommand } from '~/stores/gameCommands'
+import type { CFMod, ServerUpdateInfo } from '~/types'
+import type { CommandParam, GameCommand } from '~/stores/gameCommands'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -795,7 +795,7 @@ async function executeCmd(cmd: GameCommand) {
 }
 
 async function addCustomCommand() {
-  let parsedParams: any[] = []
+  let parsedParams: CommandParam[] = []
   try {
     parsedParams = JSON.parse(newCommand.value.params)
   } catch {
@@ -804,7 +804,7 @@ async function addCustomCommand() {
   }
   await gameCmdStore.createCommand(serverId.value, {
     ...newCommand.value,
-    params: parsedParams as any,
+    params: parsedParams,
   })
   if (!gameCmdStore.error) {
     showToast('Command added')
@@ -1001,7 +1001,6 @@ async function openFile(entry: FileEntry) {
     return
   }
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  const textExts = ['json', 'toml', 'yaml', 'yml', 'properties', 'txt', 'cfg', 'conf', 'ini', 'log', 'xml', 'sh', 'bat', 'cmd', 'md', 'csv', 'env', 'jar']
   if (ext === 'jar') {
     showToast('Cannot edit binary files', 'error')
     return
@@ -1244,15 +1243,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
-function fileIcon(entry: FileEntry): string {
-  if (entry.is_dir) return 'folder'
-  const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-  if (['json', 'toml', 'yaml', 'yml', 'xml', 'properties', 'cfg', 'conf', 'ini'].includes(ext)) return 'config'
-  if (['jar', 'zip', 'gz', 'tar'].includes(ext)) return 'archive'
-  if (['log', 'txt', 'md'].includes(ext)) return 'text'
-  return 'file'
 }
 
 watch(activeTab, (tab) => {
@@ -1564,6 +1554,7 @@ const sidebarMods = computed(() => {
               <span :class="['shrink-0 w-12', logLevelColor(line.level)]">
                 {{ line.level?.toUpperCase().slice(0, 6) }}
               </span>
+              <!-- eslint-disable-next-line vue/no-v-html -- renderLogMessage HTML-escapes the line first and only adds http(s) links without quotes -->
               <span :class="logLevelColor(line.level)" class="break-all" v-html="renderLogMessage(line.message)" />
             </div>
           </div>

@@ -610,6 +610,38 @@ func (s *ServerService) RecordProvisionResult(ctx context.Context, serverID uuid
 	return nil
 }
 
+// releaseStaleInstalls sets servers that have been "installing" for longer
+// than after (and are not in skip) to "stopped" and returns their IDs.
+func (s *ServerService) releaseStaleInstalls(ctx context.Context, after time.Duration, skip []uuid.UUID) ([]uuid.UUID, error) {
+	if skip == nil {
+		skip = []uuid.UUID{}
+	}
+	rows, err := s.db.Query(ctx, `
+		UPDATE servers SET status = 'stopped', installing_build = NULL, installing_patchline = NULL, updated_at = NOW()
+		WHERE status = 'installing' AND updated_at < NOW() - make_interval(secs => $1) AND NOT (id = ANY($2))
+		RETURNING id`, after.Seconds(), skip)
+	if err != nil {
+		return nil, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		s.events.Notify(ctx, id)
+	}
+	return ids, nil
+}
+
 // GetServerByID returns a server without an access check, for background
 // jobs that have done their own authorization.
 func (s *ServerService) GetServerByID(ctx context.Context, serverID uuid.UUID) (*models.Server, error) {

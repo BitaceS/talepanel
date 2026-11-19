@@ -2,7 +2,7 @@ import { useAuthStore } from '~/stores/auth'
 
 // What $fetch accepts as a request body: JSON-serialisable objects or raw
 // BodyInit (FormData, Blob, streams).
-type ApiBody = BodyInit | Record<string, any> | null
+type ApiBody = BodyInit | object | null
 
 export const useApi = () => {
   const config = useRuntimeConfig()

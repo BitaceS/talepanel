@@ -13,17 +13,18 @@
 ## A – Release-Ankündigung v0.13 (eigener Discord)
 
 ```markdown
-@everyone **TalePanel v0.13.0-beta is out**
+@everyone **TalePanel v0.13.0 is out**
 
 **New**
-• **Game theme** – switch in the user menu (top right). The server list turns into a server select like a multiplayer menu: tabs, keyboard navigation, Enter to open.
-• **Real dashboard** – servers running, nodes online/offline, players online, node CPU/RAM/disk, players per hour over 24 h. No more placeholder numbers.
+• **Hytale server updates** – the panel shows which build each server runs and when a newer one is out. "Update now", or a scheduled update in a maintenance window: players get a warning, a backup is made first, and the server comes back by itself.
+• **API keys** – for scripts, bots and monitoring, limited to the rights and servers you pick (Settings → API keys).
+• **Each server under its own Linux user** – a plugin can no longer read other servers or the node's files.
+• **Live console** – logs, status and metrics stream in instantly instead of being polled.
+• **Scheduled tasks** – restarts with an in-game warning, console commands and broadcasts on a schedule.
+• **Server templates** – 5 built-in, or save a server's settings as your own.
+• **2FA recovery codes** – ten one-time codes shown when you turn 2FA on.
+• **Game theme** and a **real dashboard** – switch in the user menu (top right).
 • **Admin IP allowlist** – optional `ADMIN_IP_ALLOWLIST` limits admin routes to your IPs/CIDRs.
-• **Lost your authenticator?** `tale-cli admin disable-2fa --email <address>` on the panel host.
-<only if merged:>
-• **Scheduled tasks** – restarts, console commands and broadcasts on a schedule.
-• **2FA recovery codes** – one-time codes shown when you turn 2FA on.
-• **Server templates** – save a server's settings and create new servers from it.
 
 **Fixed (the ones you'll notice)**
 • CPU/RAM/disk alerts fire again

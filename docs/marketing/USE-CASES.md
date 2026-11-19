@@ -2,7 +2,7 @@
 
 TalePanel is a free, open-source (AGPL-3.0), self-hosted panel for Hytale servers. These are six concrete setups, from a single server for friends to a small hosting business. Each one lists what that group needs, how to set it up with the real commands, and which parts of the panel matter most.
 
-Features marked **coming in the next release** are finished in the codebase but not yet in a tagged release. Everything else ships today (v0.12).
+Everything described here ships in the current release (v0.13).
 
 ---
 
@@ -31,8 +31,7 @@ Features marked **coming in the next release** are finished in the codebase but 
 7. **Backups → Schedules:** a nightly backup. Add a destination (e.g. your own Google Drive or OneDrive) under **Backups → Destinations** so a dead disk doesn't take the world with it. Export the backup key under **Admin → Integrations → Backup encryption** and keep it somewhere safe.
 8. Turn on 2FA for your own account (**Settings → Security**).
 
-**Features to show:** quick setup, setup wizard, live console, whitelist, per-server roles, scheduled + off-site backups, Hytale account link.
-**Coming in the next release:** a scheduled nightly restart with a broadcast warning.
+**Features to show:** quick setup, setup wizard, live console, whitelist, per-server roles, scheduled + off-site backups, Hytale account link, a scheduled nightly restart with an in-game warning.
 
 ---
 
@@ -92,10 +91,10 @@ Features marked **coming in the next release** are finished in the codebase but 
 5. Lock down the panel:
    - 2FA for every staff account.
    - Once all nodes run v0.12+, enforce mutual TLS on each node: set `TALEDAEMON_REQUIRE_MTLS=1` and `TALEDAEMON_ALLOW_LEGACY_BEARER=0` in the node's `.env` and restart it.
-   - **Coming in the next release:** `ADMIN_IP_ALLOWLIST` restricts admin routes to your office/VPN addresses, and `tale-cli admin disable-2fa` handles customers who lost their authenticator.
+   - `ADMIN_IP_ALLOWLIST` restricts admin routes to your office/VPN addresses, and `tale-cli admin disable-2fa` handles customers who lost their authenticator.
 6. Updates: `sudo bash install.sh --mode upgrade` on the panel host and each node; database migrations run on their own.
 
-**Be honest with yourself about the limits.** All servers on one node run under the same Linux user today; there's no per-server process isolation, no SFTP, no billing integration and no API keys. If you sell slots to strangers who upload their own plugins, keep one node per trust boundary or wait for isolation. See [SECURITY.md](../../SECURITY.md).
+**Be honest with yourself about the limits.** Every server runs under its own unprivileged Linux user and API keys carry only the rights you give them, but there is still no container per server, no SFTP and no billing integration. If you sell slots to strangers who upload their own plugins, keep one node per trust boundary. See [SECURITY.md](../../SECURITY.md).
 
 **Features to show:** AGPL-3.0 with no paid tier, multi-node, per-server roles, encrypted backups with customer self-service restore, mTLS, audit log.
 
@@ -128,7 +127,7 @@ Features marked **coming in the next release** are finished in the codebase but 
 6. Console + logs side by side while testing.
 
 **Features to show:** Release/Pre-release builds, mod upload and toggle, CurseForge browser, launch flags, backup/restore as world reset, worlds tab.
-**Coming in the next release:** server templates, so a new test server starts with the same RAM, flags and settings.
+Server templates make a new test server start with the same RAM, flags and settings.
 
 ---
 
@@ -152,8 +151,7 @@ Features marked **coming in the next release** are finished in the codebase but 
 5. Set alert rules to a Discord webhook: **Server Crash** for the event server, and (as admin) **High RAM Usage** for the machine.
 6. After the event: download the final backup for the highlight video, then remove the server or the whole VPS (`install.sh --mode uninstall`).
 
-**Features to show:** quick setup, whitelist, moderator role, restore-as-reset, Discord alerts, uninstall.
-**Coming in the next release:** scheduled broadcasts ("Round 2 starts in 10 minutes") and scheduled restarts.
+**Features to show:** quick setup, whitelist, moderator role, restore-as-reset, Discord alerts, uninstall, scheduled broadcasts ("Round 2 starts in 10 minutes") and scheduled restarts.
 
 ---
 

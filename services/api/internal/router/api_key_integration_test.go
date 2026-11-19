@@ -42,6 +42,12 @@ func testRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
 		t.Fatalf("pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	// SetupRouter creates the panel's mTLS CA under this test's key; remove
+	// it so other packages' tests on the same database start without one.
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM app_settings WHERE key IN ('daemon_mtls_ca', 'daemon_mtls_panel_cert')`)
+	})
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		t.Fatalf("redis url: %v", err)

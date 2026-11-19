@@ -100,7 +100,7 @@ Ziel: v1.0 mit Launch-Paket. Voraussetzung für das Label „1.0“ (Vorschlag, 
 ## 3. Launch-Tag-Checkliste v0.13 (nächstes Release)
 
 **Vorher (T-7 bis T-1):**
-- [ ] `CHANGELOG.md`: Abschnitt „Unreleased“ → `## [0.13.0-beta] — <Datum>` mit Ein-Satz-Zusammenfassung.
+- [ ] `CHANGELOG.md`: Abschnitt „Unreleased“ → `## [0.13.0] — <Datum>` mit Ein-Satz-Zusammenfassung.
 - [ ] Alle Features, die heute Nacht auf anderen Branches entstehen (geplante Aufgaben, 2FA-Recovery-Codes, Server-Templates, Admin-IP-Allowlist), sind gemergt **und** im Changelog. Was nicht gemergt ist, fliegt aus den Release-Notes und Posts.
 - [ ] `SECURITY.md`: „No 2FA backup codes“ und „No IP allowlist“ aus den Known limitations entfernen bzw. aktualisieren, sobald gemergt; `_Last reviewed_`-Datum setzen.
 - [ ] README: Status-Zeile auf v0.13, Roadmap-Tabelle (Server-Templates → Shipped, Scheduled tasks → Shipped).
@@ -109,8 +109,8 @@ Ziel: v1.0 mit Launch-Paket. Voraussetzung für das Label „1.0“ (Vorschlag, 
 - [ ] Release-Notes-Entwurf (Vorlage unten) im Discord an 2–3 Tester zum Gegenlesen.
 
 **Am Tag (T-0):**
-- [ ] Tag `v0.13.0-beta` setzen, Release-Workflow beobachten (amd64 + arm64 Images, keine QEMU-Hänger mehr).
-- [ ] GitHub-Release mit Titel „v0.13.0-beta – Hytale server panel: scheduled tasks, server templates, 2FA recovery codes“ (Keywords nach GP 3.11; nur Features im Titel, die wirklich drin sind).
+- [ ] Tag `v0.13.0` setzen, Release-Workflow beobachten (amd64 + arm64 Images, keine QEMU-Hänger mehr).
+- [ ] GitHub-Release mit Titel „v0.13.0 – Hytale server panel: scheduled tasks, server templates, 2FA recovery codes“ (Keywords nach GP 3.11; nur Features im Titel, die wirklich drin sind).
 - [ ] Discord-Ankündigung (`@everyone` nur bei Releases).
 - [ ] talepanel.com: Versionsnummer, Changelog-Seite, ggf. neue Docs-Seiten (Scheduler, Templates, Recovery-Codes).
 - [ ] X/Bluesky-Thread ([`posts/x-bluesky-thread.md`](posts/x-bluesky-thread.md)) mit GIF.
@@ -124,7 +124,7 @@ Ziel: v1.0 mit Launch-Paket. Voraussetzung für das Label „1.0“ (Vorschlag, 
 **Release-Notes-Vorlage (Englisch):**
 
 ```markdown
-## v0.13.0-beta – <one sentence what changed for server owners>
+## v0.13.0 – <one sentence what changed for server owners>
 
 **Upgrade:** `sudo bash <(curl -fsSL https://raw.githubusercontent.com/BitaceS/talepanel/main/scripts/install.sh) --mode upgrade` – migrations run automatically.
 

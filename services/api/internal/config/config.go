@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/BitaceS/talepanel/api/internal/version"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -116,10 +118,10 @@ func Load() (*Config, error) {
 		cfg.LogLevel = "info"
 	}
 
-	// APP_VERSION — optional, default "dev"
+	// APP_VERSION — optional, defaults to the release this code belongs to.
 	cfg.AppVersion = os.Getenv("APP_VERSION")
 	if cfg.AppVersion == "" {
-		cfg.AppVersion = "dev"
+		cfg.AppVersion = version.Version
 	}
 
 	// DEPLOYMENT_PROFILE — optional, default "solo".
