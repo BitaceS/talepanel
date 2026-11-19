@@ -24,7 +24,6 @@ if [ ! -f /srv/taledaemon/hytale-bin/Assets.zip ]; then
   (cd "$tmp" && zip -q /srv/taledaemon/hytale-bin/Assets.zip README.txt)
   rm -rf "$tmp"
 fi
-chmod -R a+rwX /srv/taledaemon
 
 # Node enrollment, once. The daemon waits for /state/node.env.
 if [ ! -f /state/node.env ]; then
