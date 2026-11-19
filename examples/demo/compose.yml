@@ -88,6 +88,9 @@ services:
     image: talepanel-demo/daemon
     depends_on:
       api: { condition: service_healthy }
+    # The entrypoint below replaces the image's tini; this puts it back, so
+    # processes the game servers orphan are reaped.
+    init: true
     # The node identity comes from the enrollment done by `seed`.
     entrypoint:
       - /bin/sh

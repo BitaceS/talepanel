@@ -13,6 +13,7 @@ mod plugin_scanner;
 mod process;
 mod rclone;
 mod sysmetrics;
+mod userfs;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -79,21 +80,19 @@ async fn main() -> Result<()> {
     let isolation =
         Arc::new(isolation::Isolation::from_config(&config).context("Per-server isolation")?);
     if isolation.is_enabled() {
-        isolation.secure_node_layout(
-            std::path::Path::new(&config.daemon.data_root),
-            &[
-                std::path::Path::new(&config.daemon.pki_dir),
-                std::path::Path::new("/etc/taledaemon/config.toml"),
-            ],
-        );
+        isolation.secure_node_layout(&[
+            std::path::Path::new(&config.daemon.pki_dir),
+            std::path::Path::new("/etc/taledaemon/config.toml"),
+        ]);
         // In the background: a node with large worlds should not wait for
-        // the walk before it registers. Starts take the same lock, so a
-        // server started meanwhile is still prepared correctly.
+        // the walk before it registers. A server started meanwhile takes the
+        // same per-server lock, so it is still prepared correctly.
         let sweep = Arc::clone(&isolation);
         tokio::spawn(async move { sweep.claim_all().await });
     } else if config.is_production() {
         warn!(
-            "Per-server isolation is OFF: every game server runs as the daemon's user and can              read the node token, the node's TLS key and the other servers' files"
+            "Per-server isolation is OFF: every game server runs as the daemon's user and can \
+             read the node token, the node's TLS key and the other servers' files"
         );
     }
 

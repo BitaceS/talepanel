@@ -95,10 +95,23 @@ fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
 /// regain privileges through setuid binaries, and files it creates closed to
 /// others. HOME/USER point at the server's directory and account, which the
 /// JVM uses for `user.home` / `user.name` as a fallback.
+///
+/// The environment starts empty: only [`is_inherited_env`] variables of the
+/// daemon are passed on, so nothing the daemon was configured with (tokens,
+/// keys, DSNs under any name) reaches the server. Temp files go to the
+/// server's own `.tmp`, not the shared `/tmp`. Callers set their own
+/// variables after this.
 #[cfg(unix)]
 fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
     cmd.uid(id.uid);
     cmd.gid(id.gid);
+    cmd.env_clear();
+    for (key, value) in std::env::vars_os() {
+        if key.to_str().is_some_and(is_inherited_env) {
+            cmd.env(key, value);
+        }
+    }
+    cmd.env("TMPDIR", server_tmp_dir(data_path));
     cmd.env("HOME", data_path);
     cmd.env("USER", id.account_name());
     cmd.env("LOGNAME", id.account_name());
@@ -110,6 +123,16 @@ fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
+            // Processes and threads per server UID (every server has its
+            // own), so a fork bomb cannot take the node's PIDs. The JVM needs
+            // a few hundred threads; this leaves plenty of room.
+            let limit = libc::rlimit {
+                rlim_cur: SERVER_MAX_TASKS,
+                rlim_max: SERVER_MAX_TASKS,
+            };
+            if libc::setrlimit(libc::RLIMIT_NPROC, &limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
             libc::umask(0o007);
             Ok(())
         });
@@ -118,6 +141,21 @@ fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
 
 #[cfg(not(unix))]
 fn run_as(_: &mut Command, _: ServerIdentity, _: &str) {}
+
+/// RLIMIT_NPROC of an isolated server: processes plus threads of its UID.
+#[cfg(unix)]
+const SERVER_MAX_TASKS: libc::rlim_t = 4096;
+
+/// The server's private temp directory.
+fn server_tmp_dir(data_path: &str) -> std::path::PathBuf {
+    std::path::Path::new(data_path).join(".tmp")
+}
+
+/// Daemon variables an isolated server still gets: what the JVM and the
+/// shell need to find programs, locale and time zone.
+fn is_inherited_env(key: &str) -> bool {
+    matches!(key, "PATH" | "LANG" | "LANGUAGE" | "TZ" | "JAVA_HOME") || key.starts_with("LC_")
+}
 
 fn is_daemon_env(key: &str) -> bool {
     key.starts_with("TALEDAEMON_")
@@ -324,6 +362,7 @@ impl HytaleServerProcess {
             false
         };
 
+        let mut session_envs = Vec::new();
         let mut cmd = if is_dev_stub {
             info!(server_id = %self.server_id, "Using dev-mode stub (not a real JAR)");
             let mut c = Command::new("sh");
@@ -335,6 +374,13 @@ impl HytaleServerProcess {
 
             // JVM memory flags (match Pterodactyl egg: -Xms128M -Xmx${RAM}M)
             c.arg("-Xms128M");
+            if identity.is_some() {
+                // The JVM ignores TMPDIR; keep its temp files private too.
+                c.arg(format!(
+                    "-Djava.io.tmpdir={}",
+                    server_tmp_dir(&self.config.data_path).display()
+                ));
+            }
             if self.config.ram_limit_mb > 0 {
                 c.arg(format!("-Xmx{}M", self.config.ram_limit_mb));
             }
@@ -369,10 +415,27 @@ impl HytaleServerProcess {
             if let Some(gs) = session {
                 let (args, envs) = game_session_launch(gs);
                 c.args(args);
-                c.envs(envs);
+                session_envs = envs;
             }
             c
         };
+
+        if let Some(id) = identity {
+            // Created with the server's permissions, so it belongs to the
+            // server and a symlink planted at `.tmp` leads nowhere.
+            let tmp = server_tmp_dir(&self.config.data_path);
+            crate::userfs::run_blocking(Some(id), move || match std::fs::create_dir(&tmp) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+                Err(e) => Err(e),
+            })
+            .await
+            .and_then(|r| r)
+            .context("creating the server's temp directory")?;
+            run_as(&mut cmd, id, &self.config.data_path);
+            info!(server_id = %self.server_id, uid = id.uid, "Starting under the server's own UID");
+        }
+        cmd.envs(session_envs);
 
         // Hytale's built-in updater (0.6+) stages an update and exits with code
         // 8, expecting the official start.sh wrapper to swap files and restart.
@@ -383,11 +446,6 @@ impl HytaleServerProcess {
             if key.to_str().is_some_and(is_daemon_env) {
                 cmd.env_remove(key);
             }
-        }
-
-        if let Some(id) = identity {
-            run_as(&mut cmd, id, &self.config.data_path);
-            info!(server_id = %self.server_id, uid = id.uid, "Starting under the server's own UID");
         }
 
         cmd.current_dir(&self.config.data_path)
@@ -977,6 +1035,22 @@ mod tests {
         assert!(!is_daemon_env("HYTALE_SERVER_SESSION_TOKEN"));
         assert!(!is_daemon_env("JAVA_HOME"));
         assert!(!is_daemon_env("PATH"));
+    }
+
+    #[test]
+    fn isolated_servers_inherit_only_allowlisted_env() {
+        for key in ["PATH", "LANG", "LC_ALL", "TZ", "JAVA_HOME"] {
+            assert!(is_inherited_env(key), "{key}");
+        }
+        for key in [
+            "TALEDAEMON_NODE_TOKEN",
+            "AWS_SECRET_ACCESS_KEY",
+            "RCLONE_CONFIG_PASS",
+            "HOME",
+            "LD_PRELOAD",
+        ] {
+            assert!(!is_inherited_env(key), "{key}");
+        }
     }
 
     #[test]
