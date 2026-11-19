@@ -122,9 +122,12 @@ Content-Security-Policy: default-src 'self'
   - Prevents rogue nodes from impersonating registered ones
 
 ### Process Isolation
-- Done: each Hytale server process runs under its own UID/GID (`server_uid_base + n`, default from 200000), no supplementary groups, `no_new_privs`, umask 007 (`services/daemon/src/isolation.rs`)
-- Done: `/srv/taledaemon/servers/{server_id}/` belongs to that UID with mode 0700; `/srv/taledaemon` and `servers/` are 0711, everything else under the data root, the PKI dir and the config file are root-only
-- Done: files the daemon writes into a server directory are handed to the server afterwards by a walk that never follows symlinks and skips foreign hard links
+- Done: each Hytale server process runs under its own UID/GID (`server_uid_base + n`, default from 2000000, recorded by a high-water mark so UIDs are not reused), no supplementary groups, `no_new_privs`, umask 007, an allowlisted environment and a private `TMPDIR`/`java.io.tmpdir` (`services/daemon/src/isolation.rs`, `process/hytale.rs`)
+- Done: `/srv/taledaemon/servers/{server_id}/` belongs to that UID with mode 0700; `/srv/taledaemon` and `servers/` are 0711, everything else under the data root, the PKI dir and the config file are root-only, and the daemon runs with umask 077
+- Done: the daemon's file work inside a server directory (file API, mod and world commands, backup reads, restore and import extraction, plugin scan) runs with the server's fsuid/fsgid (`services/daemon/src/userfs.rs`), so the kernel refuses any path a racing server redirects with symlinks
+- Done: files root wrote (provisioning, upgrades) are handed to the server by an fd-based walk that never follows symlinks and skips foreign hard links
+- Done: at most 4096 processes and threads per server UID (`RLIMIT_NPROC`), so a fork bomb cannot exhaust the node's PIDs; `tini` as PID 1 reaps orphans
+- Done: leftover processes of a server UID are killed on stop, before start and before delete; a startup probe turns isolation off (or refuses, with `uid`) on file systems that ignore `chown`
 - Done: `cgroups` v2 for CPU limits
 - Open: `seccomp` profiles, a separate network namespace or container per server
 

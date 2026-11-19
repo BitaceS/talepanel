@@ -58,7 +58,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 | 6 | ~~**Server templates**~~ | Done (unreleased). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
 | 7 | **Release v0.13.0-beta** | Everything above is unreleased. Ship it with the screenshots and the demo; see `docs/marketing/LAUNCH-PLAN.md`. | S |
 | 8 | ~~**Docker-only demo**~~ | Done (unreleased): `docker compose -f examples/demo/compose.yml up -d --build` builds the images from source, so it works before v0.13. Once release images exist, the compose file can pull them instead of building. | — |
-| 9 | ~~**Per-server process isolation, step 1**~~ | Done (unreleased): own UID per server, 0700 data dir, root-only node files, ownership hand-over after daemon writes. Step 2 (container or seccomp per server) stays in Next #7. Needs one test on a node with a real Hytale server before the release. | — |
+| 9 | ~~**Per-server process isolation, step 1**~~ | Done (unreleased): own UID per server (not reused), 0700 data dir, root-only node files, daemon file work with the server's own file permissions, leftover processes killed, minimal environment. Step 2 (container or seccomp per server) stays in Next #7. Needs one test on a node with a real Hytale server before the release. | — |
 
 ### Next
 

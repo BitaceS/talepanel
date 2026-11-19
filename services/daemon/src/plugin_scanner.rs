@@ -131,22 +131,40 @@ fn scan_server_worlds(server_dir: &Path) -> (Vec<crate::api_client::ScannedWorld
     (worlds, read_active_world(server_dir))
 }
 
+/// Opens `path` only if it is a regular file and not a symlink, without
+/// blocking on a FIFO or device.
+fn open_regular_nofollow(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let f = opts.open(path)?;
+    if !f.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok(f)
+}
+
 /// Read the active world name from a server's `config.json` (`Defaults.World`).
 fn read_active_world(server_dir: &Path) -> String {
     let cfg_path = server_dir.join("config.json");
     // Bounded read of a regular file only: the file is tenant-controlled and
     // could be a symlink to /dev/zero or something huge.
-    let is_file = std::fs::symlink_metadata(&cfg_path)
-        .map(|m| m.is_file())
-        .unwrap_or(false);
+    // O_NOFOLLOW | O_NONBLOCK and a check on the opened file: a FIFO swapped
+    // in would otherwise block the scan of every server.
     let mut contents = Vec::new();
-    let read_ok = is_file
-        && std::fs::File::open(&cfg_path)
-            .and_then(|f| {
-                f.take(MAX_SERVER_CONFIG_BYTES + 1)
-                    .read_to_end(&mut contents)
-            })
-            .is_ok()
+    let read_ok = open_regular_nofollow(&cfg_path)
+        .and_then(|f| {
+            f.take(MAX_SERVER_CONFIG_BYTES + 1)
+                .read_to_end(&mut contents)
+        })
+        .is_ok()
         && contents.len() as u64 <= MAX_SERVER_CONFIG_BYTES;
     if read_ok {
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&contents) {
@@ -204,17 +222,37 @@ async fn scan_all_servers(api: &ApiClient, servers_dir: &str) {
             None => continue,
         };
 
-        // Scan universe/worlds and report worlds + the active world. Done first
-        // so it runs even for servers with no plugins.
-        let (worlds, active_world) = scan_server_worlds(&entry_path);
+        // Isolation: read the directory with its owner's file permissions,
+        // so a server swapping in symlinks cannot make the scan read
+        // node files or other servers' files.
+        let owner = entry
+            .metadata()
+            .ok()
+            .and_then(|md| crate::userfs::owner_identity(&md));
+        let scan_path = entry_path.clone();
+        let scanned = crate::userfs::run_blocking(owner, move || {
+            (
+                scan_server_worlds(&scan_path),
+                scan_server_plugins(&scan_path),
+            )
+        })
+        .await;
+        let ((worlds, active_world), plugins) = match scanned {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(%err, server_id = %server_id, "Could not scan the server directory");
+                continue;
+            }
+        };
+
+        // Report worlds + the active world first so it runs even for
+        // servers with no plugins.
         if !worlds.is_empty() {
             if let Err(err) = api.report_worlds(&server_id, &worlds, &active_world).await {
                 warn!(%err, server_id = %server_id, "Failed to report worlds to API");
             }
         }
 
-        // Scan mods/ and plugins/ directories.
-        let plugins = scan_server_plugins(&entry_path);
         if plugins.is_empty() {
             continue;
         }

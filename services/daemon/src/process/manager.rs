@@ -52,6 +52,10 @@ pub struct ProcessManager {
     /// the insert into `processes`, which spans awaits). Reserving here first
     /// makes two concurrent starts of one server impossible.
     starting: Arc<DashMap<String, ()>>,
+    /// Servers being provisioned. The downloader writes into the server
+    /// directory as root, so the server must not start (and run tenant code
+    /// racing those writes) until it is done.
+    provisioning: Arc<DashMap<String, ()>>,
     /// Lets background tasks (status watcher, restart timer) call back in.
     weak_self: Weak<ProcessManager>,
     /// Per-server UID isolation (off on non-root daemons).
@@ -103,6 +107,7 @@ impl ProcessManager {
             crash_history: DashMap::new(),
             pending_restarts: DashMap::new(),
             starting: Arc::new(DashMap::new()),
+            provisioning: Arc::new(DashMap::new()),
             weak_self: weak_self.clone(),
         })
     }
@@ -143,6 +148,11 @@ impl ProcessManager {
         };
         if self.processes.contains_key(&server_id) {
             bail!("Server {server_id} is already registered in the process manager");
+        }
+        // Checked after the reservation; provisioning marks itself before it
+        // checks `starting`, so one of the two always sees the other.
+        if self.provisioning.contains_key(&server_id) {
+            bail!("Server {server_id} is being installed; start it when that has finished");
         }
 
         // Enforce the configured max-server cap, counting starts in progress
@@ -295,6 +305,22 @@ impl ProcessManager {
         if reinstall && self.processes.contains_key(&server_id) {
             bail!("server {server_id} is running — stop it before reinstalling");
         }
+        // Isolation: provisioning writes into the server directory as root,
+        // so no process of the server may run while it does. Marked before
+        // the checks; start_process checks in the opposite order.
+        let Some(provisioning) = StartReservation::try_reserve(&self.provisioning, &server_id)
+        else {
+            bail!("server {server_id} is already being installed");
+        };
+        if self.isolation.is_enabled()
+            && (self.processes.contains_key(&server_id) || self.starting.contains_key(&server_id))
+        {
+            bail!("server {server_id} is running — stop it before installing");
+        }
+        self.isolation
+            .kill_leftovers(&server_id)
+            .await
+            .context("killing the server's leftover processes before provisioning")?;
 
         let api_client = Arc::clone(&self.api_client);
         let data_root = self.config.daemon.data_root.clone();
@@ -544,6 +570,7 @@ done
             if let Err(e) = isolation.repair(&isolated_id).await {
                 warn!(server_id = %isolated_id, error = %e, "Could not hand the provisioned files to the server's user");
             }
+            drop(provisioning);
         });
 
         Ok(())
@@ -865,6 +892,27 @@ done
         }
     }
 
+    /// Isolation: kills whatever a server that has stopped left running
+    /// under its UID (a plugin can start detached processes), so nothing of
+    /// it keeps running or racing the daemon's file work while it is down.
+    /// Skipped when a start of the same server is under way. A start that
+    /// begins after this check waits for the kill: both hold the server's
+    /// isolation lock, and the JVM is spawned only after `prepare` returns.
+    async fn reap_leftovers(&self, server_id: &str) {
+        if self.starting.contains_key(server_id) || self.processes.contains_key(server_id) {
+            return;
+        }
+        match self.isolation.kill_leftovers(server_id).await {
+            Ok(0) => {}
+            Ok(killed) => {
+                warn!(%server_id, killed, "Killed processes the stopped server left running")
+            }
+            Err(e) => {
+                warn!(%server_id, error = %format!("{e:#}"), "Could not kill the stopped server's leftover processes")
+            }
+        }
+    }
+
     /// Spawn a background task that watches for status transitions on the
     /// process's watch channel and reports each one to the TalePanel API.
     ///
@@ -930,6 +978,9 @@ done
                             status_watcher_handles.remove(&server_id);
                             info!(%server_id, %new_status,
                                 "Process removed from registry (terminal state)");
+                            if let Some(mgr) = weak_self.upgrade() {
+                                mgr.reap_leftovers(&server_id).await;
+                            }
                             if new_status == super::ServerStatus::Crashed {
                                 if let Some(mgr) = weak_self.upgrade() {
                                     mgr.handle_crash(&server_id, &process).await;

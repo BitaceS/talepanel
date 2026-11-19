@@ -89,6 +89,28 @@ async fn poll_and_dispatch(
             }
         }
 
+        // Per-server isolation: the server owns its directory and may swap
+        // entries in it at any time, so file commands run with its file
+        // permissions rather than as root.
+        let server_user = if touches_server_files(command_type) {
+            match process_manager.isolation().identity_for(&server_id).await {
+                Ok(id) => id,
+                Err(err) => {
+                    warn!(%server_id, %command_type, error = %format!("{err:#}"),
+                        "Could not determine the server's user");
+                    let result = CommandResult::err(format!(
+                        "{command_type}: server directory is not available"
+                    ));
+                    if let Err(err) = api_client.ack_command(&command_id, result).await {
+                        warn!(%command_id, %err, "Failed to ack command");
+                    }
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+
         let result = match command_type {
             "start" => {
                 // The payload must deserialise into a `ServerConfig`.
@@ -184,7 +206,11 @@ async fn poll_and_dispatch(
                 } else if !is_safe_mod_filename(&filename) {
                     CommandResult::err(format!("install_mod: unsafe filename {filename}"))
                 } else {
-                    match download_and_install_mod(&download_url, &data_path, &filename).await {
+                    let (u, d, f) = (download_url.clone(), data_path.clone(), filename.clone());
+                    let install = as_server(server_user, async move {
+                        download_and_install_mod(&u, &d, &f).await
+                    });
+                    match install.await {
                         Ok(()) => {
                             info!(%filename, "Mod installed");
                             CommandResult::ok(format!("Installed mod {filename}"))
@@ -227,7 +253,7 @@ async fn poll_and_dispatch(
                 } else {
                     let (dp, f, d) = (data_path.clone(), filename.clone(), dir.clone());
                     let op = cmd.to_string();
-                    tokio::task::spawn_blocking(move || match op.as_str() {
+                    crate::userfs::run_blocking(server_user, move || match op.as_str() {
                         "remove_mod" => remove_mod_file(std::path::Path::new(&dp), &d, &f),
                         "enable_mod" => set_mod_enabled(std::path::Path::new(&dp), &d, &f, true),
                         _ => set_mod_enabled(std::path::Path::new(&dp), &d, &f, false),
@@ -274,7 +300,10 @@ async fn poll_and_dispatch(
                 } else if !is_safe_world_name(&world) {
                     CommandResult::err(format!("set_active_world: unsafe world name {world}"))
                 } else {
-                    match write_active_world(&data_path, &world).await {
+                    let (d, w) = (data_path.clone(), world.clone());
+                    match as_server(server_user, async move { write_active_world(&d, &w).await })
+                        .await
+                    {
                         Ok(()) => {
                             info!(%server_id, %world, "Active world written to config.json");
                             CommandResult::ok(format!(
@@ -308,7 +337,10 @@ async fn poll_and_dispatch(
                 } else if !is_safe_world_name(&world) {
                     CommandResult::err(format!("delete_world: unsafe world name {world}"))
                 } else {
-                    match delete_world_dir(&data_path, &world).await {
+                    let (d, w) = (data_path.clone(), world.clone());
+                    match as_server(server_user, async move { delete_world_dir(&d, &w).await })
+                        .await
+                    {
                         Ok(true) => {
                             info!(%server_id, %world, "World directory deleted");
                             CommandResult::ok(format!("Deleted world {world}"))
@@ -345,7 +377,12 @@ async fn poll_and_dispatch(
                         "write_mod_config payload missing required fields".to_string(),
                     )
                 } else {
-                    match write_mod_config_file(&data_path, &config).await {
+                    let d = data_path.clone();
+                    match as_server(server_user, async move {
+                        write_mod_config_file(&d, &config).await
+                    })
+                    .await
+                    {
                         Ok(()) => {
                             info!(%server_id, "Network mod config written");
                             CommandResult::ok(format!("Network config written for {server_id}"))
@@ -369,14 +406,6 @@ async fn poll_and_dispatch(
             }
         };
 
-        // Per-server isolation: files these commands wrote belong to root
-        // until they are handed to the server's own UID.
-        if writes_server_files(command_type) {
-            if let Err(err) = process_manager.isolation().repair(&server_id).await {
-                warn!(%server_id, %command_type, %err, "Could not hand written files to the server's user");
-            }
-        }
-
         // Always acknowledge, even on failure, so the API does not retry
         // indefinitely for commands the daemon does not support.
         if let Err(err) = api_client.ack_command(&command_id, result).await {
@@ -385,8 +414,9 @@ async fn poll_and_dispatch(
     }
 }
 
-/// Commands that create or change files in the server's directory.
-fn writes_server_files(command_type: &str) -> bool {
+/// Commands that read or change files in the server's directory. They run
+/// with the server's file permissions (see `userfs`).
+fn touches_server_files(command_type: &str) -> bool {
     matches!(
         command_type,
         "install_mod"
@@ -394,8 +424,18 @@ fn writes_server_files(command_type: &str) -> bool {
             | "enable_mod"
             | "disable_mod"
             | "set_active_world"
+            | "delete_world"
             | "write_mod_config"
     )
+}
+
+/// Runs `fut` with the server's file permissions and flattens the result.
+async fn as_server<T, F>(id: Option<crate::isolation::ServerIdentity>, fut: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    crate::userfs::run_async(id, fut).await?
 }
 
 /// Hard cap on a single mod download. The body is streamed to disk and the

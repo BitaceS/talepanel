@@ -55,9 +55,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gnupg \
         nftables \
         conntrack \
+        tini \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /etc/taledaemon /srv/taledaemon/servers /srv/taledaemon/downloads /srv/taledaemon/tools \
-    && chmod -R 777 /srv/taledaemon
+    && chmod 0711 /srv/taledaemon /srv/taledaemon/servers \
+    && chmod 0700 /srv/taledaemon/downloads /srv/taledaemon/tools
 
 # Install Eclipse Temurin JRE 25 (current Hytale server builds target Java 25 /
 # class file version 69.0; Java 21 only reaches 65.0 and fails to load them).
@@ -93,4 +95,6 @@ COPY --from=builder /build/target/release/taledaemon /usr/local/bin/taledaemon
 
 EXPOSE 8444
 
-ENTRYPOINT ["/usr/local/bin/taledaemon"]
+# tini as PID 1 reaps processes that game servers orphan (and that the daemon
+# kills when a server stops), so they do not pile up as zombies.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/taledaemon"]

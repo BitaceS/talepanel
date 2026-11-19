@@ -23,6 +23,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
+use crate::isolation::ServerIdentity;
 use crate::net_monitor::NetMonitor;
 use crate::pki::LoadedPki;
 use crate::process::{hytale::ServerConfig, ProcessManager, ServerStatus};
@@ -284,6 +285,20 @@ async fn delete_server_data(
 
     // Best-effort kill — ignore "not running" errors.
     let _ = state.process_manager.kill_server(&server_id).await;
+    // Isolation: also whatever the server started on its own, so nothing of
+    // it survives the delete.
+    if let Err(e) = state
+        .process_manager
+        .isolation()
+        .kill_leftovers(&server_id)
+        .await
+    {
+        warn!(%server_id, error = %format!("{e:#}"), "Could not kill the server's leftover processes");
+        return ActionResponse::err(
+            "processes of the server are still running; data not removed, try again",
+        )
+        .into_response();
+    }
 
     let data_path = std::path::PathBuf::from(&state.servers_base_dir).join(&server_id);
 
@@ -893,6 +908,23 @@ fn path_error(status: StatusCode, msg: &str) -> PathError {
 /// them usable as a single, inert path component.
 pub(crate) fn valid_server_id(id: &str) -> bool {
     id.len() == 36 && uuid::Uuid::try_parse(id).is_ok()
+}
+
+/// The identity to do file work in `server_id`'s directory with (`None`
+/// when isolation is off), or an error response.
+async fn server_identity(
+    state: &AppState,
+    server_id: &str,
+) -> Result<Option<ServerIdentity>, Box<axum::response::Response>> {
+    state
+        .process_manager
+        .isolation()
+        .identity_for(server_id)
+        .await
+        .map_err(|e| {
+            warn!(%server_id, error = %format!("{e:#}"), "Could not determine the server's user");
+            Box::new(ActionResponse::err("server directory is not available").into_response())
+        })
 }
 
 /// Resolve a relative `user_path` within the server's base directory, ensuring
@@ -1977,7 +2009,14 @@ fn backup_archive_path(backups_base_dir: &str, server_id: &str, backup_id: &str)
 /// Recursively zip a directory into `archive_path`. Blocking; call under spawn_blocking.
 /// Symlinks inside `source` are skipped, never followed: a tenant link to
 /// `/etc` or another server's directory must not end up in the backup.
-fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Result<u64, String> {
+///
+/// `as_server` (isolation): the tree is read with the server's file
+/// permissions, the archive is written as the daemon.
+fn zip_dir_to(
+    source: &std::path::Path,
+    archive_path: &std::path::Path,
+    as_server: Option<ServerIdentity>,
+) -> Result<u64, String> {
     if let Some(parent) = archive_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create backup dir: {e}"))?;
     }
@@ -1985,6 +2024,9 @@ fn zip_dir_to(source: &std::path::Path, archive_path: &std::path::Path) -> Resul
         .compression_method(zip::CompressionMethod::Deflated);
 
     safe_fs::write_atomic(archive_path, |file| {
+        // The archive file is already open; only reading the tree needs the
+        // server's permissions. Dropped before write_atomic renames as root.
+        let _as_server = crate::userfs::FsUserGuard::enter(as_server)?;
         let mut zip_writer = zip::ZipWriter::new(&mut *file);
         safe_fs::zip_tree(&mut zip_writer, source, source, options, &[])
             .and_then(|_| {
@@ -2048,15 +2090,16 @@ fn write_backup_archive(
     source: &std::path::Path,
     archive_path: &std::path::Path,
     enc: Option<(&[u8; 32], u8)>,
+    as_server: Option<ServerIdentity>,
 ) -> Result<u64, String> {
     let Some((key, key_id)) = enc else {
-        return zip_dir_to(source, archive_path);
+        return zip_dir_to(source, archive_path, as_server);
     };
     if let Some(parent) = archive_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create backup dir: {e}"))?;
     }
     let tmp = archive_path.with_extension(format!("plain-{}", uuid::Uuid::new_v4()));
-    zip_dir_to(source, &tmp)?;
+    zip_dir_to(source, &tmp, as_server)?;
     let encrypted = match std::fs::File::open(&tmp) {
         Ok(infile) => safe_fs::write_atomic(archive_path, |out| {
             crate::backup_crypto::encrypt_stream(infile, out, key, key_id)
@@ -2140,12 +2183,16 @@ async fn create_backup(
             .into_response();
     }
 
+    let as_server = match server_identity(&state, &server_id).await {
+        Ok(id) => id,
+        Err(resp) => return *resp,
+    };
     let archive_path = backup_archive_path(&state.backups_base_dir, &server_id, &req.backup_id);
     let storage_path = archive_path.to_string_lossy().to_string();
 
     let result = tokio::task::spawn_blocking(move || {
         let enc_ref = enc.as_ref().map(|(k, id)| (k, *id));
-        write_backup_archive(&source, &archive_path, enc_ref)
+        write_backup_archive(&source, &archive_path, enc_ref, as_server)
     })
     .await;
 
@@ -2221,13 +2268,23 @@ async fn restore_backup(
         Err(resp) => return *resp,
     };
     let scratch = PathBuf::from(&state.backups_base_dir).join(".decrypt");
+    let as_server = match server_identity(&state, &server_id).await {
+        Ok(id) => id,
+        Err(resp) => return *resp,
+    };
 
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         // Decrypt into a scratch plaintext zip first if the archive is encrypted.
         let (plain_path, _guard) = open_plaintext_archive(&source, key.as_ref(), &scratch)?;
         let file = std::fs::File::open(&plain_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read archive: {e}"))?;
-        let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
+        // The archive is open; extracting into the server dir runs with the
+        // server's permissions. Scoped so root removes the scratch file.
+        let stats = {
+            let _as_server = crate::userfs::FsUserGuard::enter(as_server)
+                .map_err(|e| format!("switch to the server's user: {e}"))?;
+            safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?
+        };
         Ok(stats.written)
     })
     .await;
@@ -2714,10 +2771,19 @@ async fn import_server(
         }
     };
 
+    let as_server = match server_identity(&state, &server_id).await {
+        Ok(id) => id,
+        Err(resp) => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return *resp;
+        }
+    };
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         let file = std::fs::File::open(&archive_path).map_err(|e| format!("open archive: {e}"))?;
         let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
             .map_err(|e| format!("read archive: {e}"))?;
+        let _as_server = crate::userfs::FsUserGuard::enter(as_server)
+            .map_err(|e| format!("switch to the server's user: {e}"))?;
         let stats = safe_fs::extract_zip(&mut archive, &dest, safe_fs::ExtractLimits::default())?;
         Ok(stats.written)
     })
@@ -2845,44 +2911,62 @@ async fn auth_middleware(
     }
 }
 
-/// Per-server isolation: after a request that wrote into a server's
-/// directory, hand what the daemon (root) created there to the server's own
-/// UID, so the running server can change it. Runs on failures too, since a
-/// failed upload or extract can leave partial files behind.
-async fn isolation_repair(
+/// Per-server isolation: the file API of a server runs with that server's
+/// file permissions (see `userfs`). A running server can swap any entry in
+/// its directory for a symlink at any moment; with its own permissions the
+/// kernel refuses whatever such a link points at, so the daemon cannot be
+/// steered into reading or writing node files or other servers' files.
+/// Files created this way belong to the server from the start.
+async fn files_as_server(
     State(state): State<AppState>,
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let target = writes_server_files(req.method(), req.uri().path());
-    let response = next.run(req).await;
-    if let Some(server_id) = target {
-        if let Err(e) = state.process_manager.isolation().repair(&server_id).await {
-            warn!(%server_id, error = %e, "Could not hand written files to the server's user");
+    let server_id = match file_route_server(req.uri().path()) {
+        FileRoute::NotFiles => return next.run(req).await,
+        FileRoute::Server(id) => id,
+        // Percent-encoded or otherwise odd ids would reach the handler
+        // decoded but skip the switch here; refuse them outright.
+        FileRoute::BadId => {
+            return (StatusCode::BAD_REQUEST, "invalid server id").into_response();
+        }
+    };
+    let identity = match server_identity(&state, &server_id).await {
+        Ok(id) => id,
+        Err(resp) => return *resp,
+    };
+    match crate::userfs::run_async(identity, next.run(req)).await {
+        Ok(response) => response,
+        Err(e) => {
+            warn!(%server_id, error = %e, "File request could not run as the server's user");
+            ActionResponse::err("file request failed").into_response()
         }
     }
-    response
 }
 
-/// The server whose directory a request writes into, if it does.
-fn writes_server_files(method: &axum::http::Method, path: &str) -> Option<String> {
-    if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
-        return None;
+#[derive(Debug, PartialEq)]
+enum FileRoute {
+    NotFiles,
+    Server(String),
+    BadId,
+}
+
+/// The server whose file API a request uses (`/servers/:id/files...`).
+fn file_route_server(path: &str) -> FileRoute {
+    let Some((id, tail)) = path
+        .strip_prefix("/servers/")
+        .and_then(|rest| rest.split_once('/'))
+    else {
+        return FileRoute::NotFiles;
+    };
+    if tail != "files" && !tail.starts_with("files/") {
+        return FileRoute::NotFiles;
     }
-    let (id, tail) = path.strip_prefix("/servers/")?.split_once('/')?;
-    let writes = matches!(
-        tail,
-        "files"
-            | "files/content"
-            | "files/directory"
-            | "files/rename"
-            | "files/upload"
-            | "files/extract"
-            | "files/archive"
-            | "backup/restore"
-            | "import"
-    );
-    (writes && valid_server_id(id)).then(|| id.to_string())
+    if valid_server_id(id) {
+        FileRoute::Server(id.to_string())
+    } else {
+        FileRoute::BadId
+    }
 }
 
 /// Catch-all 404 handler.
@@ -2947,10 +3031,10 @@ pub fn build_router(state: AppState) -> Router {
             // A whole server archive: streamed to disk, capped at 2 GiB.
             post(import_server).layer(axum::extract::DefaultBodyLimit::disable()),
         )
-        // Inside auth: only authenticated writes trigger the ownership walk.
+        // Inside auth: unauthenticated requests never reach a server's files.
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            isolation_repair,
+            files_as_server,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -3278,7 +3362,8 @@ mod tests {
 
         let key = [42u8; 32];
         let archive = dir.join("enc.zip");
-        write_backup_archive(&source, &archive, Some((&key, 3))).expect("write encrypted archive");
+        write_backup_archive(&source, &archive, Some((&key, 3)), None)
+            .expect("write encrypted archive");
 
         // On disk it is encrypted — a header-tagged blob, not a readable zip.
         assert!(archive_is_encrypted(&archive).unwrap());
@@ -3307,7 +3392,7 @@ mod tests {
 
         // A plaintext archive still works and reports not-encrypted; no key needed.
         let plain_archive = dir.join("plain.zip");
-        write_backup_archive(&source, &plain_archive, None).expect("write plain archive");
+        write_backup_archive(&source, &plain_archive, None, None).expect("write plain archive");
         assert!(!archive_is_encrypted(&plain_archive).unwrap());
         let (p2, guard2) = open_plaintext_archive(&plain_archive, None, &dir.join("scratch3"))
             .expect("open plain");
@@ -3561,7 +3646,7 @@ mod tests {
 
         let out_dir = scratch_dir("zip-out");
         let out = out_dir.join("b.zip");
-        zip_dir_to(&src, &out).unwrap();
+        zip_dir_to(&src, &out, None).unwrap();
 
         let archive = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
         let names: Vec<&str> = archive.file_names().collect();
@@ -4080,5 +4165,33 @@ mod tests {
             assert_eq!(resp.status().as_u16(), 404);
             let _ = std::fs::remove_dir_all(&base);
         }
+    }
+}
+
+#[cfg(test)]
+mod file_route_tests {
+    use super::{file_route_server, FileRoute};
+
+    #[test]
+    fn file_routes_are_recognised_and_odd_ids_refused() {
+        let id = "123e4567-e89b-12d3-a456-426614174000";
+        assert_eq!(
+            file_route_server(&format!("/servers/{id}/files")),
+            FileRoute::Server(id.into())
+        );
+        assert_eq!(
+            file_route_server(&format!("/servers/{id}/files/content")),
+            FileRoute::Server(id.into())
+        );
+        assert_eq!(
+            file_route_server(&format!("/servers/{id}/start")),
+            FileRoute::NotFiles
+        );
+        assert_eq!(file_route_server("/health"), FileRoute::NotFiles);
+        // Percent-encoded id: axum would decode it for the handler.
+        assert_eq!(
+            file_route_server("/servers/%31%323e4567-e89b-12d3-a456-426614174000/files/content"),
+            FileRoute::BadId
+        );
     }
 }

@@ -161,8 +161,11 @@ impl DaemonConfig {
     pub fn default_server_isolation() -> String {
         "auto".to_string()
     }
+    /// Above the subordinate UID ranges hosts hand to users (from 100000 in
+    /// steps of 65536) and below 2097151, the largest UID tar's ustar format
+    /// stores.
     pub fn default_server_uid_base() -> u32 {
-        200_000
+        2_000_000
     }
     fn default_pki_dir(data_root: &str) -> String {
         format!("{}/pki", data_root.trim_end_matches('/'))
@@ -270,7 +273,7 @@ impl Config {
     ///   TALEDAEMON_ALLOW_LEGACY_BEARER  (default true)
     ///   TALEDAEMON_REQUIRE_MTLS         (default false)
     ///   TALEDAEMON_SERVER_ISOLATION     (auto | uid | off, default auto)
-    ///   TALEDAEMON_SERVER_UID_BASE      (default 200000)
+    ///   TALEDAEMON_SERVER_UID_BASE      (default 2000000)
     pub fn from_env() -> Result<Self> {
         let node_id = std::env::var("TALEDAEMON_NODE_ID")
             .context("TALEDAEMON_NODE_ID is required when no config file is present")?;
