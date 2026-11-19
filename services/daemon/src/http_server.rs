@@ -2845,6 +2845,46 @@ async fn auth_middleware(
     }
 }
 
+/// Per-server isolation: after a request that wrote into a server's
+/// directory, hand what the daemon (root) created there to the server's own
+/// UID, so the running server can change it. Runs on failures too, since a
+/// failed upload or extract can leave partial files behind.
+async fn isolation_repair(
+    State(state): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let target = writes_server_files(req.method(), req.uri().path());
+    let response = next.run(req).await;
+    if let Some(server_id) = target {
+        if let Err(e) = state.process_manager.isolation().repair(&server_id).await {
+            warn!(%server_id, error = %e, "Could not hand written files to the server's user");
+        }
+    }
+    response
+}
+
+/// The server whose directory a request writes into, if it does.
+fn writes_server_files(method: &axum::http::Method, path: &str) -> Option<String> {
+    if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
+        return None;
+    }
+    let (id, tail) = path.strip_prefix("/servers/")?.split_once('/')?;
+    let writes = matches!(
+        tail,
+        "files"
+            | "files/content"
+            | "files/directory"
+            | "files/rename"
+            | "files/upload"
+            | "files/extract"
+            | "files/archive"
+            | "backup/restore"
+            | "import"
+    );
+    (writes && valid_server_id(id)).then(|| id.to_string())
+}
+
 /// Catch-all 404 handler.
 async fn not_found() -> impl IntoResponse {
     (
@@ -2907,6 +2947,11 @@ pub fn build_router(state: AppState) -> Router {
             // A whole server archive: streamed to disk, capped at 2 GiB.
             post(import_server).layer(axum::extract::DefaultBodyLimit::disable()),
         )
+        // Inside auth: only authenticated writes trigger the ownership walk.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            isolation_repair,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -3615,6 +3660,8 @@ mod tests {
                     pki_dir: "/nonexistent/pki".into(),
                     allow_legacy_bearer: true,
                     require_mtls: false,
+                    server_isolation: "off".into(),
+                    server_uid_base: DaemonConfig::default_server_uid_base(),
                 },
                 resources: ResourcesConfig::default(),
                 hytale: HytaleConfig::default(),
@@ -3626,7 +3673,13 @@ mod tests {
                 false,
             ));
             AppState {
-                process_manager: ProcessManager::new(api, Arc::new(config)),
+                process_manager: ProcessManager::new(
+                    api,
+                    Arc::new(config),
+                    Arc::new(crate::isolation::Isolation::disabled(
+                        "/nonexistent/servers",
+                    )),
+                ),
                 node_id: NODE_ID.into(),
                 node_token: TOKEN.into(),
                 servers_base_dir: "/nonexistent/servers".into(),

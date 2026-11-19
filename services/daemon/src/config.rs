@@ -129,6 +129,17 @@ pub struct DaemonConfig {
     /// panel-CA client certificate. Overrides `allow_legacy_bearer`.
     #[serde(default)]
     pub require_mtls: bool,
+
+    /// Per-server process isolation: `auto` (default: on when the daemon runs
+    /// as root on Linux, off otherwise), `uid` (required; startup fails when it
+    /// is not possible) or `off`. With isolation every game server runs under
+    /// its own unprivileged UID; see `isolation.rs`.
+    #[serde(default = "DaemonConfig::default_server_isolation")]
+    pub server_isolation: String,
+
+    /// First UID/GID handed to game servers (one per server, counting up).
+    #[serde(default = "DaemonConfig::default_server_uid_base")]
+    pub server_uid_base: u32,
 }
 
 impl DaemonConfig {
@@ -146,6 +157,12 @@ impl DaemonConfig {
     }
     fn default_allow_legacy_bearer() -> bool {
         true
+    }
+    pub fn default_server_isolation() -> String {
+        "auto".to_string()
+    }
+    pub fn default_server_uid_base() -> u32 {
+        200_000
     }
     fn default_pki_dir(data_root: &str) -> String {
         format!("{}/pki", data_root.trim_end_matches('/'))
@@ -252,6 +269,8 @@ impl Config {
     ///   TALEDAEMON_PKI_DIR              (default `{data_root}/pki`)
     ///   TALEDAEMON_ALLOW_LEGACY_BEARER  (default true)
     ///   TALEDAEMON_REQUIRE_MTLS         (default false)
+    ///   TALEDAEMON_SERVER_ISOLATION     (auto | uid | off, default auto)
+    ///   TALEDAEMON_SERVER_UID_BASE      (default 200000)
     pub fn from_env() -> Result<Self> {
         let node_id = std::env::var("TALEDAEMON_NODE_ID")
             .context("TALEDAEMON_NODE_ID is required when no config file is present")?;
@@ -314,6 +333,16 @@ impl Config {
             .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
             .unwrap_or(false);
 
+        let server_isolation = std::env::var("TALEDAEMON_SERVER_ISOLATION")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(DaemonConfig::default_server_isolation);
+
+        let server_uid_base = std::env::var("TALEDAEMON_SERVER_UID_BASE")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(DaemonConfig::default_server_uid_base());
+
         Ok(Config {
             daemon: DaemonConfig {
                 node_id,
@@ -328,6 +357,8 @@ impl Config {
                 pki_dir,
                 allow_legacy_bearer,
                 require_mtls,
+                server_isolation,
+                server_uid_base,
             },
             resources: ResourcesConfig {
                 max_servers,
@@ -371,6 +402,8 @@ mod tests {
                 pki_dir: DaemonConfig::default_pki_dir(&DaemonConfig::default_data_root()),
                 allow_legacy_bearer: DaemonConfig::default_allow_legacy_bearer(),
                 require_mtls: false,
+                server_isolation: DaemonConfig::default_server_isolation(),
+                server_uid_base: DaemonConfig::default_server_uid_base(),
             },
             resources: ResourcesConfig::default(),
             hytale: HytaleConfig::default(),
