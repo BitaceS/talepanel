@@ -57,7 +57,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 | 5 | ~~**2FA backup codes**~~ | Done (unreleased). | — |
 | 6 | ~~**Server templates**~~ | Done (unreleased). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
 | 7 | **Release v0.13.0-beta** | Everything above is unreleased. Ship it with the screenshots and the demo; see `docs/marketing/LAUNCH-PLAN.md`. | S |
-| 8 | **Docker-only demo** (`docker compose -f examples/demo/compose.yml up`) | The demo needs Go, Rust and Node today. A compose file using the released images with `TALEDAEMON_ALLOW_DEV_STUB=1` would make "try it" a one-liner for everyone. Needs the images from v0.13. | S–M |
+| 8 | ~~**Docker-only demo**~~ | Done (unreleased): `docker compose -f examples/demo/compose.yml up -d --build` builds the images from source, so it works before v0.13. Once release images exist, the compose file can pull them instead of building. | — |
 | 9 | **Per-server process isolation, step 1** (dedicated UID per server) | Biggest open security gap; see Next #7. | L |
 
 ### Next

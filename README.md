@@ -22,7 +22,7 @@ Built by [BitaceS](https://github.com/BitaceS) · AGPL-3.0 · free, forever
   <img src="docs/images/create-from-template.png" alt="Creating a Hytale server from a template" width="49%">
 </p>
 
-**Try it in five minutes, without a server:** [`examples/demo`](examples/demo/) runs the whole panel on your machine with simulated Hytale servers.
+**Try it in five minutes, without a server:** [`examples/demo`](examples/demo/) runs the whole panel on your machine with simulated Hytale servers. All it needs is Docker: `docker compose -f examples/demo/compose.yml up -d --build`.
 
 ---
 
