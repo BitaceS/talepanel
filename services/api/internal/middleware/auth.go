@@ -23,7 +23,8 @@ const (
 
 // AuthRequired validates the Bearer JWT token in the Authorization header,
 // checks the token JTI against the Redis blacklist, loads the user from the
-// database, and stores the user in the Gin context.
+// database, and stores the user in the Gin context. A bearer token starting
+// with "tp_" is an API key instead (see authenticateAPIKey).
 func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -39,6 +40,10 @@ func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string) gin.Han
 		}
 
 		tokenStr := parts[1]
+		if models.IsAPIKey(tokenStr) {
+			authenticateAPIKey(c, db, tokenStr)
+			return
+		}
 
 		// Parse and validate the JWT.
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {

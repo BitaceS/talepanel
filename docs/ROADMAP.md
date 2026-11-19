@@ -68,7 +68,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 | 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (unreleased): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
 | 9 | ~~**Scheduled tasks beyond backups**~~ | Done (unreleased): restart, command, broadcast. | — |
 | 10 | **Login notification emails** (new device / IP) | Open box in `production-hardening.md`; SMTP is already configurable. | S–M |
-| 11 | **API keys for automation** (scoped, hashed) | Pterodactyl's client API is a reason hosters choose it; KyuubiSoft advertises API keys. `security-architecture.md` already mentions hashed API keys. | M |
+| 11 | ~~**API keys for automation** (scoped, hashed)~~ | Done (unreleased): per-user keys with scopes (power, console, manage, backups, players; read always), optional server list, expiry, last use, revoke; SHA-256 hashed; explicit route allowlist, no account/admin/node access. Next step, if hosters ask: admin-scoped keys for user and server provisioning. | — |
 | 12 | **Performance graphs per server** (CPU, RAM, players over time) | Metrics are collected (and now correct); the node has `node_metrics`, servers need a small time series + chart. | M |
 | 13 | **Modtale as a second mod source** | Ketbome, nebula and KyuubiSoft support Modtale besides CurseForge. Same install path as CurseForge. | M |
 | 14 | **Panel CA rotation and certificate renewal while running** | `SECURITY.md` known limitation. | M |

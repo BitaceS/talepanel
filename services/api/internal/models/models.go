@@ -58,6 +58,10 @@ type User struct {
 	AvatarURL    *string    `json:"avatar_url,omitempty"`
 	Language     string     `json:"language,omitempty"`
 	Timezone     string     `json:"timezone,omitempty"`
+
+	// APIKey is set when the request authenticated with an API key; the
+	// permission checks then also apply the key's scopes and servers.
+	APIKey *APIKeyAuth `json:"-"`
 }
 
 // Session represents an active refresh-token session stored in the database.
