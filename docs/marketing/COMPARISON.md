@@ -80,7 +80,7 @@ Be aware of these before you choose:
 - **One Hytale server on one machine, mostly just you** → any of the Docker panels works. Ketbome's HytalePanel has the most polished update flow; KyuubiSoft has the richest feature list for a single host (roles, API keys, web push). Check the licenses if money is involved.
 - **You want an in-server dashboard, no separate panel** → a plugin-style dashboard like VoxelDash (check that a Hytale build exists first).
 - **Several Hytale servers across more than one machine, friends or staff with limited rights, and backups you can trust** → TalePanel. That's what it's built for: enrollment-token nodes with mutual TLS, per-server roles, audit log, encrypted off-site backups, and a hub network with `/play`.
-- **You are a hosting provider and want a Hytale-specific panel without license fees** → TalePanel (AGPL-3.0, no paid tier) or KyuubiSoft (GPL-3.0); not Ketbome's panel without a commercial agreement. Weigh TalePanel's isolation (a Linux user per server from the next release, no container per server) against your threat model.
+- **You are a hosting provider and want a Hytale-specific panel without license fees** → TalePanel (AGPL-3.0, no paid tier) or KyuubiSoft (GPL-3.0); not Ketbome's panel without a commercial agreement. Weigh TalePanel's isolation (a Linux user per server, no container per server) against your threat model.
 
 ## Sources
 
