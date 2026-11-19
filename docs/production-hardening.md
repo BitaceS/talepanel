@@ -5,7 +5,7 @@
 - [ ] **TLS everywhere** — terminate at load balancer or Caddy/Nginx, no HTTP in production
 - [ ] **PostgreSQL SSL** — `sslmode=require` in DATABASE_URL
 - [ ] **Redis TLS** — `rediss://` scheme, require AUTH
-- [ ] **Daemon mTLS** — deploy with mutual TLS certificates issued by API CA
+- [x] **Daemon mTLS** — on by default since v0.14; the panel issues the certificates. Do not set `TALEDAEMON_REQUIRE_MTLS=0` unless a panel older than v0.12 must reach the node
 - [ ] **Private network** — API, DB and Redis should NOT be publicly exposed; only the web panel/API reverse proxy should be
 
 ## Secrets
@@ -18,10 +18,10 @@
 
 ## Authentication
 
-- [ ] **Enforce 2FA for admin/owner accounts** — make TOTP required for privileged roles
+- [ ] **Enforce 2FA for admin/owner accounts** — set up 2FA on your own owner account, then Admin → Integrations → Require 2FA for admins
 - [ ] **Set strict password policy** — min 12 chars, complexity requirements in production
 - [ ] **Review session lifetime** — adjust JWT_EXPIRY and refresh TTL for your security policy
-- [ ] **Enable login notification emails** — alert users on new session from unknown IP
+- [ ] **Enable login notification emails** — configure SMTP (Admin → Integrations); new-device sign-in emails are then on for every user unless they opt out
 
 ## API Hardening
 

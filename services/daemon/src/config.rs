@@ -120,14 +120,17 @@ pub struct DaemonConfig {
     pub pki_dir: String,
 
     /// Keep serving the legacy plaintext HTTP + bearer-token API alongside the
-    /// mTLS listener (same port, first-byte sniffing). On during the
-    /// transition so panels that do not speak mTLS yet keep working.
+    /// mTLS listener (same port, first-byte sniffing). Off by default since
+    /// v0.14; only has an effect with `require_mtls = false`, for panels older
+    /// than v0.12 that cannot speak mTLS.
     #[serde(default = "DaemonConfig::default_allow_legacy_bearer")]
     pub allow_legacy_bearer: bool,
 
     /// Refuse every connection that is not mutually authenticated TLS with a
-    /// panel-CA client certificate. Overrides `allow_legacy_bearer`.
-    #[serde(default)]
+    /// panel-CA client certificate; the daemon exits when it cannot obtain its
+    /// node certificate. On by default since v0.14. Overrides
+    /// `allow_legacy_bearer`.
+    #[serde(default = "DaemonConfig::default_require_mtls")]
     pub require_mtls: bool,
 
     /// Per-server process isolation: `auto` (default: on when the daemon runs
@@ -156,6 +159,9 @@ impl DaemonConfig {
         "development".to_string()
     }
     fn default_allow_legacy_bearer() -> bool {
+        false
+    }
+    fn default_require_mtls() -> bool {
         true
     }
     pub fn default_server_isolation() -> String {
@@ -270,8 +276,8 @@ impl Config {
     ///   TALEDAEMON_HEARTBEAT_INTERVAL_S
     ///   TALEDAEMON_COMMAND_POLL_INTERVAL_S
     ///   TALEDAEMON_PKI_DIR              (default `{data_root}/pki`)
-    ///   TALEDAEMON_ALLOW_LEGACY_BEARER  (default true)
-    ///   TALEDAEMON_REQUIRE_MTLS         (default false)
+    ///   TALEDAEMON_ALLOW_LEGACY_BEARER  (default false)
+    ///   TALEDAEMON_REQUIRE_MTLS         (default true)
     ///   TALEDAEMON_SERVER_ISOLATION     (auto | uid | off, default auto)
     ///   TALEDAEMON_SERVER_UID_BASE      (default 2000000)
     pub fn from_env() -> Result<Self> {
@@ -328,13 +334,14 @@ impl Config {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| DaemonConfig::default_pki_dir(&data_root));
 
-        let allow_legacy_bearer = std::env::var("TALEDAEMON_ALLOW_LEGACY_BEARER")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
-            .unwrap_or(DaemonConfig::default_allow_legacy_bearer());
-
-        let require_mtls = std::env::var("TALEDAEMON_REQUIRE_MTLS")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
-            .unwrap_or(false);
+        let allow_legacy_bearer = env_flag(
+            "TALEDAEMON_ALLOW_LEGACY_BEARER",
+            DaemonConfig::default_allow_legacy_bearer(),
+        );
+        let require_mtls = env_flag(
+            "TALEDAEMON_REQUIRE_MTLS",
+            DaemonConfig::default_require_mtls(),
+        );
 
         let server_isolation = std::env::var("TALEDAEMON_SERVER_ISOLATION")
             .ok()
@@ -386,6 +393,21 @@ impl Config {
     }
 }
 
+/// Reads a boolean environment flag. Unset or empty keeps `default`;
+/// 1/true/yes/on turn it on, 0/false/no/off turn it off (case-insensitive).
+/// Anything else keeps the default rather than silently weakening it.
+fn env_flag(name: &str, default: bool) -> bool {
+    parse_flag(std::env::var(name).ok().as_deref(), default)
+}
+
+fn parse_flag(value: Option<&str>, default: bool) -> bool {
+    match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("1" | "true" | "yes" | "on") => true,
+        Some("0" | "false" | "no" | "off") => false,
+        _ => default,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,7 +426,7 @@ mod tests {
                 allow_dev_stub,
                 pki_dir: DaemonConfig::default_pki_dir(&DaemonConfig::default_data_root()),
                 allow_legacy_bearer: DaemonConfig::default_allow_legacy_bearer(),
-                require_mtls: false,
+                require_mtls: DaemonConfig::default_require_mtls(),
                 server_isolation: DaemonConfig::default_server_isolation(),
                 server_uid_base: DaemonConfig::default_server_uid_base(),
             },
@@ -426,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn mtls_settings_default_to_transition_mode() {
+    fn mtls_is_required_by_default() {
         let dir = std::env::temp_dir().join(format!("tp-cfg-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -443,8 +465,8 @@ data_root = \"/data/td/\"
         .unwrap();
         let c = Config::from_file(path.to_str().unwrap()).unwrap();
         assert_eq!(c.daemon.pki_dir, "/data/td/pki");
-        assert!(c.daemon.allow_legacy_bearer);
-        assert!(!c.daemon.require_mtls);
+        assert!(!c.daemon.allow_legacy_bearer);
+        assert!(c.daemon.require_mtls);
 
         std::fs::write(
             &path,
@@ -453,16 +475,29 @@ node_id = \"n\"
 api_url = \"http://p\"
 node_token = \"t\"
 pki_dir = \"/etc/td/pki\"
-allow_legacy_bearer = false
-require_mtls = true
+allow_legacy_bearer = true
+require_mtls = false
 [resources]
 ",
         )
         .unwrap();
         let c = Config::from_file(path.to_str().unwrap()).unwrap();
         assert_eq!(c.daemon.pki_dir, "/etc/td/pki");
-        assert!(!c.daemon.allow_legacy_bearer);
-        assert!(c.daemon.require_mtls);
+        assert!(c.daemon.allow_legacy_bearer);
+        assert!(!c.daemon.require_mtls);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn env_flags_parse_both_ways_and_keep_the_default_otherwise() {
+        assert!(parse_flag(None, true));
+        assert!(!parse_flag(None, false));
+        assert!(parse_flag(Some(""), true));
+        assert!(!parse_flag(Some("0"), true));
+        assert!(!parse_flag(Some("False"), true));
+        assert!(parse_flag(Some("1"), false));
+        assert!(parse_flag(Some(" yes "), false));
+        assert!(parse_flag(Some("maybe"), true));
+        assert!(!parse_flag(Some("maybe"), false));
     }
 }

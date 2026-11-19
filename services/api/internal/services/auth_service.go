@@ -110,7 +110,12 @@ type AuthService struct {
 	db     *pgxpool.Pool
 	rdb    *redis.Client
 	config *config.Config
+	// loginAlerts emails users about sign-ins from new devices; nil = off.
+	loginAlerts *LoginAlertService
 }
+
+// SetLoginAlerts turns on "new sign-in" emails.
+func (s *AuthService) SetLoginAlerts(l *LoginAlertService) { s.loginAlerts = l }
 
 // NewAuthService constructs an AuthService.
 func NewAuthService(db *pgxpool.Pool, rdb *redis.Client, cfg *config.Config) *AuthService {
@@ -224,7 +229,20 @@ func (s *AuthService) Login(ctx context.Context, email, password, ip, userAgent 
 		return &LoginResult{RequiresTOTP: true, PartialToken: partialToken}, nil
 	}
 
-	return s.issueFullTokens(ctx, user, ip, userAgent)
+	return s.issueInteractiveLogin(ctx, user, ip, userAgent, "password")
+}
+
+// issueInteractiveLogin issues tokens for a sign-in (not a refresh) and
+// emails the user when it comes from a new device. The device check runs
+// before the new session is stored.
+func (s *AuthService) issueInteractiveLogin(ctx context.Context, user *models.User, ip, userAgent, method string) (*LoginResult, error) {
+	check := s.loginAlerts.Check(ctx, user.ID, ip, userAgent)
+	result, err := s.issueFullTokens(ctx, user, ip, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	s.loginAlerts.Notify(check, user, ip, userAgent, method)
+	return result, nil
 }
 
 // ─── RefreshToken ─────────────────────────────────────────────────────────────
@@ -543,7 +561,7 @@ func (s *AuthService) VerifyTOTP(ctx context.Context, partialTokenStr, code, ip,
 		if !totp.Validate(code, user.TOTPSecret) {
 			return nil, ErrTOTPInvalid
 		}
-		return s.issueFullTokens(ctx, user, ip, userAgent)
+		return s.issueInteractiveLogin(ctx, user, ip, userAgent, "password + 2FA code")
 	}
 
 	ok, remaining, err := s.redeemRecoveryCode(ctx, user.ID, code, ip)
@@ -553,7 +571,7 @@ func (s *AuthService) VerifyTOTP(ctx context.Context, partialTokenStr, code, ip,
 	if !ok {
 		return nil, ErrTOTPInvalid
 	}
-	result, err := s.issueFullTokens(ctx, user, ip, userAgent)
+	result, err := s.issueInteractiveLogin(ctx, user, ip, userAgent, "password + 2FA recovery code")
 	if err != nil {
 		return nil, err
 	}

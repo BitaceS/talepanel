@@ -93,6 +93,7 @@ interface NotifPref {
 }
 
 const notifPrefs = reactive<NotifPref[]>([
+  { key: 'login_new_device', label: 'New Sign-in Alerts', desc: 'Email when your account is signed into from a new device or network', enabled: true },
   { key: 'crash',    label: 'Server Crash Alerts',   desc: 'Get notified when a server crashes or stops unexpectedly', enabled: true },
   { key: 'backup',   label: 'Backup Completion',     desc: 'Notifications when backups complete or fail',              enabled: true },
   { key: 'resource', label: 'Resource Warnings',     desc: 'Alerts when CPU, RAM, or disk usage exceeds thresholds',   enabled: false },

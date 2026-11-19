@@ -209,3 +209,35 @@ func TestUpdateServer_CrashLimitZeroIsInvalidNotInternal(t *testing.T) {
 		t.Fatalf("crash_limit 5: %v", err)
 	}
 }
+
+// The update channel used to be fixed at creation. Anyone who may manage the
+// server can now switch it; only patchline names are accepted.
+func TestUpdateServer_UpdateChannelIsChangeable(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	svc := NewServerService(pool)
+
+	ownerID := seedTestUser(t, pool, models.RoleUser)
+	serverID := seedServerWithLimits(t, pool, ownerID)
+
+	got, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{HytaleVersion: ptr(" Pre-Release ")})
+	if err != nil {
+		t.Fatalf("owner switching to pre-release: %v", err)
+	}
+	if got.HytaleVersion != "pre-release" {
+		t.Fatalf("hytale_version = %q, want pre-release", got.HytaleVersion)
+	}
+	if _, err := svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{HytaleVersion: ptr("2026.01.24-6e2d4fc36")}); !errors.Is(err, ErrInvalidServerSettings) {
+		t.Fatalf("pinned build: err = %v, want ErrInvalidServerSettings", err)
+	}
+	got, err = svc.UpdateServer(ctx, serverID, ownerID, models.RoleUser,
+		UpdateServerRequest{HytaleVersion: ptr("")})
+	if err != nil {
+		t.Fatalf("back to latest: %v", err)
+	}
+	if got.HytaleVersion != "latest" {
+		t.Fatalf("hytale_version = %q, want latest", got.HytaleVersion)
+	}
+}

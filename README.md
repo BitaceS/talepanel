@@ -45,7 +45,7 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 | **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
 | **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
 | **Scale** | Multi-node with one-time enrollment tokens, mutual TLS between panel and nodes, network mod with `/play` handoff |
-| **Security** | 2FA with recovery codes, RBAC per server, audit log, rate limiting, optional admin IP allowlist, no default accounts |
+| **Security** | 2FA with recovery codes (can be required for admins), new-device sign-in emails, RBAC per server, audit log, rate limiting, optional admin IP allowlist, no default accounts |
 | **Alerts** | Discord, webhook and email |
 | **Stack** | Go API, Rust daemon, Nuxt 3 web panel, PostgreSQL, Redis |
 
@@ -479,6 +479,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Server templates (5 built-in + your own) | Shipped (v0.13) |
 | Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
+| mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Unreleased (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |
 | Per-server process isolation, step 2: container per server | Next |

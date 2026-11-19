@@ -28,7 +28,14 @@ export const useApi = () => {
         credentials: 'include',
       })
     } catch (err: unknown) {
-      const fetchErr = err as { status?: number }
+      const fetchErr = err as { status?: number; data?: { code?: string } }
+
+      // The owner requires 2FA for staff and this account has none yet.
+      if (fetchErr.status === 403 && fetchErr.data?.code === '2fa_setup_required') {
+        authStore.twoFactorSetupRequired = true
+        await navigateTo('/settings/security')
+        throw err
+      }
 
       // Handle 401: try to refresh token
       if (fetchErr.status === 401 && authStore.accessToken) {

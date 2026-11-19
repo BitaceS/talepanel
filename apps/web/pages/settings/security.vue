@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { KeyRound, RefreshCw, Shield, ShieldCheck } from '@lucide/vue'
+import { useAuthStore } from '~/stores/auth'
 
 definePageMeta({ title: 'Security', middleware: 'auth' })
 
 const api = useApi()
 const route = useRoute()
+const authStore = useAuthStore()
 
 // Set by the login flow after signing in with a recovery code.
 const recoveryUsedNotice = ref(typeof route.query.recovery_used === 'string')
@@ -33,8 +35,9 @@ onMounted(async () => {
 })
 
 async function refresh() {
-  const { user } = await api.get<{ user: User }>('/auth/me')
+  const { user, two_factor_setup_required } = await api.get<{ user: User; two_factor_setup_required?: boolean }>('/auth/me')
   me.value = user
+  authStore.twoFactorSetupRequired = !!two_factor_setup_required
   await loadRecoveryStatus()
 }
 
@@ -188,6 +191,17 @@ onMounted(() => loadSessions())
       ]"
     >
       {{ toast }}
+    </div>
+
+    <!-- Staff 2FA policy: set up 2FA before anything else works -->
+    <div v-if="authStore.twoFactorSetupRequired" class="flex items-start gap-3 bg-tp-warning/10 rounded-xl p-4">
+      <ShieldCheck class="w-4 h-4 text-tp-warning shrink-0 mt-0.5" />
+      <div class="text-sm flex-1">
+        <p class="text-tp-text font-semibold">Two-factor authentication is required</p>
+        <p class="text-tp-muted mt-0.5">
+          The panel owner requires 2FA for admin accounts. Set it up below; the rest of the panel unlocks right after.
+        </p>
+      </div>
     </div>
 
     <!-- Signed in with a recovery code -->

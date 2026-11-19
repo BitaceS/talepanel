@@ -15,7 +15,7 @@ interface NotificationsResponse {
 }
 
 const ALERT_TYPES: { key: string; label: string }[] = [
-  { key: 'login_new_device', label: 'New device login' },
+  { key: 'login_new_device', label: 'New sign-in alerts' },
   { key: 'server_down',      label: 'Server offline' },
   { key: 'backup_failed',    label: 'Backup failed' },
   { key: 'alert_event',      label: 'Alert rule triggered' },

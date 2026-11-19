@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/BitaceS/talepanel/api/internal/middleware"
+	"github.com/BitaceS/talepanel/api/internal/models"
 	"github.com/BitaceS/talepanel/api/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -24,7 +25,13 @@ type AuthHandler struct {
 	svc          *services.AuthService
 	jwtSecret    string
 	secureCookie bool
+	// policy, when set, lets Me report a pending staff 2FA setup.
+	policy *services.SecurityPolicyService
 }
+
+// SetSecurityPolicy lets Me report whether the caller must set up 2FA
+// before the panel lets them do anything else.
+func (h *AuthHandler) SetSecurityPolicy(p *services.SecurityPolicyService) { h.policy = p }
 
 // NewAuthHandler constructs an AuthHandler.
 // secureCookie should be false only in development (no TLS).
@@ -176,7 +183,9 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": fresh})
+	required := h.policy != nil && middleware.NeedsStaff2FASetup(fresh) &&
+		h.policy.RequireStaff2FA(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{"user": fresh, "two_factor_setup_required": required})
 }
 
 // ─── ChangePassword ───────────────────────────────────────────────────────────
@@ -330,6 +339,12 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	var req disableTOTPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// Staff would be locked out right after: the policy requires 2FA.
+	if h.policy != nil && models.RoleWeight(user.Role) >= models.RoleWeight(models.RoleAdmin) &&
+		h.policy.RequireStaff2FA(c.Request.Context()) {
+		c.JSON(http.StatusConflict, gin.H{"error": "the panel requires 2FA for admin accounts; an owner can turn that off under Admin → Integrations"})
 		return
 	}
 	if err := h.svc.DisableTOTP(c.Request.Context(), user.ID, req.Password); err != nil {

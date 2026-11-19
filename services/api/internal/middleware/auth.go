@@ -25,7 +25,11 @@ const (
 // checks the token JTI against the Redis blacklist, loads the user from the
 // database, and stores the user in the Gin context. A bearer token starting
 // with "tp_" is an API key instead (see authenticateAPIKey).
-func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string) gin.HandlerFunc {
+func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string, opts ...AuthOption) gin.HandlerFunc {
+	var o authOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -41,7 +45,7 @@ func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string) gin.Han
 
 		tokenStr := parts[1]
 		if models.IsAPIKey(tokenStr) {
-			authenticateAPIKey(c, db, tokenStr)
+			authenticateAPIKey(c, db, tokenStr, o)
 			return
 		}
 
@@ -111,10 +115,53 @@ func AuthRequired(db *pgxpool.Pool, rdb *redis.Client, jwtSecret string) gin.Han
 			return
 		}
 
-		c.Set(ctxKeyUser, user)
-		c.Set(ctxKeyUserID, user.ID)
-		c.Next()
+		o.proceed(c, user)
 	}
+}
+
+// AuthOption configures AuthRequired.
+type AuthOption func(*authOptions)
+
+type authOptions struct {
+	staff2FARequired func(context.Context) bool
+}
+
+// WithStaff2FA makes AuthRequired refuse admins and owners without 2FA
+// while required() reports the panel setting as on. Their own account
+// routes (/auth/*) stay open so they can set 2FA up.
+func WithStaff2FA(required func(context.Context) bool) AuthOption {
+	return func(o *authOptions) { o.staff2FARequired = required }
+}
+
+// Code in the 403 body when a staff account must set up 2FA first; the web
+// panel sends the user to Settings → Security when it sees it.
+const Code2FASetupRequired = "2fa_setup_required"
+
+// authSelfServicePrefix: the caller's own account (profile, password, 2FA
+// setup, sessions, logout) stays reachable while 2FA setup is pending.
+const authSelfServicePrefix = "/api/v1/auth/"
+
+// proceed stores the authenticated user and continues the chain, unless the
+// staff 2FA policy blocks the request.
+func (o authOptions) proceed(c *gin.Context, user *models.User) {
+	if o.staff2FARequired != nil && NeedsStaff2FASetup(user) &&
+		!strings.HasPrefix(c.FullPath(), authSelfServicePrefix) &&
+		o.staff2FARequired(c.Request.Context()) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "two-factor authentication is required for admin accounts; set it up under Settings → Security",
+			"code":  Code2FASetupRequired,
+		})
+		return
+	}
+	c.Set(ctxKeyUser, user)
+	c.Set(ctxKeyUserID, user.ID)
+	c.Next()
+}
+
+// NeedsStaff2FASetup reports whether user falls under the staff 2FA policy
+// (admin or owner) and has not enabled 2FA yet.
+func NeedsStaff2FASetup(user *models.User) bool {
+	return models.RoleWeight(user.Role) >= models.RoleWeight(models.RoleAdmin) && !user.TOTPEnabled
 }
 
 // RequireRole aborts the request with 403 if the authenticated user's role is

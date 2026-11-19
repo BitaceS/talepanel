@@ -224,6 +224,20 @@ func (s *SMTPNotifier) Send(payload NotificationPayload, to string) {
 	}
 }
 
+// Enabled reports whether email is configured.
+func (s *SMTPNotifier) Enabled() bool { return s.Config().Enabled() }
+
+// SendMessage sends a plain-text email with the active configuration.
+func (s *SMTPNotifier) SendMessage(ctx context.Context, to, subject, body string) error {
+	cfg := s.Config()
+	if !cfg.Enabled() {
+		return errors.New("email is not configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, smtpSendTimeout)
+	defer cancel()
+	return s.send(ctx, cfg, to, subject, body)
+}
+
 // SendTest sends a test email with the active configuration and returns
 // the SMTP error, if any, so the admin can see what went wrong.
 func (s *SMTPNotifier) SendTest(ctx context.Context, to string) error {

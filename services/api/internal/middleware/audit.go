@@ -184,8 +184,6 @@ func extractTargetType(path string) string {
 	return "unknown"
 }
 
-// sanitizePayload unmarshals JSON body, redacts sensitive keys, and
-// re-marshals to a json.RawMessage.  Non-JSON bodies are stored as null.
 // withAPIKey records in an audit payload which API key made the request.
 func withAPIKey(payload json.RawMessage, k *models.APIKeyAuth) json.RawMessage {
 	data := map[string]interface{}{}
@@ -198,6 +196,8 @@ func withAPIKey(payload json.RawMessage, k *models.APIKeyAuth) json.RawMessage {
 	return out
 }
 
+// sanitizePayload unmarshals JSON body, redacts sensitive keys, and
+// re-marshals to a json.RawMessage.  Non-JSON bodies are stored as null.
 func sanitizePayload(body []byte) json.RawMessage {
 	if len(body) == 0 {
 		return json.RawMessage("null")
