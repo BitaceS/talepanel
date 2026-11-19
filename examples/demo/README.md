@@ -2,8 +2,20 @@
 
 This starts the whole TalePanel stack on your machine — API, node daemon, web panel — and runs **simulated Hytale servers** instead of real ones. You can click through everything (dashboard, server select, live console, players, schedules, backups, templates, alerts, 2FA) in a few minutes, without a VPS and without downloading Hytale.
 
+### With Docker only (easiest)
+
 ```bash
 git clone https://github.com/BitaceS/talepanel.git && cd talepanel
+docker compose -f examples/demo/compose.yml up -d --build
+# → http://localhost:14000   admin@demo.local / Demo-Password-2026!
+docker compose -f examples/demo/compose.yml down -v   # stop and forget everything
+```
+
+**Needs:** Docker with Compose v2. The first start builds the images from source (a few minutes); after that it starts in seconds. The panel port can be changed with `DEMO_PORT` (default 14000). `docker compose -f examples/demo/compose.yml logs -f seed daemon` shows what is happening. The node daemon logs two warnings in this setup (nftables rules, cgroup CPU limits) because a plain container may not change the firewall or cgroups; the demo does not need either.
+
+### From source (for development)
+
+```bash
 examples/demo/run-demo.sh
 # → http://localhost:14000   admin@demo.local / Demo-Password-2026!
 examples/demo/run-demo.sh stop
@@ -33,8 +45,9 @@ Ports can be changed with `DEMO_PORT` (panel, default 14000), `DEMO_API_PORT` (1
 
 - `fake-hytale-server.sh` prints log lines in the format of a real Hytale server (boot, ready, `Adding player '…'`, chat, warnings) and answers a few console commands. It is a shell script, not a game server.
 - The node daemon runs it in place of `HytaleServer.jar` because the demo node is in development mode with `TALEDAEMON_ALLOW_DEV_STUB=1`. **A production node never does this.**
+- `seed.sh` (Docker) does what `run-demo.sh` does after startup: owner account, node enrollment with a one-time token, the simulated binaries, and the demo servers. It is idempotent.
 - New servers get their files from the node's `hytale-bin/` folder — the same offline install path you can use for air-gapped production nodes (see the README).
-- `proxy.mjs` serves the panel and the API from one origin, like Caddy does in production (the panel's Content-Security-Policy only allows API calls to its own origin).
+- `proxy.mjs` (from source) and the `proxy` Caddy container (Docker) serve the panel and the API from one origin, like Caddy does in production (the panel's Content-Security-Policy only allows API calls to its own origin).
 
 ## Real servers
 
