@@ -58,8 +58,43 @@ function onTabChange(key: 'users' | 'nodes' | 'templates' | 'logs' | 'integratio
     fetchSmtp()
     fetchHytaleAuth()
     fetchBackupKey()
+    fetchSecurityPolicy()
   }
 }
+
+// ── Security policy (owner changes it) ───────────────────────────────────────
+const securityPolicy = reactive({ loading: false, saving: false, requireStaff2FA: false })
+
+async function fetchSecurityPolicy() {
+  securityPolicy.loading = true
+  try {
+    const res = await api.get<{ policy: { require_staff_2fa: boolean } }>('/admin/security-policy')
+    securityPolicy.requireStaff2FA = res.policy.require_staff_2fa
+  } catch {
+    // Older API: the card stays off.
+  } finally {
+    securityPolicy.loading = false
+  }
+}
+
+async function toggleStaff2FA() {
+  const next = !securityPolicy.requireStaff2FA
+  securityPolicy.saving = true
+  try {
+    const res = await api.put<{ policy: { require_staff_2fa: boolean } }>('/admin/security-policy', { require_staff_2fa: next })
+    securityPolicy.requireStaff2FA = res.policy.require_staff_2fa
+    showToast(next ? '2FA is now required for admins and owners' : '2FA is no longer required')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Failed to save the security policy', 'error')
+  } finally {
+    securityPolicy.saving = false
+  }
+}
+
+// Staff accounts still without 2FA (from the user list).
+const staffWithout2FA = computed(() =>
+  users.value.filter(u => (u.role === 'admin' || u.role === 'owner') && !u.totp_enabled && u.is_active))
 
 // ── Backup encryption key (panel-managed) ────────────────────────────────────
 const backupKey = reactive({
@@ -574,6 +609,19 @@ interface ActivityLog {
 }
 
 const activityLogs = ref<ActivityLog[]>([])
+
+// Requests made with an API key carry {"via_api_key": {id, name, prefix}} in
+// the payload (see middleware/audit.go).
+function viaApiKey(log: ActivityLog): { name: string; prefix: string } | null {
+  const k = (log.payload as { via_api_key?: { name?: unknown; prefix?: unknown } } | null | undefined)?.via_api_key
+  if (!k || typeof k.name !== 'string') return null
+  return { name: k.name, prefix: typeof k.prefix === 'string' ? k.prefix : '' }
+}
+
+function actorEmail(log: ActivityLog): string {
+  if (!log.user_id) return ''
+  return users.value.find(u => u.id === log.user_id)?.email ?? `${log.user_id.substring(0, 8)}...`
+}
 const logsLoading = ref(false)
 
 async function fetchLogs() {
@@ -946,6 +994,7 @@ async function submitCreateUser() {
             <tr class="border-b border-tp-border">
               <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Time</th>
               <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Action</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">By</th>
               <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Target</th>
               <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">IP</th>
             </tr>
@@ -955,6 +1004,14 @@ async function submitCreateUser() {
               <td class="px-4 py-3 text-tp-muted text-xs whitespace-nowrap">{{ formatDate(log.created_at) }}</td>
               <td class="px-4 py-3">
                 <span class="text-tp-text font-medium">{{ log.action }}</span>
+              </td>
+              <td class="px-4 py-3 text-tp-muted text-xs">
+                <span>{{ actorEmail(log) || '-' }}</span>
+                <span v-if="viaApiKey(log)" class="ml-2 inline-flex items-center gap-1 rounded-md bg-tp-surface3 px-1.5 py-0.5 text-tp-text"
+                  :title="`Made with the API key ${viaApiKey(log)!.name}`">
+                  <KeyRound class="w-3 h-3" />
+                  {{ viaApiKey(log)!.name }}<span v-if="viaApiKey(log)!.prefix" class="font-mono text-tp-muted">&nbsp;{{ viaApiKey(log)!.prefix }}…</span>
+                </span>
               </td>
               <td class="px-4 py-3 text-tp-muted text-xs">
                 <span v-if="log.target_type">{{ log.target_type }}</span>
@@ -979,6 +1036,32 @@ async function submitCreateUser() {
          INTEGRATIONS TAB
          ═══════════════════════════════════════════════════════════════════════ -->
     <div v-else-if="activeTab === 'integrations'" class="space-y-4">
+      <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
+              <Shield class="w-4 h-4 text-tp-primary" />
+              Require 2FA for admins
+            </h3>
+            <p class="text-tp-muted text-sm mt-1">
+              Admins and owners without two-factor authentication can only open their own security settings
+              until they set it up. API keys of those accounts stop working too. Only an owner with 2FA can turn this on.
+            </p>
+            <p v-if="staffWithout2FA.length" class="text-tp-warning text-xs mt-2">
+              Without 2FA: {{ staffWithout2FA.map(u => u.email).join(', ') }}
+            </p>
+          </div>
+          <UiButton :variant="securityPolicy.requireStaff2FA ? 'secondary' : 'primary'" size="sm"
+            :loading="securityPolicy.saving" :disabled="!authStore.isOwner || securityPolicy.loading"
+            :title="authStore.isOwner ? '' : 'Only an owner can change this'"
+            @click="toggleStaff2FA">
+            {{ securityPolicy.requireStaff2FA ? 'Turn off' : 'Turn on' }}
+          </UiButton>
+        </div>
+        <p class="text-xs" :class="securityPolicy.requireStaff2FA ? 'text-tp-success' : 'text-tp-muted'">
+          {{ securityPolicy.requireStaff2FA ? 'On: admins and owners must use 2FA.' : 'Off.' }}
+        </p>
+      </div>
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
         <div class="flex items-start justify-between gap-4">
           <div>

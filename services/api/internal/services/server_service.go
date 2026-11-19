@@ -114,6 +114,9 @@ type UpdateServerRequest struct {
 	LaunchFlags *[]string `json:"launch_flags"` // applies on next start; admin-only flags need admin+
 	// Enabling is admin+ only; an owner may still turn it off.
 	UseHytaleAccount *bool `json:"use_hytale_account"`
+	// Update channel: latest, release or pre-release. Takes effect on the next
+	// install, reinstall or update; the installed files stay as they are.
+	HytaleVersion *string `json:"hytale_version"`
 }
 
 // MinServerRAMMB is the smallest heap the panel lets a server run with.
@@ -493,6 +496,16 @@ func (s *ServerService) UpdateServer(ctx context.Context, serverID, userID uuid.
 		}
 		setClauses = append(setClauses, fmt.Sprintf("use_hytale_account = $%d", argIdx))
 		args = append(args, *req.UseHytaleAccount)
+		argIdx++
+	}
+
+	if req.HytaleVersion != nil {
+		version, err := NormalizeHytaleVersion(*req.HytaleVersion)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidServerSettings, err)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("hytale_version = $%d", argIdx))
+		args = append(args, version)
 		argIdx++
 	}
 

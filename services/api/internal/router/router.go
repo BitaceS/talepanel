@@ -109,6 +109,8 @@ func SetupRouter(
 	webhookNotifier := alerting.NewWebhookNotifier(log)
 	discordNotifier := alerting.NewDiscordNotifier(log)
 	notifier := alerting.NewMultiNotifier(smtpNotifier, webhookNotifier, discordNotifier, log)
+	// "New sign-in" emails (opt-out per user; only with SMTP configured).
+	authSvc.SetLoginAlerts(services.NewLoginAlertService(db, smtpNotifier, log))
 	alertSvc := services.NewAlertService(db, notifier, log)
 	evaluator := alerting.NewAlertEvaluator(alertSvc, log)
 	go evaluator.Start(ctx)
@@ -169,7 +171,12 @@ func SetupRouter(
 	authLimiter := middleware.RateLimit(rdb, 30, devMode)
 
 	// ── Auth middleware ────────────────────────────────────────────────────────
-	authRequired := middleware.AuthRequired(db, rdb, cfg.JWTSecret)
+	// Admins and owners without 2FA are limited to their own account while
+	// the owner requires 2FA for staff (Admin → Integrations).
+	securityPolicySvc := services.NewSecurityPolicyService(appSettingsSvc, log)
+	authH.SetSecurityPolicy(securityPolicySvc)
+	authRequired := middleware.AuthRequired(db, rdb, cfg.JWTSecret,
+		middleware.WithStaff2FA(securityPolicySvc.RequireStaff2FA))
 
 	// ── API v1 base group with audit logging ───────────────────────────────────
 	v1 := r.Group("/api/v1")
@@ -460,6 +467,11 @@ func SetupRouter(
 
 		// Backup encryption key (panel-managed). Status is admin-visible;
 		// export and rotate are owner-only. All are audited by the v1 audit log.
+		// Panel-wide security policy (staff 2FA). Owners change it.
+		securityPolicyH := handlers.NewSecurityPolicyHandler(securityPolicySvc)
+		adminGroup.GET("/security-policy", securityPolicyH.Get)
+		adminGroup.PUT("/security-policy", middleware.RequireRole(models.RoleOwner), securityPolicyH.Update)
+
 		backupKeyH := handlers.NewBackupKeyHandler(appSettingsSvc)
 		adminGroup.GET("/backup-key", backupKeyH.Status)
 		adminGroup.GET("/backup-key/export", middleware.RequireRole(models.RoleOwner), backupKeyH.Export)

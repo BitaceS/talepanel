@@ -7,6 +7,9 @@ export const useAuthStore = defineStore('auth', {
     accessToken: null as string | null,
     loading: false,
     partialToken: null as string | null,
+    // The owner requires 2FA for admins/owners and this account has none
+    // yet: the API refuses everything but the own account until it is set up.
+    twoFactorSetupRequired: false,
   }),
 
   getters: {
@@ -45,7 +48,9 @@ export const useAuthStore = defineStore('auth', {
         }
 
         this.partialToken = null
-        await navigateTo('/')
+        // Learn whether 2FA setup is required before the route guard runs.
+        await this.fetchMe().catch(() => {})
+        await navigateTo(this.twoFactorSetupRequired ? '/settings/security' : '/')
         return true
       } finally {
         this.loading = false
@@ -156,19 +161,21 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.accessToken = null
         this.user = null
+        this.twoFactorSetupRequired = false
         await navigateTo('/auth/login')
       }
     },
 
     async fetchMe(): Promise<void> {
       const config = useRuntimeConfig()
-      const data = await $fetch<{ user: User }>(`${config.public.apiBase}/auth/me`, {
+      const data = await $fetch<{ user: User; two_factor_setup_required?: boolean }>(`${config.public.apiBase}/auth/me`, {
         headers: this.accessToken
           ? { Authorization: `Bearer ${this.accessToken}` }
           : {},
         credentials: 'include',
       })
       this.user = data.user
+      this.twoFactorSetupRequired = !!data.two_factor_setup_required
     },
 
     async initialize(): Promise<void> {

@@ -153,7 +153,9 @@ const LAUNCH_FLAG_OPTIONS = [
   { flag: '--allow-op', label: 'Allow /op', hint: 'Lets players grant themselves op in game. Admins only.', adminOnly: true },
   { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'Do not send crash reports to Hypixel (Sentry).' },
 ]
-const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[], use_hytale_account: false })
+const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[], use_hytale_account: false, hytale_version: 'latest' })
+// Stored as 'latest' / 'release' / 'pre-release'; 'latest' and 'release' are the same channel.
+const normChannel = (v?: string | null) => (v === 'pre-release' ? 'pre-release' : 'latest')
 const launchSaving = ref(false)
 
 watch(server, (s) => {
@@ -161,6 +163,7 @@ watch(server, (s) => {
   launchForm.ram_limit_mb = s.ram_limit_mb ?? 0
   launchForm.launch_flags = [...(s.launch_flags ?? [])]
   launchForm.use_hytale_account = !!s.use_hytale_account
+  launchForm.hytale_version = normChannel(s.hytale_version)
 }, { immediate: true })
 
 // ── Network routing (hub / gamemode role for the bundled network mod) ──────
@@ -221,8 +224,11 @@ async function saveLaunchSettings() {
     if (launchForm.use_hytale_account !== !!server.value.use_hytale_account) {
       body.use_hytale_account = launchForm.use_hytale_account
     }
+    const channelChanged = launchForm.hytale_version !== normChannel(server.value.hytale_version)
+    if (channelChanged) body.hytale_version = launchForm.hytale_version
     await api.patch(`/servers/${serverId.value}`, body)
     await serversStore.fetchServer(serverId.value)
+    if (channelChanged) await loadUpdateInfo()
     showToast(server.value?.status === 'running' ? 'Saved. Restart the server to apply.' : 'Saved.')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
@@ -2339,8 +2345,8 @@ const sidebarMods = computed(() => {
               <span class="text-tp-text text-sm font-medium">{{ server?.name }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Version</span>
-              <span class="text-tp-text text-sm">{{ server?.hytale_version }}</span>
+              <span class="text-tp-outline text-sm">Update channel</span>
+              <span class="text-tp-text text-sm">{{ formatHytaleVersion(server?.hytale_version) }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-tp-outline text-sm">Port</span>
@@ -2378,6 +2384,21 @@ const sidebarMods = computed(() => {
             <div v-if="authStore.isAdmin" class="max-w-xs">
               <UiInput v-model="launchForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="4096" />
               <p class="text-tp-muted text-xs mt-1">Hytale recommends at least 4096 MB.</p>
+            </div>
+            <div class="max-w-xs space-y-1">
+              <label for="launch-hytale-version" class="block text-tp-text text-sm">Update channel</label>
+              <select id="launch-hytale-version" v-model="launchForm.hytale_version"
+                class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
+                <option value="latest">Release</option>
+                <option value="pre-release">Pre-release</option>
+              </select>
+              <p v-if="launchForm.hytale_version === 'pre-release' && normChannel(server?.hytale_version) !== 'pre-release'" class="text-tp-warning text-xs">
+                Updates then install pre-release builds. Worlds opened by a pre-release cannot be opened by release servers again.
+              </p>
+              <p v-else-if="launchForm.hytale_version === 'latest' && normChannel(server?.hytale_version) === 'pre-release'" class="text-tp-warning text-xs">
+                A server already on a pre-release build is not switched back automatically; reinstall it yourself if its worlds allow it.
+              </p>
+              <p v-else class="text-tp-muted text-xs">Used by the next install, reinstall or update.</p>
             </div>
             <div class="space-y-2">
               <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3"

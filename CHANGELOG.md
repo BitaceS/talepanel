@@ -4,6 +4,17 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+Hardening: nodes require mutual TLS, owners can require 2FA for admins, and users get an email when their account is signed into from a new device.
+
+### Changed
+- **Nodes now require mutual TLS by default.** `TALEDAEMON_REQUIRE_MTLS` defaults to on and `TALEDAEMON_ALLOW_LEGACY_BEARER` to off (daemon config, `deploy/daemon/docker-compose.yml`, `.env.template`): a node refuses plaintext connections and exits when it cannot get its certificate from the panel. Panels from v0.12 on already talk mTLS, so nothing changes for them. **Only if your panel is older than v0.12**, set `TALEDAEMON_REQUIRE_MTLS=0` and `TALEDAEMON_ALLOW_LEGACY_BEARER=1` in the node's `.env` until you update the panel. Both flags now also accept `0`/`false`/`no`/`off`; unknown values keep the default instead of turning a protection off.
+- A server's update channel (Release / Pre-release) can be changed after creation: **Server → Settings → Launch settings** (or `PATCH /api/v1/servers/:id` with `hytale_version`). It applies to the next install, reinstall or update. Pre-release → release is still not switched back automatically.
+
+### Added
+- **Require 2FA for admins** (Admin → Integrations, owner only): admins and owners without 2FA can then reach only their own account (`/api/v1/auth/*`) until they set it up; everything else answers `403` with `code: "2fa_setup_required"`, and the web panel sends them to Settings → Security. Their API keys stop working too. An owner must have 2FA before turning it on, and staff cannot turn their own 2FA off while it is on. `GET`/`PUT /api/v1/admin/security-policy`; `GET /auth/me` reports `two_factor_setup_required`.
+- **Email on sign-in from a new device**: when SMTP is set up, a user gets an email when their account is signed into (password, 2FA code or recovery code) with a browser that has not been used from that network (IPv4 /24, IPv6 /48) in the last 30 days. It names the time, IP, browser and sign-in method. On by default; turn it off in the notification settings ("New sign-in alerts"). The first sign-in of an account is not reported.
+- The admin activity log shows who made each request and, for requests made with an API key, the key's name and prefix.
+
 ## [0.13.0] — 2026-11-19
 
 The first release that is not marked as a pre-release. Hytale server updates with a maintenance window, API keys for automation, each game server under its own Linux user, a live console over SSE, scheduled tasks, server templates, 2FA recovery codes, a try-it-locally demo, a new look with an optional game theme, and a long list of fixes.

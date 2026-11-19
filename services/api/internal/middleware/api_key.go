@@ -16,7 +16,7 @@ import (
 // authenticateAPIKey handles a request whose bearer token is an API key:
 // it loads the key and its user, refuses routes keys may not call, and sets
 // the user (with User.APIKey) in the context like a session would.
-func authenticateAPIKey(c *gin.Context, db *pgxpool.Pool, key string) {
+func authenticateAPIKey(c *gin.Context, db *pgxpool.Pool, key string, o authOptions) {
 	ctx := c.Request.Context()
 	var (
 		auth      models.APIKeyAuth
@@ -70,9 +70,7 @@ func authenticateAPIKey(c *gin.Context, db *pgxpool.Pool, key string) {
 	}
 
 	touchAPIKey(db, auth.ID, realIP(c))
-	c.Set(ctxKeyUser, user)
-	c.Set(ctxKeyUserID, user.ID)
-	c.Next()
+	o.proceed(c, user)
 }
 
 // touchAPIKey records the key's last use, at most once a minute per key.
