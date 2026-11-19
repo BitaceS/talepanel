@@ -134,7 +134,7 @@ func TestAPIKeyAccess(t *testing.T) {
 		want         int
 	}{
 		{"GET", "/api/v1/servers/" + serverA.String(), http.StatusOK},
-		{"GET", "/api/v1/servers/" + serverB.String(), http.StatusForbidden},       // other server
+		{"GET", "/api/v1/servers/" + serverB.String(), http.StatusForbidden},             // other server
 		{"POST", "/api/v1/servers/" + serverA.String() + "/start", http.StatusForbidden}, // no power scope
 		{"POST", "/api/v1/servers/" + serverA.String() + "/console", http.StatusForbidden},
 		{"GET", "/api/v1/servers/" + serverA.String() + "/files", http.StatusForbidden}, // not for keys
