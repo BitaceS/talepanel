@@ -17,7 +17,7 @@ import { usePlayersStore } from '~/stores/players'
 import { useBackupsStore } from '~/stores/backups'
 import { useInvitationsStore } from '~/stores/invitations'
 import { useApi } from '~/composables/useApi'
-import type { CFMod, CFModFile } from '~/types'
+import type { CFMod, CFModFile, ServerUpdateInfo } from '~/types'
 import type { GameCommand } from '~/stores/gameCommands'
 
 definePageMeta({ middleware: 'auth' })
@@ -270,6 +270,53 @@ async function reinstallServer() {
     reinstalling.value = false
   }
 }
+
+// ── Hytale updates ────────────────────────────────────────────────────────────
+// The panel tracks which build it installed; GET /update compares it with the
+// newest build of the server's channel. "Update now" backs up, stops,
+// installs and starts again; scheduled updates live in the Schedules tab.
+const updateInfo = ref<ServerUpdateInfo | null>(null)
+const updateStarting = ref(false)
+const updateWarnMinutes = ref(0)
+
+async function loadUpdateInfo() {
+  try {
+    updateInfo.value = await serversStore.getUpdateInfo(serverId.value)
+  } catch {
+    updateInfo.value = null // older API or no access: hide the hint
+  }
+}
+
+const patchlineLabel = computed(() =>
+  updateInfo.value?.patchline === 'pre-release' ? 'Pre-release' : 'Release')
+
+async function startUpdate() {
+  const info = updateInfo.value
+  if (!server.value || !info) return
+  const running = server.value.status === 'running'
+  const warn = running ? Math.min(15, Math.max(0, Number(updateWarnMinutes.value) || 0)) : 0
+  const steps = running
+    ? `${warn > 0 ? `Players are warned ${warn} minute${warn === 1 ? '' : 's'} ahead, then a` : 'A'} backup is taken, the server stops, Hytale ${info.latest} is installed and the server starts again.`
+    : `A backup is taken and Hytale ${info.latest} is installed. The server stays stopped.`
+  if (!confirmAction(`Update to Hytale ${info.latest}? ${steps} Worlds and configs are kept.`)) return
+  updateStarting.value = true
+  try {
+    updateInfo.value = await serversStore.startUpdate(serverId.value, warn)
+    showToast('Update started — follow the progress in the console')
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string }; message?: string }
+    showToast(e.data?.error ?? e.message ?? 'Failed to start the update', 'error')
+    await loadUpdateInfo()
+  } finally {
+    updateStarting.value = false
+  }
+}
+
+// Re-check when the server settles (an update or reinstall just finished).
+watch(() => server.value?.status, (now, before) => {
+  if (now && now !== before && ['running', 'stopped', 'crashed'].includes(now)) loadUpdateInfo()
+})
+onMounted(loadUpdateInfo)
 
 const canStart   = computed(() => server.value?.status === 'stopped' || server.value?.status === 'crashed')
 const canStop    = computed(() => server.value?.status === 'running' || server.value?.status === 'starting')
@@ -1262,7 +1309,7 @@ const sidebarMods = computed(() => {
               <h2 class="text-tp-text font-display font-bold text-3xl">{{ server.name }}</h2>
               <ServerStatusBadge :status="server.status" />
             </div>
-            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; Port {{ server.port }} &middot; {{ formatHytaleVersion(server.hytale_version) }}</p>
+            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; Port {{ server.port }} &middot; {{ formatHytaleVersion(server.hytale_version) }}<template v-if="server.installed_build"> &middot; build {{ server.installed_build }}</template></p>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <UiButton variant="secondary" size="sm" :disabled="!canStart || actionLoading.start"
@@ -1317,6 +1364,43 @@ const sidebarMods = computed(() => {
           @click="reinstallServer">
           <RotateCcw class="w-3.5 h-3.5" /> {{ server.status === 'installing' ? 'Reinstalling' : 'Reinstall' }}
         </UiButton>
+      </div>
+
+      <!-- Hytale update: installed build vs. newest of the channel -->
+      <div v-if="updateInfo && (updateInfo.available || updateInfo.running || updateInfo.blocked)"
+        class="rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4"
+        :class="updateInfo.blocked ? 'bg-tp-surface2' : 'bg-tp-primary/10'" role="status">
+        <span class="material-symbols-outlined text-2xl shrink-0"
+          :class="updateInfo.blocked ? 'text-tp-muted' : 'text-tp-primary'">system_update_alt</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-tp-text text-sm font-semibold">
+            <template v-if="updateInfo.running">Updating to Hytale {{ updateInfo.latest }}…</template>
+            <template v-else-if="updateInfo.blocked">No automatic update on this channel</template>
+            <template v-else>Update available: Hytale {{ updateInfo.latest }}</template>
+          </p>
+          <p class="text-tp-muted text-xs mt-0.5">
+            {{ patchlineLabel }} channel · installed: {{ updateInfo.installed ?? 'unknown' }}
+            <template v-if="updateInfo.running"> · follow the progress in the console</template>
+          </p>
+          <p v-if="updateInfo.blocked" class="text-tp-muted text-xs mt-0.5">{{ updateInfo.reason }}</p>
+          <p v-else-if="!updateInfo.running" class="text-tp-muted text-xs mt-0.5">
+            A backup is taken first; worlds and configs are kept. Schedule it in a maintenance window under Schedules.
+          </p>
+        </div>
+        <div v-if="!updateInfo.blocked && !updateInfo.running" class="flex items-center gap-2 shrink-0">
+          <label v-if="server.status === 'running'" class="text-tp-muted text-xs flex items-center gap-1.5"
+            title="Warn players this many minutes before the server stops (0–15)">
+            Warn
+            <input v-model.number="updateWarnMinutes" type="number" min="0" max="15"
+              class="w-14 bg-tp-surface2 text-tp-text rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
+            min
+          </label>
+          <UiButton variant="primary" size="sm" :loading="updateStarting"
+            :disabled="updateStarting || !['running', 'stopped', 'crashed'].includes(server.status)"
+            @click="startUpdate">
+            <Download class="w-3.5 h-3.5" /> Update now
+          </UiButton>
+        </div>
       </div>
 
       <!-- Stat cards row -->

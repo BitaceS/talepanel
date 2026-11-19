@@ -51,6 +51,9 @@ const (
 type TaskExecutor interface {
 	SendCommand(ctx context.Context, serverID uuid.UUID, cmd string) error
 	Restart(ctx context.Context, serverID uuid.UUID) error
+	// Update updates the server if its patchline has a newer build and
+	// returns the task status and message to record. Blocks until done.
+	Update(ctx context.Context, serverID uuid.UUID, warnMinutes int) (string, string)
 }
 
 // DaemonTaskExecutor sends console commands through the node command queue
@@ -59,10 +62,15 @@ type TaskExecutor interface {
 type DaemonTaskExecutor struct {
 	servers *ServerService
 	daemons *daemon.ClientPool
+	updates *ServerUpdateService
 }
 
-func NewDaemonTaskExecutor(servers *ServerService, daemons *daemon.ClientPool) *DaemonTaskExecutor {
-	return &DaemonTaskExecutor{servers: servers, daemons: daemons}
+func NewDaemonTaskExecutor(servers *ServerService, daemons *daemon.ClientPool, updates *ServerUpdateService) *DaemonTaskExecutor {
+	return &DaemonTaskExecutor{servers: servers, daemons: daemons, updates: updates}
+}
+
+func (e *DaemonTaskExecutor) Update(ctx context.Context, serverID uuid.UUID, warnMinutes int) (string, string) {
+	return e.updates.Run(ctx, serverID, warnMinutes)
 }
 
 func (e *DaemonTaskExecutor) SendCommand(ctx context.Context, serverID uuid.UUID, cmd string) error {
@@ -185,7 +193,7 @@ func hasControlChar(s string) bool {
 // fields the type does not use.
 func normalizeTaskPayload(typ string, p models.ServerTaskPayload) (models.ServerTaskPayload, error) {
 	switch typ {
-	case models.TaskTypeRestart:
+	case models.TaskTypeRestart, models.TaskTypeUpdate:
 		if p.WarnMinutes < 0 || p.WarnMinutes > maxTaskWarnMinutes {
 			return p, invalidTask("warn_minutes must be between 0 and %d", maxTaskWarnMinutes)
 		}
@@ -215,7 +223,7 @@ func normalizeTaskPayload(typ string, p models.ServerTaskPayload) (models.Server
 		}
 		return models.ServerTaskPayload{Message: msg}, nil
 	default:
-		return p, invalidTask("unknown task type %q (want restart, command or broadcast)", typ)
+		return p, invalidTask("unknown task type %q (want restart, update, command or broadcast)", typ)
 	}
 }
 
@@ -244,11 +252,13 @@ func restartWarning(warnMinutes int) string {
 // and again before every run, against the user the task runs as:
 //   - server.manage on the server (who may schedule tasks at all);
 //   - restart: server.start, the permission behind POST /restart;
+//   - update: server.start as well (it stops and starts the server);
+//     server.manage, needed for the reinstall, is required for every task;
 //   - command/broadcast: server.console and the console role the command
 //     needs, exactly as the console handler enforces it.
 func (s *ServerTaskService) authorizeTask(ctx context.Context, user *models.User, serverID, serverOwner uuid.UUID, typ string, p models.ServerTaskPayload) error {
 	need := []string{"server.manage"}
-	if typ == models.TaskTypeRestart {
+	if typ == models.TaskTypeRestart || typ == models.TaskTypeUpdate {
 		need = append(need, "server.start")
 	} else {
 		need = append(need, "server.console")
@@ -262,12 +272,15 @@ func (s *ServerTaskService) authorizeTask(ctx context.Context, user *models.User
 			return fmt.Errorf("%w: missing the %s permission on this server", ErrTaskForbidden, perm)
 		}
 	}
-	if typ == models.TaskTypeRestart && p.WarnMinutes == 0 {
+	if (typ == models.TaskTypeRestart || typ == models.TaskTypeUpdate) && p.WarnMinutes == 0 {
 		return nil
 	}
 	cmd := taskConsoleCommand(typ, p)
-	if typ == models.TaskTypeRestart {
+	switch typ {
+	case models.TaskTypeRestart:
 		cmd = restartWarning(p.WarnMinutes)
+	case models.TaskTypeUpdate:
+		cmd = updateWarning(p.WarnMinutes)
 	}
 	if role := models.ConsoleRole(user, serverOwner); !models.CanRunConsoleCommand(role, cmd) {
 		return fmt.Errorf("%w: this command needs the %s role", ErrTaskForbidden, models.ConsoleCommandMinRole(cmd))
@@ -500,6 +513,9 @@ func (s *ServerTaskService) runDueTasks(ctx context.Context) (int, error) {
 	}
 	for _, t := range tasks {
 		status, msg := s.runTask(ctx, t)
+		if status == "" {
+			continue // recorded by the task itself
+		}
 		s.recordResult(t.ID, status, msg)
 		if status == models.TaskStatusFailed {
 			s.log.Warn("scheduled task failed",
@@ -561,7 +577,12 @@ func (s *ServerTaskService) preflight(ctx context.Context, t *models.ServerTask)
 	if err != nil {
 		return models.TaskStatusFailed, err.Error()
 	}
-	if status != models.StatusRunning {
+	// An update also runs on a stopped server (it is not started then).
+	if t.Type == models.TaskTypeUpdate {
+		if !settled(status) {
+			return models.TaskStatusSkipped, "skipped: server is " + status
+		}
+	} else if status != models.StatusRunning {
 		return models.TaskStatusSkipped, "skipped: server not running"
 	}
 	user, err := s.runAsUser(ctx, t.CreatedBy)
@@ -609,6 +630,22 @@ func (s *ServerTaskService) runTask(ctx context.Context, t *models.ServerTask) (
 		s.delayed.Add(1)
 		go s.delayedRestart(ctx, t, time.Duration(t.Payload.WarnMinutes)*time.Minute)
 		return models.TaskStatusPending, fmt.Sprintf("restarting in %d minute(s)", t.Payload.WarnMinutes)
+	case models.TaskTypeUpdate:
+		// Checking, warning, backing up and reinstalling takes minutes; it
+		// runs beside the scheduler and records its own result. "pending"
+		// is written first so a quick result cannot be overwritten by it.
+		s.recordResult(t.ID, models.TaskStatusPending, "checking for an update")
+		s.delayed.Add(1)
+		go func() {
+			defer s.delayed.Done()
+			status, msg := s.exec.Update(ctx, t.ServerID, t.Payload.WarnMinutes)
+			s.recordResult(t.ID, status, msg)
+			if status == models.TaskStatusFailed {
+				s.log.Warn("scheduled update failed", zap.String("task_id", t.ID.String()),
+					zap.String("server_id", t.ServerID.String()), zap.String("error", msg))
+			}
+		}()
+		return "", ""
 	default:
 		return models.TaskStatusFailed, "unknown task type " + t.Type
 	}

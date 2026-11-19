@@ -116,8 +116,10 @@ func SetupRouter(
 
 	// New services
 	permSvc := services.NewPermissionService(db)
+	hytaleVersionSvc := services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log)
+	serverUpdateSvc := services.NewServerUpdateService(serverSvc, hytaleVersionSvc, backupSvc, daemonPool, log)
 	serverTaskSvc := services.NewServerTaskService(db, permSvc,
-		services.NewDaemonTaskExecutor(serverSvc, daemonPool), log)
+		services.NewDaemonTaskExecutor(serverSvc, daemonPool, serverUpdateSvc), log)
 	go serverTaskSvc.StartScheduler(ctx)
 	profileSvc := services.NewProfileService(db)
 	invSvc := services.NewInvitationService(db)
@@ -128,6 +130,7 @@ func SetupRouter(
 	secureCookie := !cfg.IsDevelopment()
 	authH := handlers.NewAuthHandler(authSvc, cfg.JWTSecret, secureCookie)
 	serverH := handlers.NewServerHandler(serverSvc, nodeSvc, daemonPool, cfg.DaemonServersDir, log, alertSvc)
+	serverH.SetUpdates(serverUpdateSvc)
 	serverH.SetDatabaseService(dbSvc)
 	serverH.SetNetworkRouting(networkRoutingSvc)
 	// Live event stream: log ingest and status updates wake open streams via
@@ -238,7 +241,7 @@ func SetupRouter(
 	}
 	hytaleAuthSvc := services.NewHytaleAuthService(appSettingsSvc, services.DefaultHytaleAuthEndpoints, log)
 	serverH.SetHytaleAuth(hytaleAuthSvc)
-	hytaleH := handlers.NewHytaleHandler(services.NewHytaleVersionService(rdb, services.HytaleMavenBaseURL, log), hytaleAuthSvc, log)
+	hytaleH := handlers.NewHytaleHandler(hytaleVersionSvc, hytaleAuthSvc, log)
 	hytaleGroup := v1.Group("/hytale")
 	hytaleGroup.Use(authRequired, generalLimiter)
 	hytaleGroup.GET("/versions", hytaleH.Versions)
@@ -269,6 +272,10 @@ func SetupRouter(
 		// Re-fetch the Hytale server files (exit codes 8/11). Replaces the
 		// binaries, so it is a manage-level action, not a power action.
 		serverGroup.POST("/:id/reinstall", rsp("server.manage"), serverH.ReinstallServer)
+		// Hytale updates: installed vs. newest build; "Update now" backs up,
+		// stops, reinstalls and starts, so it needs manage like reinstall.
+		serverGroup.GET("/:id/update", rsp("server.view"), serverH.GetUpdate)
+		serverGroup.POST("/:id/update", rsp("server.manage"), serverH.StartUpdate)
 		serverGroup.GET("/:id/metrics", rsp("server.view"), serverH.GetMetrics)
 		serverGroup.GET("/:id/logs", rsp("server.view"), serverH.GetLogs)
 		serverGroup.POST("/:id/stream-ticket", rsp("server.view"), serverH.IssueStreamTicket)

@@ -11,6 +11,9 @@ const (
 	TaskTypeRestart   = "restart"
 	TaskTypeCommand   = "command"
 	TaskTypeBroadcast = "broadcast"
+	// TaskTypeUpdate updates the Hytale server when its patchline has a
+	// newer build (the task's cron is the maintenance window).
+	TaskTypeUpdate = "update"
 )
 
 // Scheduled server task run outcomes, stored in server_tasks.last_status.

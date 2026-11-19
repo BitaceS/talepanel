@@ -64,8 +64,8 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → Unreleased.
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 7 | **Per-server process isolation** (own UID per server, then per-server container) | The biggest open security gap (`SECURITY.md`): every game server runs as root in the daemon container and can read the node token, the node's TLS key and other servers' files. Step 1: run each JVM under a dedicated unprivileged UID with `chown`ed data dir; step 2: optional container per server. | L |
-| 8 | **Auto-update of the Hytale server per server with a channel (Release / Pre-release)** | Ketbome and Stormster advertise it; the panel already knows the newest build per patchline (`/hytale/versions`). Scheduled update with player warning + backup first. | M |
+| 7 | **Per-server process isolation, step 2** (container or seccomp per server) | Step 1 is done (Now #9): every server has its own unprivileged UID and cannot read node files or other servers. Step 2 limits what a server can do inside the node (syscalls, network, mounts) with an optional container per server. | L |
+| 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (unreleased): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
 | 9 | ~~**Scheduled tasks beyond backups**~~ | Done (unreleased): restart, command, broadcast. | — |
 | 10 | **Login notification emails** (new device / IP) | Open box in `production-hardening.md`; SMTP is already configurable. | S–M |
 | 11 | **API keys for automation** (scoped, hashed) | Pterodactyl's client API is a reason hosters choose it; KyuubiSoft advertises API keys. `security-architecture.md` already mentions hashed API keys. | M |

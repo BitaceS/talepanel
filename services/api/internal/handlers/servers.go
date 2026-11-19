@@ -29,6 +29,7 @@ type ServerHandler struct {
 	hytaleAuth     *services.HytaleAuthService     // optional; nil = servers start unauthenticated
 	dbSvc          *services.DatabaseService       // optional; drops a server's MariaDB database on delete
 	networkRouting *services.NetworkRoutingService // optional; nil = no config fan-out on create
+	updates        *services.ServerUpdateService   // optional; nil = no build tracking or updates
 
 	sessionMu    sync.Mutex
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
@@ -134,6 +135,18 @@ func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 }
 
 // NewServerHandler constructs a ServerHandler.
+// SetUpdates wires the Hytale update service (installed-build tracking and
+// the update endpoints).
+func (h *ServerHandler) SetUpdates(u *services.ServerUpdateService) { h.updates = u }
+
+// expectBuild records the build a provisioning run about to be dispatched
+// will install (see ServerUpdateService.ExpectBuild).
+func (h *ServerHandler) expectBuild(ctx context.Context, server *models.Server) {
+	if h.updates != nil {
+		h.updates.ExpectBuild(ctx, server)
+	}
+}
+
 func NewServerHandler(svc *services.ServerService, nodeSvc *services.NodeService, daemons *daemon.ClientPool, serversBaseDir string, log *zap.Logger, alertSvc *services.AlertService) *ServerHandler {
 	return &ServerHandler{
 		svc:            svc,
@@ -470,6 +483,70 @@ func (h *ServerHandler) ReinstallServer(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"message": "reinstall dispatched", "status": models.StatusInstalling})
 }
 
+// GetUpdate handles GET /servers/:id/update: the installed build, the
+// newest build of the server's patchline and whether an update is available.
+func (h *ServerHandler) GetUpdate(c *gin.Context) {
+	user := mustUser(c)
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if h.updates == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updates are not available"})
+		return
+	}
+	c.JSON(http.StatusOK, h.updates.Info(c.Request.Context(), server))
+}
+
+// StartUpdate handles POST /servers/:id/update ("Update now"): back up,
+// stop, install the newest build of the server's patchline and start the
+// server again if it was running. Optional body {"warn_minutes": 0-15}.
+// Progress goes to the server console.
+func (h *ServerHandler) StartUpdate(c *gin.Context) {
+	user := mustUser(c)
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	if _, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
+		serverError(c, err)
+		return
+	}
+	if h.updates == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updates are not available"})
+		return
+	}
+	var req struct {
+		WarnMinutes int `json:"warn_minutes"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if req.WarnMinutes < 0 || req.WarnMinutes > 15 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "warn_minutes must be between 0 and 15"})
+		return
+	}
+	info, err := h.updates.Begin(c.Request.Context(), serverID, req.WarnMinutes)
+	switch {
+	case errors.Is(err, services.ErrUpdateRunning), errors.Is(err, services.ErrUpdateUnavailable),
+		errors.Is(err, services.ErrServerBusy):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "update": info})
+		return
+	case err != nil:
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "update started", "update": info})
+}
+
 // ─── Daemon dispatch helpers ──────────────────────────────────────────────────
 
 func (h *ServerHandler) daemonClient(nodeID string) (*daemon.Client, error) {
@@ -502,6 +579,7 @@ func (h *ServerHandler) dispatchStart(server *models.Server) {
 	provCtx, provCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer provCancel()
 
+	h.expectBuild(provCtx, server)
 	if err := client.ProvisionServer(provCtx, server.ID.String(), server.HytaleVersion, server.DataPath); err != nil {
 		h.log.Error("start: provisioning failed",
 			zap.String("server_id", server.ID.String()),
@@ -555,22 +633,7 @@ provisioned:
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer startCancel()
 
-	ramLimit := uint32(server.RAMLimitMB)
-
-	cfg := daemon.ServerConfig{
-		ServerID:     server.ID.String(),
-		Name:         server.Name,
-		DataPath:     server.DataPath,
-		Port:         uint16(server.Port),
-		RAMLimitMB:   ramLimit,
-		CPULimit:     float32(max(server.CPULimit, 0)),
-		AutoRestart:  server.AutoRestart,
-		CrashLimit:   uint32(max(server.CrashLimit, 0)),
-		CrashWindowS: uint32(max(server.CrashWindowS, 0)),
-		LaunchFlags:  server.LaunchFlags,
-	}
-
-	if err := client.StartServer(startCtx, cfg); err != nil {
+	if err := client.StartServer(startCtx, services.DaemonStartConfig(server)); err != nil {
 		h.log.Error("start: daemon start call failed",
 			zap.String("server_id", server.ID.String()),
 			zap.Error(err),
@@ -657,6 +720,7 @@ func (h *ServerHandler) dispatchProvision(server *models.Server) {
 		return
 	}
 
+	h.expectBuild(ctx, server)
 	if err := client.ProvisionServer(ctx, server.ID.String(), server.HytaleVersion, server.DataPath); err != nil {
 		h.log.Error("provision: daemon call failed",
 			zap.String("server_id", server.ID.String()),
@@ -682,6 +746,7 @@ func (h *ServerHandler) dispatchReinstall(server *models.Server) {
 		return
 	}
 
+	h.expectBuild(ctx, server)
 	if err := client.ReinstallServer(ctx, server.ID.String(), server.HytaleVersion, server.DataPath); err != nil {
 		h.log.Error("reinstall: daemon call failed",
 			zap.String("server_id", server.ID.String()),
@@ -852,6 +917,12 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 		Status string `json:"status" binding:"required"`
 		// Process exit code, sent with "crashed" on an unexpected exit.
 		ExitCode *int `json:"exit_code"`
+		// With "stopped" at the end of provisioning: downloaded, kept,
+		// local, restored or stub. Absent from older daemons.
+		ProvisionResult *string `json:"provision_result"`
+		// Build named by the downloader output; logged only, the panel
+		// records the build it resolved from Hytale's Maven metadata.
+		Build *string `json:"build"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -891,6 +962,22 @@ func (h *ServerHandler) DaemonStatusUpdate(c *gin.Context) {
 	case models.StatusStarting, models.StatusRunning, models.StatusStopped:
 		if err := h.svc.SetLastExitCode(c.Request.Context(), serverID, nil); err != nil {
 			h.log.Warn("clearing exit code failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		}
+	}
+
+	// Track the installed Hytale build: a provisioning run that downloaded
+	// new files installed the build expected when it was dispatched; a
+	// failed run installed nothing.
+	switch {
+	case req.Status == models.StatusStopped && req.ProvisionResult != nil:
+		if err := h.svc.RecordProvisionResult(c.Request.Context(), serverID, *req.ProvisionResult); err != nil {
+			h.log.Warn("recording provision result failed", zap.String("server_id", serverID.String()), zap.Error(err))
+		}
+		h.log.Info("provisioning finished", zap.String("server_id", serverID.String()),
+			zap.String("result", *req.ProvisionResult), zap.Stringp("downloader_build", req.Build))
+	case req.Status == models.StatusCrashed:
+		if err := h.svc.RecordProvisionResult(c.Request.Context(), serverID, ""); err != nil {
+			h.log.Warn("clearing the expected build failed", zap.String("server_id", serverID.String()), zap.Error(err))
 		}
 	}
 

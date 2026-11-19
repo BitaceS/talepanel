@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { Server } from '~/types'
+import type { Server, ServerUpdateInfo } from '~/types'
 
 // With template_id the template's settings fill every field left out here;
 // fields that are sent win over the template.
@@ -99,6 +99,18 @@ export const useServersStore = defineStore('servers', {
       const api = useApi()
       await api.post(`/servers/${id}/reinstall`)
       await this._refreshServer(id)
+    },
+
+    async getUpdateInfo(id: string): Promise<ServerUpdateInfo> {
+      const api = useApi()
+      return await api.get<ServerUpdateInfo>(`/servers/${id}/update`)
+    },
+
+    // Starts "Update now": backup, stop, install the newest build, start.
+    async startUpdate(id: string, warnMinutes = 0): Promise<ServerUpdateInfo> {
+      const api = useApi()
+      const res = await api.post<{ update: ServerUpdateInfo }>(`/servers/${id}/update`, { warn_minutes: warnMinutes })
+      return res.update
     },
 
     async deleteServer(id: string): Promise<void> {

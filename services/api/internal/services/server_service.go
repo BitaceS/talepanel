@@ -212,7 +212,8 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		       s.created_at, s.updated_at, s.metadata,
 		       COALESCE(NULLIF(n.public_address, ''), n.fqdn, ''),
 		       s.launch_flags, s.use_hytale_account,
-		       s.last_exit_code, s.network_role, s.require_referral
+		       s.last_exit_code, s.network_role, s.require_referral,
+		       s.installed_build, s.installed_patchline, s.installed_at
 		FROM servers s
 		LEFT JOIN nodes n ON n.id = s.node_id
 		WHERE s.id = $1
@@ -227,6 +228,7 @@ func (s *ServerService) GetServer(ctx context.Context, serverID, userID uuid.UUI
 		&server.NodeFQDN,
 		&server.LaunchFlags, &server.UseHytaleAccount,
 		&server.LastExitCode, &server.NetworkRole, &server.RequireReferral,
+		&server.InstalledBuild, &server.InstalledPatchline, &server.InstalledAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -555,6 +557,73 @@ func (s *ServerService) SetLastExitCode(ctx context.Context, serverID uuid.UUID,
 		code, serverID,
 	)
 	return err
+}
+
+// SetInstallingBuild records the build a provisioning run is expected to
+// install (from the patchline's newest build when it is dispatched). An empty
+// build clears it: the run cannot be matched to a build.
+func (s *ServerService) SetInstallingBuild(ctx context.Context, serverID uuid.UUID, patchline, build string) error {
+	var b, p *string
+	if build != "" {
+		b, p = &build, &patchline
+	}
+	_, err := s.db.Exec(ctx,
+		`UPDATE servers SET installing_build = $2, installing_patchline = $3 WHERE id = $1`,
+		serverID, b, p)
+	return err
+}
+
+// Provision results the daemon reports with "stopped" at the end of a
+// provisioning run.
+const (
+	ProvisionDownloaded = "downloaded"
+	ProvisionKept       = "kept"
+	ProvisionLocal      = "local"
+	ProvisionRestored   = "restored"
+	ProvisionStub       = "stub"
+)
+
+// RecordProvisionResult applies a provisioning run's outcome: a download
+// makes the expected build the installed one; any other outcome (or a
+// failed run, result "") only forgets the expectation. Local and stub
+// installs make the installed build unknown.
+func (s *ServerService) RecordProvisionResult(ctx context.Context, serverID uuid.UUID, result string) error {
+	var q string
+	switch result {
+	case ProvisionDownloaded:
+		q = `UPDATE servers SET installed_build = installing_build,
+		            installed_patchline = installing_patchline,
+		            installed_at = NOW(),
+		            installing_build = NULL, installing_patchline = NULL
+		     WHERE id = $1`
+	case ProvisionLocal, ProvisionStub:
+		q = `UPDATE servers SET installed_build = NULL, installed_patchline = NULL, installed_at = NOW(),
+		            installing_build = NULL, installing_patchline = NULL
+		     WHERE id = $1`
+	default:
+		q = `UPDATE servers SET installing_build = NULL, installing_patchline = NULL WHERE id = $1`
+	}
+	if _, err := s.db.Exec(ctx, q, serverID); err != nil {
+		return err
+	}
+	s.events.Notify(ctx, serverID)
+	return nil
+}
+
+// GetServerByID returns a server without an access check, for background
+// jobs that have done their own authorization.
+func (s *ServerService) GetServerByID(ctx context.Context, serverID uuid.UUID) (*models.Server, error) {
+	return s.GetServer(ctx, serverID, uuid.Nil, models.RoleOwner)
+}
+
+// PanelLog writes a line from the panel itself into the server's console
+// log, so long-running panel actions (updates) show their progress there.
+func (s *ServerService) PanelLog(ctx context.Context, serverID uuid.UUID, level, msg string) {
+	_ = s.IngestLogs(ctx, serverID, []LogLineInput{{
+		Timestamp: time.Now().UTC(),
+		Level:     level,
+		Message:   "[TalePanel] " + msg,
+	}})
 }
 
 // GetServerStatus returns the current status string for a server.
