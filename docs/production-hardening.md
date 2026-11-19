@@ -52,11 +52,11 @@
 ## Node Daemon
 
 - [ ] **Run daemon as non-root** — create dedicated `taledaemon` system user
-- [ ] **Hytale server processes as separate users** — each server gets its own Linux user
+- [x] **Hytale server processes as separate users** — each server gets its own UID (`TALEDAEMON_SERVER_ISOLATION`, on by default when the daemon is root)
 - [ ] **Enable cgroups v2 limits** — enforce CPU/RAM limits at OS level, not just config
 - [ ] **Chroot or container isolation** — sandbox each server process
 - [ ] **Restrict daemon network access** — firewall: daemon should only connect to API, not internet
-- [ ] **File permission enforcement** — server data dirs owned by server user, not daemon user
+- [x] **File permission enforcement** — server data dirs owned by server user (0700), node files root-only
 
 ## Monitoring & Alerting
 

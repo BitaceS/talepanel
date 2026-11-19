@@ -68,7 +68,7 @@ A lot of Hytale panels are showing up right now. A game panel hands strangers a 
   - Mod downloads only reach public HTTPS addresses, so no SSRF into your network or cloud metadata.
   - The panel ships a strict CSP and anti-clickjacking headers.
 - **Daemon you can reason about.** The node agent is written in Rust. It only accepts requests carrying its node token, compared in constant time, and validates every path it is given against the server it belongs to.
-- **Open about the gaps.** What is not done yet is listed in [`SECURITY.md`](SECURITY.md) instead of hidden. The main gap is process isolation per server. Vulnerability reports get an answer within 48 hours.
+- **Open about the gaps.** What is not done yet is listed in [`SECURITY.md`](SECURITY.md) instead of hidden. The main gap left is container-level isolation per server (servers already run under their own Linux user). Vulnerability reports get an answer within 48 hours.
 
 ### Install in one command, not one afternoon
 
@@ -103,7 +103,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 **Not there yet (roadmap, tracked publicly):**
 
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
-- **Process isolation per server** — see [`SECURITY.md`](SECURITY.md).
+- **Container-level isolation per server** — each server already runs under its own Linux user (unreleased); a container or seccomp profile per server is next. See [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -480,7 +480,8 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Scheduled restarts, commands and broadcasts | Unreleased |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Unreleased |
 | Local demo with simulated servers (`examples/demo`) | Unreleased |
-| Per-server process isolation | Next |
+| Per-server process isolation, step 1: own Linux user per server | Unreleased |
+| Per-server process isolation, step 2: container per server | Next |
 | Auto-update per server with Release / Pre-release channel | Next |
 | Meaningful test coverage (Go + Rust) | Ongoing |
 
