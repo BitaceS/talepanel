@@ -20,18 +20,14 @@ jobs:
         if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
         uses: contributor-assistant/github-action@v2.6.1
         env:
+          # Signatures live in this repo, so the default token is enough.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PERSONAL_ACCESS_TOKEN with repo scope on the signatures repo.
-          # Create it, store as a secret named CLA_ASSISTANT_PAT, and the
-          # bot will be able to persist signatures across PRs.
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ASSISTANT_PAT }}
         with:
           path-to-signatures: 'signatures/v1/cla.json'
           path-to-document: 'https://github.com/BitaceS/talepanel/blob/main/CLA.md'
-          branch: 'main'
+          # A dedicated branch keeps the bot's signature commits off main.
+          branch: 'cla-signatures'
           allowlist: BitaceS,bot*
-          remote-organization-name: BitaceS
-          remote-repository-name: talepanel-cla-signatures
           custom-notsigned-prcomment: >
             Thank you for the pull request! Before we can merge it we need
             every contributor to sign the TalePanel CLA — this is a one-time
