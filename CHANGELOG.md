@@ -4,6 +4,18 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Server sandbox (process isolation, step 2).** On top of the own Linux user per server, the daemon now limits what a game server can do on the node:
+  - **System call filter (seccomp).** Server processes cannot debug other processes (`ptrace`, `process_vm_*`), mount anything or create namespaces (`mount`, `unshare`, `setns`, `clone` with namespace flags, the new mount API), use `bpf`, `io_uring`, `userfaultfd`, `perf_event_open` or the kernel keyring, or administer the host (kernel modules, `kexec`, `reboot`, swap, clock, hostname). Blocked calls fail with "permission denied"; the JVM and normal plugins are unaffected.
+  - **Network guard.** nftables rules in the daemon's network namespace stop servers from connecting to the daemon's port, to other servers and to anything else listening on the node, and block the cloud metadata address (169.254.169.254). Internet access, DNS and player connections are unchanged. It needs the `NET_ADMIN` capability, which the daemon's `docker-compose.yml` already grants.
+  - **Memory and task limits.** Where the daemon may manage cgroups (a systemd service with `Delegate=yes`, a container with a writable cgroup), every server gets `memory.max` (heap plus half of it, at least 512 MiB more; a runaway server is killed and reported as a crash) and `pids.max` 4096, next to the CPU limit.
+  - `TALEDAEMON_SERVER_SANDBOX=auto` (default) applies what works on the node and logs the rest, `strict` refuses to start the daemon unless the filter and the network guard are active, `off` turns it off.
+- **Isolation status per node.** Admin → Nodes shows on every node card which layers are active (own user, syscall filter, network guard). Daemons report it with their heartbeat (`isolation` field, stored in `nodes.metadata.isolation`); older daemons show "not reported".
+
+### Fixed
+- **DDoS mitigation on the game ports never started.** The daemon passed shell-escaped nftables commands to `nft` without a shell, so the rules (blacklist, per-source and global packet limits on ports 5520–5600) failed to load on every node with `NET_ADMIN` and the daemon fell back to detection only. The rules are now loaded as one script and replaced on restart instead of stacked.
+- The local demo (`examples/demo`) grants the daemon `NET_ADMIN`, so it runs with the network guard like a real node.
+
 ## [0.15.0] — 2026-11-20
 
 ### Added

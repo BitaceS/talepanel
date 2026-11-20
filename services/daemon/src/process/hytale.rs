@@ -21,7 +21,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{watch, Mutex, RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
-use super::cgroup::{self, CpuLimit};
+use super::cgroup::{self, LimitOutcome, Limits};
 use super::restart::ProcessExit;
 use super::{LogLine, ServerStatus};
 use crate::api_client::GameSession;
@@ -102,7 +102,12 @@ fn allowed_launch_flags(requested: &[String]) -> Vec<&'static str> {
 /// server's own `.tmp`, not the shared `/tmp`. Callers set their own
 /// variables after this.
 #[cfg(unix)]
-fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
+fn run_as(
+    cmd: &mut Command,
+    id: ServerIdentity,
+    data_path: &str,
+    seccomp: Option<Arc<crate::sandbox::SeccompFilters>>,
+) {
     cmd.uid(id.uid);
     cmd.gid(id.gid);
     cmd.env_clear();
@@ -116,9 +121,10 @@ fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
     cmd.env("USER", id.account_name());
     cmd.env("LOGNAME", id.account_name());
     // SAFETY: the closure runs between fork and exec and only calls the
-    // async-signal-safe prctl(2) and umask(2).
+    // async-signal-safe prctl(2), setrlimit(2), umask(2) and seccomp(2), the
+    // latter on filters compiled before the fork.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             #[cfg(target_os = "linux")]
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
@@ -134,17 +140,29 @@ fn run_as(cmd: &mut Command, id: ServerIdentity, data_path: &str) {
                 return Err(std::io::Error::last_os_error());
             }
             libc::umask(0o007);
+            // Last: the filter also covers everything exec'd from here on.
+            if let Some(filters) = &seccomp {
+                filters.apply()?;
+            }
             Ok(())
         });
     }
 }
 
 #[cfg(not(unix))]
-fn run_as(_: &mut Command, _: ServerIdentity, _: &str) {}
+fn run_as(
+    _: &mut Command,
+    _: ServerIdentity,
+    _: &str,
+    _: Option<Arc<crate::sandbox::SeccompFilters>>,
+) {
+}
 
 /// RLIMIT_NPROC of an isolated server: processes plus threads of its UID.
 #[cfg(unix)]
-const SERVER_MAX_TASKS: libc::rlim_t = 4096;
+const SERVER_MAX_TASKS: libc::rlim_t = SERVER_PIDS_MAX as libc::rlim_t;
+/// `pids.max` of a server's cgroup (also with isolation off).
+const SERVER_PIDS_MAX: u32 = 4096;
 
 /// The server's private temp directory.
 fn server_tmp_dir(data_path: &str) -> std::path::PathBuf {
@@ -315,6 +333,7 @@ impl HytaleServerProcess {
         &self,
         session: Option<&GameSession>,
         identity: Option<ServerIdentity>,
+        seccomp: Option<Arc<crate::sandbox::SeccompFilters>>,
     ) -> Result<()> {
         let current = self.get_status();
         if current != ServerStatus::Stopped && current != ServerStatus::Crashed {
@@ -432,8 +451,9 @@ impl HytaleServerProcess {
             .await
             .and_then(|r| r)
             .context("creating the server's temp directory")?;
-            run_as(&mut cmd, id, &self.config.data_path);
-            info!(server_id = %self.server_id, uid = id.uid, "Starting under the server's own UID");
+            let sandboxed = seccomp.is_some();
+            run_as(&mut cmd, id, &self.config.data_path, seccomp);
+            info!(server_id = %self.server_id, uid = id.uid, seccomp = sandboxed, "Starting under the server's own UID");
         }
         cmd.envs(session_envs);
 
@@ -464,30 +484,57 @@ impl HytaleServerProcess {
         self.pid.store(pid, Ordering::SeqCst);
         info!(server_id = %self.server_id, pid, "Hytale server process spawned");
 
-        // ── CPU limit (cgroup v2) ─────────────────────────────────────────────
+        // ── Resource limits (cgroup v2) ───────────────────────────────────────
         // Applied right after spawn; the JVM is still starting up, and moving
         // a process via cgroup.procs takes all of its threads along.
-        let cpu_cgroup = match cgroup::apply_cpu_limit(&self.server_id, self.config.cpu_limit, pid)
-        {
-            CpuLimit::Unlimited => None,
-            CpuLimit::Applied(dir) => {
-                info!(server_id = %self.server_id, cgroup = %dir.display(), cpu_limit = self.config.cpu_limit, "CPU limit applied");
-                let _ = self.log_tx.send(LogLine {
-                    timestamp: chrono::Utc::now(),
-                    level: "INFO".to_string(),
-                    message: format!("CPU limit: {}% of one core", self.config.cpu_limit),
-                });
-                Some(dir)
+        let limits = Limits {
+            cpu_percent: self.config.cpu_limit,
+            memory_max_mb: cgroup::memory_max_mb(self.config.ram_limit_mb),
+            pids_max: Some(SERVER_PIDS_MAX),
+        };
+        let log = |level: &str, message: String| {
+            let _ = self.log_tx.send(LogLine {
+                timestamp: chrono::Utc::now(),
+                level: level.to_string(),
+                message,
+            });
+        };
+        let cpu_cgroup = match cgroup::apply_limits(&self.server_id, limits, pid) {
+            LimitOutcome::Unlimited => None,
+            LimitOutcome::Applied(a) => {
+                let mut parts = Vec::new();
+                if a.cpu {
+                    parts.push(format!("CPU {}% of one core", self.config.cpu_limit));
+                }
+                if a.memory {
+                    parts.push(format!(
+                        "memory {} MiB",
+                        limits.memory_max_mb.unwrap_or_default()
+                    ));
+                }
+                if a.pids {
+                    parts.push(format!("{SERVER_PIDS_MAX} tasks"));
+                }
+                info!(server_id = %self.server_id, cgroup = %a.dir.display(), limits = %parts.join(", "), "Resource limits applied");
+                log("INFO", format!("Limits: {}", parts.join(", ")));
+                if !a.missing.is_empty() {
+                    log(
+                        "WARN",
+                        format!("Not enforced on this node: {}", a.missing.join("; ")),
+                    );
+                }
+                Some(a.dir)
             }
-            CpuLimit::NotEnforced(why) => {
-                let _ = self.log_tx.send(LogLine {
-                    timestamp: chrono::Utc::now(),
-                    level: "WARN".to_string(),
-                    message: format!(
-                        "CPU limit of {}% is not enforced on this node: {why}. Starting without it.",
-                        self.config.cpu_limit
-                    ),
-                });
+            LimitOutcome::NotEnforced(why) => {
+                if self.config.cpu_limit > 0.0 {
+                    log(
+                        "WARN",
+                        format!(
+                            "CPU limit of {}% is not enforced on this node: {why}. Starting without it.",
+                            self.config.cpu_limit
+                        ),
+                    );
+                }
                 None
             }
         };

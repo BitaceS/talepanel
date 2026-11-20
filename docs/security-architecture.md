@@ -128,8 +128,10 @@ Content-Security-Policy: default-src 'self'
 - Done: files root wrote (provisioning, upgrades) are handed to the server by an fd-based walk that never follows symlinks and skips foreign hard links
 - Done: at most 4096 processes and threads per server UID (`RLIMIT_NPROC`), so a fork bomb cannot exhaust the node's PIDs; `tini` as PID 1 reaps orphans
 - Done: leftover processes of a server UID are killed on stop, before start and before delete; a startup probe turns isolation off (or refuses, with `uid`) on file systems that ignore `chown`
-- Done: `cgroups` v2 for CPU limits
-- Open: `seccomp` profiles, a separate network namespace or container per server
+- Done: `cgroups` v2 for CPU limits, and since v0.16 `memory.max` and `pids.max` per server (`services/daemon/src/process/cgroup.rs`)
+- Done (v0.16): a seccomp filter on every server process, installed after `no_new_privs` right before exec and inherited by everything the server starts; denied calls fail with `EPERM`, `clone3` with `ENOSYS` so the C library falls back to `clone`, whose namespace flags the filter checks (`services/daemon/src/sandbox.rs`)
+- Done (v0.16): nftables table `inet taledaemon_sandbox` in the daemon's network namespace: connections from server UIDs to the node's own addresses (everything routed through `lo`) are rejected except DNS, as is the cloud metadata address; established traffic and player connections are unaffected
+- Open: a PID namespace or container per server (process list), filtering of LAN and Docker-host addresses (left to the host firewall)
 
 ---
 

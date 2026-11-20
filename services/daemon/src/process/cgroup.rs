@@ -1,19 +1,21 @@
-//! Per-server CPU limits through cgroup v2 `cpu.max`.
+//! Per-server resource limits through cgroup v2: `cpu.max`, `memory.max` and
+//! `pids.max`.
 //!
 //! The daemon works inside its own cgroup (the systemd service's or the
 //! container's). On first use it moves its own processes into a `daemon`
-//! leaf, enables the `cpu` controller for its children and then gives every
-//! CPU-limited server a `server-<id>` child cgroup:
+//! leaf, enables the `cpu`, `memory` and `pids` controllers it has for its
+//! children and then gives every server a `server-<id>` child cgroup:
 //!
 //! ```text
 //! <daemon cgroup>/
-//!   daemon/            the daemon itself (and unlimited servers)
-//!   server-<uuid>/     cpu.max = "<quota> 100000"
+//!   daemon/            the daemon itself
+//!   server-<uuid>/     cpu.max, memory.max, pids.max
 //! ```
 //!
 //! If that is impossible (no cgroup v2, read-only cgroupfs as in an
 //! unprivileged Docker container, controller not delegated) the daemon logs one
-//! warning and starts servers without a limit. A limit never fails a start.
+//! warning and starts servers without the missing limits. A limit never fails
+//! a start.
 
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -27,6 +29,8 @@ pub const CPU_PERIOD_US: u64 = 100_000;
 /// Smallest quota the kernel accepts.
 const MIN_QUOTA_US: u64 = 1_000;
 const DAEMON_LEAF: &str = "daemon";
+/// Controllers the daemon uses, in the order it enables them.
+const CONTROLLERS: [&str; 3] = ["cpu", "memory", "pids"];
 /// Linux errno "no such process" (libc is a unix-only dependency here).
 const ESRCH: i32 = 3;
 
@@ -37,6 +41,16 @@ pub fn cpu_max_value(percent: f32) -> Option<String> {
     }
     let quota = (f64::from(percent) * CPU_PERIOD_US as f64 / 100.0).round() as u64;
     Some(format!("{} {}", quota.max(MIN_QUOTA_US), CPU_PERIOD_US))
+}
+
+/// `memory.max` for a server whose JVM heap is capped at `heap_mb`, in MiB;
+/// `None` = no limit. The JVM needs memory beyond the heap (metaspace, thread
+/// stacks, code cache, direct buffers, the garbage collector's own tables),
+/// so the cap is the heap plus half of it, at least 512 MiB more. Only a
+/// runaway process reaches it; the kernel then kills the server, which is
+/// reported as a crash.
+pub fn memory_max_mb(heap_mb: u32) -> Option<u64> {
+    (heap_mb > 0).then(|| u64::from(heap_mb) + (u64::from(heap_mb) / 2).max(512))
 }
 
 /// The daemon's own cgroup path from `/proc/self/cgroup` (the v2 `0::` line).
@@ -77,7 +91,8 @@ fn create_dir(path: &Path) -> std::io::Result<()> {
 }
 
 /// Set up the delegated hierarchy below `base` (the daemon's own cgroup).
-fn prepare(base: &Path) -> Result<(), String> {
+/// Returns the controllers available to server cgroups.
+fn prepare(base: &Path) -> Result<Vec<&'static str>, String> {
     let read = |name: &str| {
         std::fs::read_to_string(base.join(name))
             .map_err(|e| format!("cannot read {}: {e}", base.join(name).display()))
@@ -91,14 +106,20 @@ fn prepare(base: &Path) -> Result<(), String> {
                 .into(),
         );
     }
-    if !has_controller(&read("cgroup.controllers")?, "cpu") {
+    let available = read("cgroup.controllers")?;
+    let wanted: Vec<&'static str> = CONTROLLERS
+        .into_iter()
+        .filter(|c| has_controller(&available, c))
+        .collect();
+    if wanted.is_empty() {
         return Err(format!(
-            "the cpu controller is not available in {} (systemd: Delegate=yes on the daemon's unit)",
+            "no cpu, memory or pids controller is available in {} (systemd: Delegate=yes on the daemon's unit)",
             base.display()
         ));
     }
-    if has_controller(&read("cgroup.subtree_control")?, "cpu") {
-        return Ok(());
+    let enabled = read("cgroup.subtree_control")?;
+    if wanted.iter().all(|c| has_controller(&enabled, c)) {
+        return Ok(wanted);
     }
 
     // cgroup v2 "no internal processes": a cgroup that distributes a
@@ -125,18 +146,35 @@ fn prepare(base: &Path) -> Result<(), String> {
             }
         }
     }
-    write_file(&base.join("cgroup.subtree_control"), "+cpu").map_err(|e| {
-        format!(
-            "cannot enable the cpu controller in {}: {e}",
-            base.display()
-        )
-    })
+    let control = base.join("cgroup.subtree_control");
+    let all: Vec<String> = wanted.iter().map(|c| format!("+{c}")).collect();
+    if write_file(&control, &all.join(" ")).is_ok() {
+        return Ok(wanted);
+    }
+    // One controller may be refused (e.g. memory in some nested setups);
+    // keep the others.
+    let mut ok = Vec::new();
+    let mut last_err = None;
+    for c in wanted {
+        match write_file(&control, &format!("+{c}")) {
+            Ok(()) => ok.push(c),
+            Err(e) => last_err = Some(format!("{c}: {e}")),
+        }
+    }
+    if ok.is_empty() {
+        return Err(format!(
+            "cannot enable controllers in {}: {}",
+            base.display(),
+            last_err.unwrap_or_default()
+        ));
+    }
+    Ok(ok)
 }
 
 /// The prepared base cgroup, or why CPU limits cannot be enforced. Computed
 /// once; the failure is logged once.
-fn hierarchy() -> &'static Result<PathBuf, String> {
-    static HIERARCHY: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+fn hierarchy() -> &'static Result<(PathBuf, Vec<&'static str>), String> {
+    static HIERARCHY: OnceLock<Result<(PathBuf, Vec<&'static str>), String>> = OnceLock::new();
     HIERARCHY.get_or_init(|| {
         let mount = Path::new(CGROUP_MOUNT);
         let result = (|| {
@@ -148,59 +186,123 @@ fn hierarchy() -> &'static Result<PathBuf, String> {
                 .and_then(|s| parse_own_cgroup(&s))
                 .ok_or("cannot determine the daemon's cgroup from /proc/self/cgroup")?;
             let base = mount.join(own.trim_start_matches('/'));
-            prepare(&base)?;
-            Ok(base)
+            let controllers = prepare(&base)?;
+            Ok((base, controllers))
         })();
         match &result {
-            Ok(base) => {
-                info!(cgroup = %base.display(), "Per-server CPU limits enabled (cgroup v2)")
+            Ok((base, controllers)) => {
+                info!(cgroup = %base.display(), controllers = ?controllers, "Per-server resource limits enabled (cgroup v2)")
             }
             Err(why) => warn!(
                 reason = %why,
-                "CPU limits cannot be enforced on this node; servers start without them"
+                "Resource limits (CPU, memory, tasks) cannot be enforced on this node; servers start without them"
             ),
         }
         result
     })
 }
 
-/// Result of applying a server's CPU limit.
+/// Limits for one server; zero/`None` means none.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Limits {
+    /// Percent of one core.
+    pub cpu_percent: f32,
+    pub memory_max_mb: Option<u64>,
+    pub pids_max: Option<u32>,
+}
+
+/// What [`apply_limits`] managed to set.
 #[derive(Debug)]
-pub enum CpuLimit {
+pub struct Applied {
+    pub dir: PathBuf,
+    pub cpu: bool,
+    pub memory: bool,
+    pub pids: bool,
+    /// Requested limits that are not enforced, with the reason.
+    pub missing: Vec<String>,
+}
+
+/// Result of applying a server's limits.
+#[derive(Debug)]
+pub enum LimitOutcome {
     /// No limit configured.
     Unlimited,
-    /// The process is in this cgroup with `cpu.max` set.
-    Applied(PathBuf),
-    /// A limit is configured but could not be enforced (reason inside).
+    /// The process is in this cgroup with (some of) the limits set.
+    Applied(Applied),
+    /// Limits are configured but none could be enforced (reason inside).
     NotEnforced(String),
 }
 
-/// Put `pid` into its server's cgroup with the given limit (percent of one core).
-pub fn apply_cpu_limit(server_id: &str, percent: f32, pid: u32) -> CpuLimit {
-    let Some(value) = cpu_max_value(percent) else {
-        return CpuLimit::Unlimited;
-    };
-    if pid == 0 {
-        return CpuLimit::NotEnforced("process id unknown".into());
+/// Put `pid` into its server's cgroup with the given limits.
+pub fn apply_limits(server_id: &str, limits: Limits, pid: u32) -> LimitOutcome {
+    let cpu = cpu_max_value(limits.cpu_percent);
+    let memory = limits.memory_max_mb.filter(|m| *m > 0);
+    let pids = limits.pids_max.filter(|p| *p > 0);
+    if cpu.is_none() && memory.is_none() && pids.is_none() {
+        return LimitOutcome::Unlimited;
     }
-    let base = match hierarchy() {
-        Ok(b) => b,
-        Err(why) => return CpuLimit::NotEnforced(why.clone()),
+    if pid == 0 {
+        return LimitOutcome::NotEnforced("process id unknown".into());
+    }
+    let (base, controllers) = match hierarchy() {
+        Ok(h) => h,
+        Err(why) => return LimitOutcome::NotEnforced(why.clone()),
     };
     let Some(name) = server_cgroup_name(server_id) else {
-        return CpuLimit::NotEnforced("server id is not a valid cgroup name".into());
+        return LimitOutcome::NotEnforced("server id is not a valid cgroup name".into());
     };
     let dir = base.join(name);
-    let result = create_dir(&dir)
-        .and_then(|()| write_file(&dir.join("cpu.max"), &value))
-        .and_then(|()| write_file(&dir.join("cgroup.procs"), &pid.to_string()));
-    match result {
-        Ok(()) => CpuLimit::Applied(dir),
-        Err(e) => {
-            warn!(%server_id, cgroup = %dir.display(), error = %e, "Failed to apply CPU limit");
-            CpuLimit::NotEnforced(format!("cannot configure {}: {e}", dir.display()))
-        }
+    if let Err(e) = create_dir(&dir) {
+        return LimitOutcome::NotEnforced(format!("cannot create {}: {e}", dir.display()));
     }
+
+    let mut applied = Applied {
+        dir: dir.clone(),
+        cpu: false,
+        memory: false,
+        pids: false,
+        missing: Vec::new(),
+    };
+    let mut set = |controller: &str, file: &str, value: String| -> bool {
+        if !controllers.contains(&controller) {
+            applied
+                .missing
+                .push(format!("{controller}: controller not available"));
+            return false;
+        }
+        match write_file(&dir.join(file), &value) {
+            Ok(()) => true,
+            Err(e) => {
+                applied.missing.push(format!("{controller}: {e}"));
+                false
+            }
+        }
+    };
+    let cpu_ok = cpu.is_some_and(|v| set("cpu", "cpu.max", v));
+    let memory_ok = memory.is_some_and(|m| {
+        let ok = set("memory", "memory.max", (m * 1024 * 1024).to_string());
+        if ok {
+            // Kill the whole server on OOM rather than one random thread's
+            // process; best effort (older kernels lack the file).
+            let _ = write_file(&dir.join("memory.oom.group"), "1");
+        }
+        ok
+    });
+    let pids_ok = pids.is_some_and(|p| set("pids", "pids.max", p.to_string()));
+    applied.cpu = cpu_ok;
+    applied.memory = memory_ok;
+    applied.pids = pids_ok;
+
+    if !(cpu_ok || memory_ok || pids_ok) {
+        remove_server_cgroup(&dir);
+        return LimitOutcome::NotEnforced(applied.missing.join("; "));
+    }
+    if let Err(e) = write_file(&dir.join("cgroup.procs"), &pid.to_string()) {
+        warn!(%server_id, cgroup = %dir.display(), error = %e, "Failed to move the server into its cgroup");
+        remove_server_cgroup(&dir);
+        return LimitOutcome::NotEnforced(format!("cannot configure {}: {e}", dir.display()));
+    }
+    LimitOutcome::Applied(applied)
 }
 
 /// Remove a server cgroup after its process exited (best effort; the kernel
@@ -272,28 +374,45 @@ mod tests {
     }
 
     #[test]
-    fn prepare_moves_processes_to_a_leaf_and_enables_cpu() {
+    fn prepare_moves_processes_to_a_leaf_and_enables_controllers() {
         let base = fake_cgroup("ok", "cpuset cpu io memory pids\n");
         std::fs::create_dir_all(base.join(DAEMON_LEAF)).unwrap();
         std::fs::write(base.join(DAEMON_LEAF).join("cgroup.procs"), "").unwrap();
-        prepare(&base).unwrap();
+        assert_eq!(prepare(&base).unwrap(), vec!["cpu", "memory", "pids"]);
         assert_eq!(
             std::fs::read_to_string(base.join("daemon/cgroup.procs")).unwrap(),
             "4242"
         );
         assert_eq!(
             std::fs::read_to_string(base.join("cgroup.subtree_control")).unwrap(),
-            "+cpu"
+            "+cpu +memory +pids"
         );
         let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
-    fn prepare_refuses_without_a_delegated_cpu_controller() {
+    fn prepare_uses_the_controllers_that_exist() {
         let base = fake_cgroup("nocpu", "cpuset io memory pids\n");
+        std::fs::create_dir_all(base.join(DAEMON_LEAF)).unwrap();
+        std::fs::write(base.join(DAEMON_LEAF).join("cgroup.procs"), "").unwrap();
+        assert_eq!(prepare(&base).unwrap(), vec!["memory", "pids"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prepare_refuses_without_any_delegated_controller() {
+        let base = fake_cgroup("none", "cpuset io\n");
         let err = prepare(&base).unwrap_err();
         assert!(err.contains("Delegate=yes"), "{err}");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn memory_cap_leaves_room_above_the_heap() {
+        assert_eq!(memory_max_mb(0), None);
+        assert_eq!(memory_max_mb(512), Some(1024));
+        assert_eq!(memory_max_mb(1024), Some(1536));
+        assert_eq!(memory_max_mb(4096), Some(6144));
     }
 
     #[test]
@@ -314,8 +433,16 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = child.id();
-        let dir = match apply_cpu_limit("00000000-0000-0000-0000-00000000c0de", 20.0, pid) {
-            CpuLimit::Applied(dir) => dir,
+        let limits = Limits {
+            cpu_percent: 20.0,
+            memory_max_mb: Some(256),
+            pids_max: Some(64),
+        };
+        let dir = match apply_limits("00000000-0000-0000-0000-00000000c0de", limits, pid) {
+            LimitOutcome::Applied(a) => {
+                assert!(a.cpu && a.memory && a.pids, "{:?}", a.missing);
+                a.dir
+            }
             other => {
                 let _ = child.kill();
                 panic!("limit not applied: {other:?}");
@@ -324,6 +451,18 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.join("cpu.max")).unwrap().trim(),
             "20000 100000"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("memory.max"))
+                .unwrap()
+                .trim(),
+            (256u64 * 1024 * 1024).to_string()
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("pids.max"))
+                .unwrap()
+                .trim(),
+            "64"
         );
         let usage = |d: &Path| -> u64 {
             let stat = std::fs::read_to_string(d.join("cpu.stat")).unwrap();

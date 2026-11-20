@@ -188,7 +188,9 @@ impl ProcessManager {
             .prepare(&server_id)
             .await
             .with_context(|| format!("preparing the isolated user for server {server_id}"))?;
-        process.start(session.as_ref(), identity).await?;
+        process
+            .start(session.as_ref(), identity, self.isolation.seccomp())
+            .await?;
 
         // Spawn the log relay task.
         let relay_handle = self.spawn_log_relay(&server_id, Arc::clone(&process));

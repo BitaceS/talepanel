@@ -3,7 +3,9 @@ import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
   Plug, Save, ExternalLink, Mail, Send, KeyRound, Lock, Copy, RotateCw, LayoutTemplate,
+  Check, X,
 } from '@lucide/vue'
+import type { NodeIsolation } from '~/types'
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
 import { useServerTemplatesStore } from '~/stores/serverTemplates'
@@ -564,9 +566,21 @@ interface Node {
   status: string
   last_heartbeat?: string
   created_at: string
+  /** `isolation` is reported by daemons v0.16+. */
+  metadata?: { isolation?: NodeIsolation }
 }
 
 const nodes = ref<Node[]>([])
+
+function isolationLayers(node: Node) {
+  const iso = node.metadata?.isolation
+  if (!iso) return []
+  return [
+    { label: 'Own user', on: iso.uid, hint: "Every game server runs under its own Linux user and cannot read the node's keys or other servers' files" },
+    { label: 'Syscall filter', on: iso.seccomp, hint: 'seccomp: no ptrace, mount, namespaces, bpf, io_uring or kernel modules' },
+    { label: 'Network guard', on: iso.network, hint: "Servers cannot reach the daemon's port, other servers or other services on the node (needs NET_ADMIN)" },
+  ]
+}
 const nodesLoading = ref(false)
 const nodesError = ref('')
 
@@ -930,6 +944,21 @@ async function submitCreateUser() {
               <p class="text-tp-text font-semibold text-sm">{{ node.total_disk_mb ? formatMB(node.total_disk_mb) : '-' }}</p>
               <p class="text-tp-outline text-xs">Disk</p>
             </div>
+          </div>
+
+          <!-- Server isolation (daemon v0.16+) -->
+          <div class="flex flex-wrap items-center gap-1.5 text-xs">
+            <span class="text-tp-muted mr-0.5">Isolation</span>
+            <template v-if="node.metadata?.isolation">
+              <span v-for="layer in isolationLayers(node)" :key="layer.label"
+                :title="layer.hint"
+                :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full',
+                  layer.on ? 'bg-tp-success/15 text-tp-success' : 'bg-tp-surface2 text-tp-muted line-through']">
+                <component :is="layer.on ? Check : X" class="w-3 h-3" aria-hidden="true" />
+                {{ layer.label }}<span class="sr-only">{{ layer.on ? ' active' : ' not active' }}</span>
+              </span>
+            </template>
+            <span v-else class="text-tp-outline">not reported (daemon older than v0.16)</span>
           </div>
 
           <!-- Last heartbeat + location -->

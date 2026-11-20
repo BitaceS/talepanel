@@ -68,7 +68,7 @@ A lot of Hytale panels are showing up right now. A game panel hands strangers a 
   - Mod downloads only reach public HTTPS addresses, so no SSRF into your network or cloud metadata.
   - The panel ships a strict CSP and anti-clickjacking headers.
 - **Daemon you can reason about.** The node agent is written in Rust. It only accepts requests carrying its node token, compared in constant time, and validates every path it is given against the server it belongs to.
-- **Open about the gaps.** What is not done yet is listed in [`SECURITY.md`](SECURITY.md) instead of hidden. The main gap left is container-level isolation per server (servers already run under their own Linux user). Vulnerability reports get an answer within 48 hours.
+- **Open about the gaps.** What is not done yet is listed in [`SECURITY.md`](SECURITY.md) instead of hidden. The main gap left is container-level isolation per server (servers already run under their own Linux user, with a system call filter and a network guard). Vulnerability reports get an answer within 48 hours.
 
 ### Install in one command, not one afternoon
 
@@ -105,7 +105,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 **Not there yet (roadmap, tracked publicly):**
 
 - **Test coverage** — growing (Go unit + integration tests, Rust tests in the daemon, JUnit in the mod) but far from complete. Beta means beta.
-- **Container-level isolation per server** — each server already runs under its own Linux user (v0.13); a container or seccomp profile per server is next. See [`SECURITY.md`](SECURITY.md).
+- **Container-level isolation per server** — each server already runs under its own Linux user (v0.13) with a system call filter, a network guard and memory limits (v0.16), but shares the kernel and the process list with the other servers on the node. See [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -487,7 +487,8 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Shipped (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |
-| Per-server process isolation, step 2: container per server | Next |
+| Per-server process isolation, step 2: seccomp filter, network guard, memory and task limits | Unreleased (v0.16) |
+| Per-server process isolation, step 3: container per server | Later |
 | Auto-update per server with Release / Pre-release channel | Shipped (v0.13) |
 | API keys with scopes and server limits | Shipped (v0.13) |
 | Meaningful test coverage (Go + Rust) | Ongoing |

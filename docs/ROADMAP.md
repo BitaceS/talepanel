@@ -66,7 +66,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 7 | **Per-server process isolation, step 2** (container or seccomp per server) | Step 1 is done (Now #9): every server has its own unprivileged UID and cannot read node files or other servers. Step 2 limits what a server can do inside the node (syscalls, network, mounts) with an optional container per server. | L |
+| 7 | ~~**Per-server process isolation, step 2**~~ | Done (unreleased, v0.16): sandbox in the daemon, no Docker socket needed. seccomp filter (no ptrace, mounts, namespaces, bpf, io_uring, modules, ...), nftables network guard (servers cannot reach the node's own ports or the cloud metadata address), `memory.max` and `pids.max` per server where cgroups are writable, status per node in the admin panel. Left for a step 3: a container or PID namespace per server (hides the process list; needs `CAP_SYS_ADMIN` or the Docker socket). | — |
 | 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (v0.13.0): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
 | 9 | ~~**Scheduled tasks beyond backups**~~ | Done (v0.13.0): restart, command, broadcast. | — |
 | 10 | ~~**Login notification emails** (new device / IP)~~ | Done (v0.14): email on a sign-in with a browser not used from that /24 (/48) in 30 days; opt-out per user. | — |
