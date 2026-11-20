@@ -4,7 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-Hardening: nodes require mutual TLS, owners can require 2FA for admins, and users get an email when their account is signed into from a new device. Plus performance graphs per server.
+## [0.14.0] — 2026-11-20
+
+Hardening: nodes require mutual TLS, owners can require 2FA for admins, and users get an email when their account is signed into from a new device. Plus performance graphs per server and a slide-in sidebar on phones. Panel older than v0.12? Read `UPGRADING.md` before updating the nodes.
 
 ### Changed
 - **Nodes now require mutual TLS by default.** `TALEDAEMON_REQUIRE_MTLS` defaults to on and `TALEDAEMON_ALLOW_LEGACY_BEARER` to off (daemon config, `deploy/daemon/docker-compose.yml`, `.env.template`): a node refuses plaintext connections and exits when it cannot get its certificate from the panel. Panels from v0.12 on already talk mTLS, so nothing changes for them. **Only if your panel is older than v0.12**, set `TALEDAEMON_REQUIRE_MTLS=0` and `TALEDAEMON_ALLOW_LEGACY_BEARER=1` in the node's `.env` until you update the panel. Both flags now also accept `0`/`false`/`no`/`off`; unknown values keep the default instead of turning a protection off.

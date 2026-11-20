@@ -32,7 +32,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hyta
 
 It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed. Latest release: [v0.13.0](https://github.com/BitaceS/talepanel/releases/tag/v0.13.0) (2026-11-19), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed. Latest release: [v0.14.0](https://github.com/BitaceS/talepanel/releases/tag/v0.14.0) (2026-11-20), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ### At a glance
 
@@ -480,8 +480,8 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Server templates (5 built-in + your own) | Shipped (v0.13) |
 | Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
-| mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Unreleased (v0.14) |
-| Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Unreleased (v0.14) |
+| mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Shipped (v0.14) |
+| Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Shipped (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |
 | Per-server process isolation, step 2: container per server | Next |

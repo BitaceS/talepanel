@@ -1,6 +1,6 @@
 # Security Policy
 
-_Last reviewed: 2026-11-19, against v0.13.0._
+_Last reviewed: 2026-11-20, against v0.14.0._
 
 ## Reporting a vulnerability
 

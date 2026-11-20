@@ -22,7 +22,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV), auto restart, CPU limit (cgroup v2), SMTP in the panel | v0.11 |
 | Encrypted backups (ChaCha20-Poly1305) with key rotation, mutual TLS panel ↔ node | v0.12 |
 | Game theme, real dashboard data, self-hosted fonts/icons, SSE console, schedules, templates, 2FA recovery codes, per-server Linux user, Hytale server updates, API keys | v0.13 |
-| mTLS required by default, 2FA required for admins (optional), new-device sign-in emails, changeable update channel, API key shown in the activity log | v0.14 |
+| mTLS required by default, 2FA required for admins (optional), new-device sign-in emails, performance graphs per server, slide-in sidebar on phones, changeable update channel, API key shown in the activity log | v0.14 |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
 ## Implemented in November 2026

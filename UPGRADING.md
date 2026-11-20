@@ -78,7 +78,19 @@ Run the installer's **Upgrade** mode on the panel **and on every node**. Migrati
 
 ---
 
-## v0.13.0 → v1.0.0 (planned)
+## v0.13.0 → v0.14.0
+
+Run the installer's **Upgrade** mode on the panel first, **then on every node**. Migration 048 runs automatically when the API starts.
+
+- **Nodes require mutual TLS.** A v0.14 node refuses plaintext connections and exits if it cannot get its certificate from the panel. Panels from v0.12 on already use mTLS, so nothing changes for them. Only if a node must keep talking to a panel older than v0.12, set `TALEDAEMON_REQUIRE_MTLS=0` and `TALEDAEMON_ALLOW_LEGACY_BEARER=1` in the node's `.env` until that panel is updated.
+- **Performance graphs** need the v0.14 daemon. Nodes that are not updated yet keep working, but their servers record no history; the graphs start filling from the moment a node runs v0.14.
+- **Require 2FA for admins** is off after the upgrade. An owner can turn it on under Admin → Integrations once their own account has 2FA.
+- **New-device sign-in emails** are on by default when SMTP is set up. The first sign-in of each account after the upgrade is not reported; users can turn the emails off in their notification settings.
+- **Metric cleanup:** the API now deletes node and server metrics older than 8 days. On a panel that has run for a long time, the first cleanup right after the API starts removes a large number of old `node_metrics` rows at once.
+
+---
+
+## v0.14.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 
