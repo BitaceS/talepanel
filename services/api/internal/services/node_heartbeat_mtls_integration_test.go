@@ -140,3 +140,38 @@ func TestHeartbeat_keepsDrainingStatus(t *testing.T) {
 		t.Fatalf("status = %q, want online", status)
 	}
 }
+
+func TestHeartbeat_storesIsolationInMetadata(t *testing.T) {
+	pool := openTestDB(t)
+	ctx := context.Background()
+	id := seedHeartbeatNode(t, pool, nil)
+	svc := NewNodeService(pool)
+	if _, err := pool.Exec(ctx, `UPDATE nodes SET metadata = '{"keep":1}' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	// jsonb equality, independent of key order.
+	matches := func(want string) bool {
+		var ok bool
+		if err := pool.QueryRow(ctx, `SELECT metadata = $2::jsonb FROM nodes WHERE id = $1`, id, want).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+
+	iso := &NodeIsolation{UID: true, Seccomp: true, Network: false}
+	if _, err := svc.UpdateNodeHeartbeat(ctx, id, NodeHeartbeatRequest{Status: "online", Isolation: iso}); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"keep": 1, "isolation": {"uid": true, "seccomp": true, "network": false}}`
+	if !matches(want) {
+		t.Fatalf("metadata is not %s", want)
+	}
+
+	// An older daemon (no isolation field) leaves the last report alone.
+	if _, err := svc.UpdateNodeHeartbeat(ctx, id, NodeHeartbeatRequest{Status: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	if !matches(want) {
+		t.Fatalf("metadata changed by a heartbeat without isolation, want %s", want)
+	}
+}

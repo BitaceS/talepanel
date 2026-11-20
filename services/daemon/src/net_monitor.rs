@@ -928,32 +928,35 @@ async fn check_nft_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Game-port protection: a timed blacklist, a per-source and a global
+/// packet rate limit on the game ports, and a counter for monitoring.
+/// Loaded as one script that replaces the table, so a daemon restart does not
+/// stack rules.
+const DDOS_RULESET: &str = "add table inet taledaemon
+delete table inet taledaemon
+table inet taledaemon {
+	set blacklist {
+		type ipv4_addr
+		flags timeout
+	}
+	set per_ip_udp {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10s
+	}
+	chain input {
+		type filter hook input priority -10; policy accept;
+		ip saddr @blacklist counter drop
+		udp dport 5520-5600 update @per_ip_udp { ip saddr limit rate over 5000/second } counter drop
+		udp dport 5520-5600 limit rate over 50000/second counter drop
+		udp dport 5520-5600 counter
+	}
+}
+";
+
 async fn init_nft_rules() -> anyhow::Result<()> {
-    // Create table
-    run_nft("add table inet taledaemon").await?;
-
-    // Create blacklist set with timeout support
-    run_nft("add set inet taledaemon blacklist { type ipv4_addr; flags timeout; }").await?;
-
-    // Create input chain
-    run_nft("add chain inet taledaemon input { type filter hook input priority -10 \\; policy accept \\; }").await?;
-
-    // Drop blacklisted IPs
-    run_nft("add rule inet taledaemon input ip saddr @blacklist counter drop").await?;
-
-    // Rate limit per-IP on game ports: drop if >5000 pps per source
-    run_nft(
-        "add rule inet taledaemon input udp dport 5520-5600 meter per_ip_udp { ip saddr limit rate over 5000/second } counter drop"
-    ).await?;
-
-    // Global rate limit on game ports: drop if >50000 pps total
-    run_nft(
-        "add rule inet taledaemon input udp dport 5520-5600 limit rate over 50000/second counter drop"
-    ).await?;
-
-    // Counter rule for monitoring (must be after rate limits)
-    run_nft("add rule inet taledaemon input udp dport 5520-5600 counter").await?;
-
+    crate::sandbox::nft_apply(DDOS_RULESET).await?;
     info!("nftables rules initialised for game port protection");
     Ok(())
 }

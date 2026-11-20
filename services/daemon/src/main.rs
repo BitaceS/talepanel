@@ -13,6 +13,7 @@ mod pki;
 mod plugin_scanner;
 mod process;
 mod rclone;
+mod sandbox;
 mod sysmetrics;
 mod userfs;
 
@@ -78,8 +79,18 @@ async fn main() -> Result<()> {
     // Per-server isolation: every game server under its own UID. A setting
     // that cannot be honoured (uid requested but not root, bad UID base) is
     // fatal rather than silently running servers as root.
-    let isolation =
-        Arc::new(isolation::Isolation::from_config(&config).context("Per-server isolation")?);
+    let mut isolation =
+        isolation::Isolation::from_config(&config).context("Per-server isolation")?;
+    // Step 2: system call filter and network rules for server UIDs.
+    let sandbox = sandbox::Sandbox::setup(
+        sandbox::parse_mode(&config.daemon.server_sandbox)?,
+        isolation.is_enabled(),
+        isolation.uid_range(),
+    )
+    .await
+    .context("Per-server sandbox")?;
+    isolation.set_sandbox(sandbox);
+    let isolation = Arc::new(isolation);
     if isolation.is_enabled() {
         isolation.secure_node_layout(&[
             std::path::Path::new(&config.daemon.pki_dir),
@@ -258,6 +269,7 @@ async fn main() -> Result<()> {
         timestamp: chrono::Utc::now(),
         mtls: node_pki.as_ref().map(|p| p.advert()),
         servers: Vec::new(),
+        isolation: Some(isolation.sandbox_status()),
     };
     if let Err(err) = api_client.heartbeat("offline", offline_metrics).await {
         warn!(%err, "Failed to send offline heartbeat (non-fatal)");

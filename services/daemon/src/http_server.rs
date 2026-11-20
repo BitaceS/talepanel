@@ -3776,6 +3776,7 @@ mod tests {
                     require_mtls: false,
                     server_isolation: "off".into(),
                     server_uid_base: DaemonConfig::default_server_uid_base(),
+                    server_sandbox: "off".into(),
                 },
                 resources: ResourcesConfig::default(),
                 hytale: HytaleConfig::default(),

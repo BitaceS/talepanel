@@ -77,6 +77,16 @@ type NodeHeartbeatRequest struct {
 	// CertRenewal: the daemon renews its certificate while running and
 	// follows CA rotations (TaleDaemon v0.15+).
 	CertRenewal bool `json:"cert_renewal,omitempty"`
+	// Isolation: which isolation layers the daemon applies to its game
+	// servers (TaleDaemon v0.16+). Stored in nodes.metadata.isolation.
+	Isolation *NodeIsolation `json:"isolation,omitempty"`
+}
+
+// NodeIsolation is the isolation a node reports for its game servers.
+type NodeIsolation struct {
+	UID     bool `json:"uid"`
+	Seccomp bool `json:"seccomp"`
+	Network bool `json:"network"`
 }
 
 // NodeService handles CRUD and heartbeat logic for daemon nodes.
@@ -280,6 +290,17 @@ func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID,
 		status = "online"
 	}
 
+	// Only the known fields are stored, never what else the daemon sent.
+	var isolation *string
+	if req.Isolation != nil {
+		b, merr := json.Marshal(req.Isolation)
+		if merr != nil {
+			return false, fmt.Errorf("encoding isolation: %w", merr)
+		}
+		v := string(b)
+		isolation = &v
+	}
+
 	var accepted bool
 	err = s.db.QueryRow(ctx, `
 		UPDATE nodes
@@ -288,10 +309,12 @@ func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID,
 		    mtls_enabled   = mtls_enabled OR COALESCE($4 AND cert_serial = NULLIF($5, ''), false),
 		    cert_not_after = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $6 ELSE cert_not_after END,
 		    served_cert_serial = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $5 ELSE served_cert_serial END,
-		    cert_renewal_supported = $7
+		    cert_renewal_supported = $7,
+		    metadata = CASE WHEN $8::jsonb IS NULL THEN metadata
+		                    ELSE metadata || jsonb_build_object('isolation', $8::jsonb) END
 		WHERE id = $3
 		RETURNING COALESCE($4 AND cert_serial = NULLIF($5, ''), false)
-	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter, req.CertRenewal).Scan(&accepted)
+	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter, req.CertRenewal, isolation).Scan(&accepted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNodeNotFound
 	}

@@ -143,6 +143,12 @@ pub struct DaemonConfig {
     /// First UID/GID handed to game servers (one per server, counting up).
     #[serde(default = "DaemonConfig::default_server_uid_base")]
     pub server_uid_base: u32,
+
+    /// Per-server sandbox on top of isolation: `auto` (default: system call
+    /// filter and network rules where possible), `strict` (startup fails
+    /// unless both are active) or `off`. See `sandbox.rs`.
+    #[serde(default = "DaemonConfig::default_server_sandbox")]
+    pub server_sandbox: String,
 }
 
 impl DaemonConfig {
@@ -165,6 +171,9 @@ impl DaemonConfig {
         true
     }
     pub fn default_server_isolation() -> String {
+        "auto".to_string()
+    }
+    pub fn default_server_sandbox() -> String {
         "auto".to_string()
     }
     /// Above the subordinate UID ranges hosts hand to users (from 100000 in
@@ -348,6 +357,11 @@ impl Config {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(DaemonConfig::default_server_isolation);
 
+        let server_sandbox = std::env::var("TALEDAEMON_SERVER_SANDBOX")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(DaemonConfig::default_server_sandbox);
+
         let server_uid_base = std::env::var("TALEDAEMON_SERVER_UID_BASE")
             .ok()
             .and_then(|v| v.parse::<u32>().ok())
@@ -369,6 +383,7 @@ impl Config {
                 require_mtls,
                 server_isolation,
                 server_uid_base,
+                server_sandbox,
             },
             resources: ResourcesConfig {
                 max_servers,
@@ -429,6 +444,7 @@ mod tests {
                 require_mtls: DaemonConfig::default_require_mtls(),
                 server_isolation: DaemonConfig::default_server_isolation(),
                 server_uid_base: DaemonConfig::default_server_uid_base(),
+                server_sandbox: DaemonConfig::default_server_sandbox(),
             },
             resources: ResourcesConfig::default(),
             hytale: HytaleConfig::default(),

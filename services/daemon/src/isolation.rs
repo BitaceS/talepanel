@@ -143,6 +143,8 @@ pub struct Isolation {
     /// of leftovers can never overlap a start of the same server. Other
     /// servers are not held up.
     locks: DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Step 2: system call filter and network rules (see `sandbox.rs`).
+    sandbox: crate::sandbox::Sandbox,
 }
 
 impl Isolation {
@@ -162,6 +164,7 @@ impl Isolation {
             alloc: Default::default(),
             accounts: Default::default(),
             locks: DashMap::new(),
+            sandbox: crate::sandbox::Sandbox::disabled(false),
         }
     }
 
@@ -215,11 +218,36 @@ impl Isolation {
             alloc: Default::default(),
             accounts: Default::default(),
             locks: DashMap::new(),
+            sandbox: crate::sandbox::Sandbox::disabled(mode == Mode::Uid),
         })
     }
 
     pub fn is_enabled(&self) -> bool {
         self.mode == Mode::Uid
+    }
+
+    /// UIDs game servers can get, inclusive.
+    pub fn uid_range(&self) -> (u32, u32) {
+        (self.uid_base, self.uid_base + (UID_SPAN - 1))
+    }
+
+    /// Attach the step-2 sandbox (before the isolation is shared).
+    pub fn set_sandbox(&mut self, sandbox: crate::sandbox::Sandbox) {
+        self.sandbox = sandbox;
+    }
+
+    /// The system call filter for server processes, if active.
+    pub fn seccomp(&self) -> Option<Arc<crate::sandbox::SeccompFilters>> {
+        if self.is_enabled() {
+            self.sandbox.seccomp()
+        } else {
+            None
+        }
+    }
+
+    /// What is active on this node, for the panel.
+    pub fn sandbox_status(&self) -> crate::sandbox::Status {
+        self.sandbox.status()
     }
 
     /// Prepares a server for a start: kills what an earlier run left behind,
@@ -1214,6 +1242,7 @@ mod tests {
                 alloc: Default::default(),
                 accounts: Default::default(),
                 locks: DashMap::new(),
+                sandbox: crate::sandbox::Sandbox::disabled(true),
             };
             (root, iso)
         }

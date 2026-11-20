@@ -106,6 +106,7 @@ async fn send_heartbeat(
         server_count,
         timestamp: chrono::Utc::now(),
         mtls: pki.map(NodePki::advert),
+        isolation: Some(process_manager.isolation().sandbox_status()),
         servers,
     };
 

@@ -53,8 +53,9 @@
 
 - [ ] **Run daemon as non-root** — create dedicated `taledaemon` system user
 - [x] **Hytale server processes as separate users** — each server gets its own UID (`TALEDAEMON_SERVER_ISOLATION`, on by default when the daemon is root). Keep the data root on a local Linux file system; on Docker Desktop bind mounts or NFS with `root_squash` isolation turns itself off
-- [ ] **Enable cgroups v2 limits** — enforce CPU/RAM limits at OS level, not just config
-- [ ] **Chroot or container isolation** — sandbox each server process
+- [ ] **Enable cgroups v2 limits** — the daemon sets `cpu.max`, `memory.max` and `pids.max` per server when it may manage cgroups: run it as a systemd service with `Delegate=yes`, or give the container a writable cgroup. In a default Docker container the cgroupfs is read-only and the daemon logs that the limits are not enforced
+- [x] **Server sandbox** — seccomp filter and network guard per server (`TALEDAEMON_SERVER_SANDBOX`, `auto` by default; the network guard needs `NET_ADMIN`, granted in the daemon's compose file). Check Admin → Nodes: every node card should show **Own user**, **Syscall filter** and **Network guard** as active. Set `strict` to make the daemon refuse to start without them
+- [ ] **Container isolation per server** — not available yet; servers still see each other's processes
 - [ ] **Restrict daemon network access** — firewall: daemon should only connect to API, not internet
 - [x] **File permission enforcement** — server data dirs owned by server user (0700), node files root-only
 

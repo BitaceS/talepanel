@@ -39,6 +39,8 @@ pub struct HeartbeatMetrics {
     /// Per-server usage of the running servers, for the panel's performance
     /// graphs. Panels older than v0.14 ignore it.
     pub servers: Vec<ServerSample>,
+    /// Which isolation layers are active (panel v0.16+ shows them).
+    pub isolation: Option<crate::sandbox::Status>,
 }
 
 /// One running server's resource usage in a heartbeat.
@@ -200,6 +202,8 @@ struct HeartbeatBody<'a> {
     cert_renewal: Option<bool>,
     #[serde(skip_serializing_if = "<[ServerSample]>::is_empty")]
     servers: &'a [ServerSample],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    isolation: Option<crate::sandbox::Status>,
 }
 
 impl<'a> HeartbeatBody<'a> {
@@ -217,6 +221,7 @@ impl<'a> HeartbeatBody<'a> {
             cert_not_after: metrics.mtls.as_ref().map(|m| m.not_after),
             cert_renewal: metrics.mtls.as_ref().map(|_| true),
             servers: &metrics.servers,
+            isolation: metrics.isolation,
         }
     }
 }
@@ -756,6 +761,7 @@ mod heartbeat_body_tests {
             timestamp: Utc::now(),
             mtls,
             servers: Vec::new(),
+            isolation: None,
         }
     }
 

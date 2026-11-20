@@ -55,7 +55,7 @@ This page compares TalePanel with the other tools people use to run Hytale serve
 | UI languages | English | English; community translations (unverified) | Several via translations (unverified) | EN, ES, UK, PT-BR | DE, EN, PT | Not documented | Not documented |
 | Install | One script (`install.sh --quick`), Docker installed for you, Let's Encrypt HTTPS, works without a domain (sslip.io) | Panel + Wings install per docs, then import egg | Panel + Wings install per docs, then import egg | `docker compose up -d` with `.env` | `docker compose up -d --build` or Portainer, then wizard | Docker Compose, UnRAID, or from source | Drop the `.jar` into the server |
 | Automatic HTTPS | Yes | Manual / reverse proxy | Manual / reverse proxy | Not documented (port 3000) | Not documented (port 18080) | Not documented | Not documented |
-| Per-server process isolation | Own unprivileged Linux user per server, node files root-only; no container per server (see SECURITY.md) | Yes (container per server) | Yes (container per server) | Container | Container per server (multi-server mode) | Not documented | n/a (runs inside the server) |
+| Per-server process isolation | Own unprivileged Linux user per server, node files root-only, seccomp filter and network guard; no container per server (see SECURITY.md) | Yes (container per server) | Yes (container per server) | Container | Container per server (multi-server mode) | Not documented | n/a (runs inside the server) |
 
 Notes on the table:
 

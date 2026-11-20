@@ -91,6 +91,18 @@ export interface Node {
   max_servers: number
   status: 'online' | 'offline' | 'draining'
   last_heartbeat: string | null
+  /** `isolation` is reported by daemons v0.16+. */
+  metadata?: { isolation?: NodeIsolation } & Record<string, unknown>
+}
+
+/** Which isolation layers a node applies to its game servers. */
+export interface NodeIsolation {
+  /** Every server under its own Linux user. */
+  uid: boolean
+  /** System call filter (seccomp). */
+  seccomp: boolean
+  /** Servers cannot reach the node's own ports. */
+  network: boolean
 }
 
 export interface ServerMetrics {

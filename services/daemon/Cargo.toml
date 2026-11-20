@@ -72,6 +72,10 @@ getrandom = "0.2"
 rcgen = "0.13.2"
 x509-parser = { version = "0.16.0", features = ["verify"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Per-server system call filter (sandbox.rs); pure Rust, no libseccomp.
+seccompiler = "0.4"
+
 [target.'cfg(unix)'.dependencies]
 # POSIX signal handling (SIGTERM, SIGKILL)
 libc = { version = "0.2" }
