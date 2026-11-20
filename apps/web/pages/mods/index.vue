@@ -2,7 +2,7 @@
 import { Search, Package, Trash2, Download, ExternalLink } from '@lucide/vue'
 import { useModsStore } from '~/stores/mods'
 import { useServersStore } from '~/stores/servers'
-import type { CFMod, CFModFile } from '~/types'
+import type { CFMod, CFModFile, ModtaleVersion } from '~/types'
 
 definePageMeta({
   title: 'Mods',
@@ -30,7 +30,7 @@ watch(selectedServerId, (id) => {
 }, { immediate: true })
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-const activeTab = ref<'installed' | 'browse'>('installed')
+const activeTab = ref<'installed' | 'browse' | 'modtale'>('installed')
 
 // ── Browse / CurseForge search ────────────────────────────────────────────────
 const searchQuery = ref('')
@@ -126,20 +126,44 @@ async function toggleMod(serverId: string, mod: typeof modsStore.installed[numbe
 // ── Version switch (Task 6) ───────────────────────────────────────────────────
 const versionSwitchMod = ref<InstanceType<typeof Object> | null>(null)
 const versionFiles = ref<CFModFile[]>([])
+const modtaleVersions = ref<ModtaleVersion[]>([])
 const loadingVersions = ref(false)
 
 async function openVersionSwitch(mod: typeof modsStore.installed[number]) {
   versionSwitchMod.value = mod
   loadingVersions.value = true
+  versionFiles.value = []
+  modtaleVersions.value = []
   try {
     const api = useApi()
-    const data = await api.get<{ files: CFModFile[] }>(`/curseforge/mods/${mod.cf_mod_id}/files`)
-    versionFiles.value = data.files ?? []
+    if (mod.modtale_project_id) {
+      const data = await api.get<{ versions: ModtaleVersion[] }>(`/modtale/projects/${encodeURIComponent(mod.modtale_project_id)}/versions`)
+      modtaleVersions.value = data.versions ?? []
+    } else {
+      const data = await api.get<{ files: CFModFile[] }>(`/curseforge/mods/${mod.cf_mod_id}/files`)
+      versionFiles.value = data.files ?? []
+    }
   } catch {
-    versionFiles.value = []
     showToast('Failed to load versions', 'error')
   } finally {
     loadingVersions.value = false
+  }
+}
+
+async function switchModtaleVersion(v: ModtaleVersion) {
+  if (!versionSwitchMod.value || !selectedServerId.value) return
+  const mod = versionSwitchMod.value as typeof modsStore.installed[number]
+  try {
+    const api = useApi()
+    await api.patch(`/servers/${selectedServerId.value}/mods/${encodeURIComponent(mod.filename)}`, {
+      modtale_version: v.version,
+    })
+    versionSwitchMod.value = null
+    await modsStore.fetchInstalled(selectedServerId.value)
+    showToast(`Switching to ${v.version}`)
+  } catch (err: unknown) {
+    const e = err as { data?: { error?: string } }
+    showToast(e.data?.error ?? 'Version switch failed', 'error')
   }
 }
 
@@ -234,7 +258,7 @@ const isInstalled = (filename: string) =>
       <div class="border-b border-tp-border">
         <nav class="flex gap-1">
           <button
-            v-for="tab in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'Browse CurseForge' }]"
+            v-for="tab in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
             :key="tab.id"
             :class="[
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
@@ -242,7 +266,7 @@ const isInstalled = (filename: string) =>
                 ? 'border-tp-primary text-tp-primary'
                 : 'border-transparent text-tp-muted hover:text-tp-text hover:border-tp-border',
             ]"
-            @click="activeTab = tab.id as 'installed' | 'browse'"
+            @click="activeTab = tab.id as 'installed' | 'browse' | 'modtale'"
           >
             {{ tab.label }}
             <span v-if="tab.id === 'installed' && modsStore.installed.length > 0"
@@ -265,10 +289,11 @@ const isInstalled = (filename: string) =>
           class="bg-tp-surface rounded-xl p-12 text-center">
           <Package class="w-10 h-10 text-tp-muted mx-auto mb-3" />
           <p class="text-tp-text font-display font-semibold mb-1">No mods installed</p>
-          <p class="text-tp-muted text-sm">Browse CurseForge to install mods on this server.</p>
-          <UiButton variant="primary" size="sm" class="mt-4" @click="activeTab = 'browse'">
-            Browse mods
-          </UiButton>
+          <p class="text-tp-muted text-sm">Install mods from CurseForge or Modtale, or upload a JAR.</p>
+          <div class="mt-4 flex flex-wrap justify-center gap-2">
+            <UiButton variant="primary" size="sm" @click="activeTab = 'modtale'">Browse Modtale</UiButton>
+            <UiButton variant="secondary" size="sm" @click="activeTab = 'browse'">Browse CurseForge</UiButton>
+          </div>
         </div>
 
         <!-- List -->
@@ -315,9 +340,9 @@ const isInstalled = (filename: string) =>
                   {{ mod.is_present ? 'Enabled' : 'Disabled' }}
                 </button>
 
-                <!-- Change version (CurseForge only) -->
+                <!-- Change version (CurseForge and Modtale) -->
                 <button
-                  v-if="mod.source === 'curseforge' || mod.cf_mod_id"
+                  v-if="mod.source === 'curseforge' || mod.cf_mod_id || mod.modtale_project_id"
                   @click="openVersionSwitch(mod)"
                   class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-tp-muted hover:text-tp-text transition-colors"
                 >
@@ -343,6 +368,7 @@ const isInstalled = (filename: string) =>
                 v-if="mod.source"
                 class="px-1.5 py-0.5 rounded"
                 :class="mod.source === 'curseforge' ? 'bg-orange-500/20 text-orange-300'
+                      : mod.source === 'modtale'    ? 'bg-sky-500/20 text-sky-300'
                       : mod.source === 'detected'   ? 'bg-tp-tertiary/15 text-tp-tertiary'
                       :                               'bg-white/10 text-white/50'"
               >
@@ -369,6 +395,13 @@ const isInstalled = (filename: string) =>
           </div>
         </div>
       </div>
+
+      <!-- ── Modtale tab ────────────────────────────────────────────────────── -->
+      <ModsModtaleBrowser
+        v-else-if="activeTab === 'modtale'"
+        :server-id="selectedServerId"
+        @toast="showToast"
+      />
 
       <!-- ── Browse tab ─────────────────────────────────────────────────────── -->
       <div v-else class="space-y-4">
@@ -510,6 +543,23 @@ const isInstalled = (filename: string) =>
             Change version — {{ (versionSwitchMod as typeof modsStore.installed[number]).display_name || (versionSwitchMod as typeof modsStore.installed[number]).filename }}
           </h3>
           <div v-if="loadingVersions" class="text-white/40 text-sm py-4 text-center">Loading versions...</div>
+          <ul v-else-if="modtaleVersions.length" class="space-y-1 max-h-64 overflow-y-auto">
+            <li v-for="v in modtaleVersions" :key="v.id">
+              <button
+                type="button"
+                class="w-full flex justify-between items-center gap-3 px-3 py-2 rounded hover:bg-white/5 transition-colors text-left disabled:opacity-50 disabled:cursor-default"
+                :disabled="v.version === (versionSwitchMod as typeof modsStore.installed[number]).version"
+                @click="switchModtaleVersion(v)"
+              >
+                <span class="text-sm text-tp-text">
+                  {{ v.version }}
+                  <span v-if="v.channel && v.channel !== 'RELEASE'" class="ml-1 text-[10px] text-tp-warning">{{ v.channel.toLowerCase() }}</span>
+                  <span v-if="v.version === (versionSwitchMod as typeof modsStore.installed[number]).version" class="ml-1 text-[10px] text-tp-success">installed</span>
+                </span>
+                <span class="text-xs text-white/40 truncate">{{ v.game_versions.length ? `Hytale ${v.game_versions[0]}` : '' }}</span>
+              </button>
+            </li>
+          </ul>
           <ul v-else-if="versionFiles.length" class="space-y-1 max-h-64 overflow-y-auto">
             <li
               v-for="f in versionFiles"

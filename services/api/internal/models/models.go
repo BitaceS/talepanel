@@ -187,6 +187,7 @@ type ServerMod struct {
 	DownloadURL      string          `json:"download_url"`
 	CFModID          *int            `json:"cf_mod_id,omitempty"`
 	CFFileID         *int            `json:"cf_file_id,omitempty"`
+	ModtaleProjectID *string         `json:"modtale_project_id,omitempty"`
 	InstalledAt      time.Time       `json:"installed_at"`
 	Source           string          `json:"source"`
 	PluginName       *string         `json:"plugin_name,omitempty"`

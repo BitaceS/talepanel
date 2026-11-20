@@ -664,7 +664,7 @@ const serverAddress = computed(() => {
 
 // ── Mods ──────────────────────────────────────────────────────────────────────
 const modsStore = useModsStore()
-const modsTab = ref<'installed' | 'browse'>('installed')
+const modsTab = ref<'installed' | 'browse' | 'modtale'>('installed')
 const modSearch = ref('')
 let modSearchTimer: ReturnType<typeof setTimeout>
 
@@ -1658,13 +1658,13 @@ const sidebarMods = computed(() => {
         <!-- Sub-tabs -->
         <div class="flex gap-1 bg-tp-surface2 rounded-xl p-1 w-fit">
           <button
-            v-for="t in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'Browse CurseForge' }]"
+            v-for="t in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
             :key="t.id"
             :class="[
               'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
               modsTab === t.id ? 'bg-tp-surface text-tp-text shadow-sm' : 'text-tp-muted hover:text-tp-text',
             ]"
-            @click="modsTab = (t.id as 'installed' | 'browse')"
+            @click="modsTab = (t.id as 'installed' | 'browse' | 'modtale')"
           >
             {{ t.label }}
           </button>
@@ -1679,7 +1679,7 @@ const sidebarMods = computed(() => {
             class="bg-tp-surface rounded-xl p-12 text-center">
             <Package class="w-8 h-8 text-tp-muted mx-auto mb-3" />
             <p class="text-tp-text font-semibold text-sm mb-1">No mods installed</p>
-            <p class="text-tp-muted text-xs">Switch to Browse to find and install mods from CurseForge.</p>
+            <p class="text-tp-muted text-xs">Find and install mods under CurseForge or Modtale.</p>
           </div>
           <div v-else class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="divide-y divide-tp-border">
@@ -1690,7 +1690,7 @@ const sidebarMods = computed(() => {
                 </div>
                 <div class="flex-1 min-w-0">
                   <p class="text-tp-text text-sm font-medium truncate">{{ mod.display_name }}</p>
-                  <p class="text-tp-muted text-xs">{{ mod.version }}</p>
+                  <p class="text-tp-muted text-xs">{{ mod.version }}<template v-if="mod.source === 'modtale'"> &middot; Modtale</template><template v-else-if="mod.source === 'curseforge' || mod.cf_mod_id"> &middot; CurseForge</template></p>
                 </div>
                 <UiButton
                   variant="danger"
@@ -1704,6 +1704,13 @@ const sidebarMods = computed(() => {
             </div>
           </div>
         </div>
+
+        <!-- Browse Modtale -->
+        <ModsModtaleBrowser
+          v-else-if="modsTab === 'modtale'"
+          :server-id="serverId"
+          @toast="(msg, type) => showToast(msg, type)"
+        />
 
         <!-- Browse CurseForge -->
         <div v-else class="space-y-3">

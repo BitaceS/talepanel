@@ -64,6 +64,8 @@ func SetupRouter(
 	serverSvc := services.NewServerService(db)
 	nodeSvc := services.NewNodeService(db)
 	modSvc := services.NewModService(db)
+	modtaleSvc := services.NewModtaleService(cfg.ModtaleAPIKey)
+	modSvc.SetModtale(modtaleSvc)
 	cfSvc := services.NewCurseForgeService(cfg.CurseForgeAPIKey, cfg.CurseForgeGameID)
 	appSettingsSvc := services.NewAppSettingsService(db, cfg.TOTPEncKey)
 	// Override env-baked CurseForge key with the DB-stored one if present.
@@ -152,6 +154,7 @@ func SetupRouter(
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion, cfg.SetupCodeHash != "")
 	modH := handlers.NewModHandler(modSvc, cfSvc, daemonPool, log)
+	modH.SetModtale(modtaleSvc)
 	gameCmdSvc := services.NewGameCommandService(db)
 	gameCmdH := handlers.NewGameCommandHandler(gameCmdSvc, serverSvc, log)
 	worldH := handlers.NewWorldHandler(worldSvc, serverSvc, log)
@@ -382,6 +385,15 @@ func SetupRouter(
 	{
 		cfGroup.GET("/search", modH.SearchMods)
 		cfGroup.GET("/mods/:mod_id/files", modH.GetModFiles)
+	}
+
+	// Modtale proxy — auth required, general rate limit. No key needed
+	// upstream; the service caches to stay under Modtale's per-IP limit.
+	mtGroup := v1.Group("/modtale")
+	mtGroup.Use(authRequired, generalLimiter)
+	{
+		mtGroup.GET("/search", modH.SearchModtale)
+		mtGroup.GET("/projects/:project_id/versions", modH.GetModtaleVersions)
 	}
 
 	// API keys — a signed-in user's own keys. Keys cannot call these routes

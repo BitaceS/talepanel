@@ -119,23 +119,65 @@ func (s *ModService) resolveModDir(ctx context.Context, serverID uuid.UUID, file
 	}
 }
 
-// InstallModRequest is the body for POST /servers/:id/mods.
+// InstallModRequest is the body for POST /servers/:id/mods. Either
+// filename + download_url (CurseForge, or any https URL for admins), or
+// modtale_project_id with an optional modtale_version (newest release when
+// empty); for Modtale the panel picks the file name and link itself.
 type InstallModRequest struct {
-	Filename    string `json:"filename"     binding:"required"`
-	DisplayName string `json:"display_name"`
-	Version     string `json:"version"`
-	DownloadURL string `json:"download_url" binding:"required"`
-	CFModID     *int   `json:"cf_mod_id"`
-	CFFileID    *int   `json:"cf_file_id"`
+	Filename         string `json:"filename"`
+	DisplayName      string `json:"display_name"`
+	Version          string `json:"version"`
+	DownloadURL      string `json:"download_url"`
+	CFModID          *int   `json:"cf_mod_id"`
+	CFFileID         *int   `json:"cf_file_id"`
+	ModtaleProjectID string `json:"modtale_project_id"`
+	ModtaleVersion   string `json:"modtale_version"`
 }
+
+// ErrModRequestInvalid: neither a download URL with a file name nor a Modtale
+// project was given.
+var ErrModRequestInvalid = errors.New("filename and download_url, or modtale_project_id, are required")
+
+// ErrModtaleUnavailable: a Modtale install was requested but the panel has no
+// Modtale client (only in tests).
+var ErrModtaleUnavailable = errors.New("Modtale is not available")
 
 // ModService handles per-server mod installation and removal.
 type ModService struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	modtale *ModtaleService
 }
 
 func NewModService(db *pgxpool.Pool) *ModService {
 	return &ModService{db: db}
+}
+
+// SetModtale wires the Modtale client used for Modtale installs and version
+// switches.
+func (s *ModService) SetModtale(m *ModtaleService) {
+	s.modtale = m
+}
+
+// resolveModtale fills filename, download URL, version and source fields of
+// req from Modtale. The link is built by the panel, so it skips the
+// CurseForge-only URL check for non-admins.
+func (s *ModService) resolveModtale(ctx context.Context, req *InstallModRequest) error {
+	if s.modtale == nil {
+		return ErrModtaleUnavailable
+	}
+	dl, err := s.modtale.ResolveDownload(ctx, req.ModtaleProjectID, req.ModtaleVersion)
+	if err != nil {
+		return err
+	}
+	req.Filename = dl.FileName
+	req.DownloadURL = dl.URL
+	req.Version = dl.Version
+	req.ModtaleProjectID = dl.ProjectID
+	if strings.TrimSpace(req.DisplayName) == "" {
+		req.DisplayName = dl.Title
+	}
+	req.CFModID, req.CFFileID = nil, nil
+	return nil
 }
 
 // ListMods returns all mods installed on the given server.
@@ -143,7 +185,7 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 	rows, err := s.db.Query(ctx, `
 		SELECT id, server_id, filename, display_name, version, download_url,
 		       cf_mod_id, cf_file_id, installed_at, COALESCE(source, ''), is_present,
-		       COALESCE(mod_dir, 'mods')
+		       COALESCE(mod_dir, 'mods'), modtale_project_id
 		FROM server_mods
 		WHERE server_id = $1
 		ORDER BY installed_at DESC
@@ -159,7 +201,7 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 		if err := rows.Scan(
 			&m.ID, &m.ServerID, &m.Filename, &m.DisplayName, &m.Version,
 			&m.DownloadURL, &m.CFModID, &m.CFFileID, &m.InstalledAt,
-			&m.Source, &m.IsPresent, &m.ModDir,
+			&m.Source, &m.IsPresent, &m.ModDir, &m.ModtaleProjectID,
 		); err != nil {
 			return nil, fmt.Errorf("scanning mod row: %w", err)
 		}
@@ -176,8 +218,24 @@ func (s *ModService) ListMods(ctx context.Context, serverID uuid.UUID) ([]*model
 
 // InstallMod records a mod installation and enqueues the download command to the daemon.
 func (s *ModService) InstallMod(ctx context.Context, callerRole string, serverID uuid.UUID, req InstallModRequest) (*models.ServerMod, error) {
-	if err := ValidateModDownloadURL(req.DownloadURL, callerRole); err != nil {
-		return nil, err
+	source := "manual"
+	var modtaleID *string
+	if strings.TrimSpace(req.ModtaleProjectID) != "" {
+		if err := s.resolveModtale(ctx, &req); err != nil {
+			return nil, err
+		}
+		source = "modtale"
+		modtaleID = &req.ModtaleProjectID
+	} else {
+		if strings.TrimSpace(req.Filename) == "" || strings.TrimSpace(req.DownloadURL) == "" {
+			return nil, ErrModRequestInvalid
+		}
+		if err := ValidateModDownloadURL(req.DownloadURL, callerRole); err != nil {
+			return nil, err
+		}
+		if req.CFModID != nil {
+			source = "curseforge"
+		}
 	}
 	// Fetch server to get node_id and data_path.
 	var nodeID uuid.UUID
@@ -195,23 +253,27 @@ func (s *ModService) InstallMod(ctx context.Context, callerRole string, serverID
 	// Upsert into server_mods.
 	m := &models.ServerMod{}
 	err = s.db.QueryRow(ctx, `
-		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_mod_id, cf_file_id, mod_dir)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'mods')
+		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, cf_mod_id, cf_file_id, mod_dir, source, modtale_project_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'mods', $8, $9)
 		ON CONFLICT (server_id, mod_dir, filename) DO UPDATE
-		  SET display_name = EXCLUDED.display_name,
-		      version      = EXCLUDED.version,
-		      download_url = EXCLUDED.download_url,
-		      cf_mod_id    = EXCLUDED.cf_mod_id,
-		      cf_file_id   = EXCLUDED.cf_file_id,
-		      installed_at = NOW()
+		  SET display_name       = EXCLUDED.display_name,
+		      version            = EXCLUDED.version,
+		      download_url       = EXCLUDED.download_url,
+		      cf_mod_id          = EXCLUDED.cf_mod_id,
+		      cf_file_id         = EXCLUDED.cf_file_id,
+		      source             = EXCLUDED.source,
+		      modtale_project_id = EXCLUDED.modtale_project_id,
+		      installed_at       = NOW()
 		RETURNING id, server_id, filename, display_name, version, download_url,
-		          cf_mod_id, cf_file_id, installed_at
+		          cf_mod_id, cf_file_id, installed_at, COALESCE(source, ''), COALESCE(is_present, true),
+		          COALESCE(mod_dir, 'mods'), modtale_project_id
 	`,
-		serverID, req.Filename, req.DisplayName, req.Version, req.DownloadURL,
-		req.CFModID, req.CFFileID,
+		serverID, req.Filename, req.DisplayName, req.Version, storedModURL(req.DownloadURL, modtaleID),
+		req.CFModID, req.CFFileID, source, modtaleID,
 	).Scan(
 		&m.ID, &m.ServerID, &m.Filename, &m.DisplayName, &m.Version,
 		&m.DownloadURL, &m.CFModID, &m.CFFileID, &m.InstalledAt,
+		&m.Source, &m.IsPresent, &m.ModDir, &m.ModtaleProjectID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("inserting mod: %w", err)
@@ -354,10 +416,26 @@ type ModVersionSwitchRequest struct {
 	FileURL     string `json:"file_url"`
 	DisplayName string `json:"display_name"`
 	Version     string `json:"version"`
+	// ModtaleVersion switches a mod installed from Modtale to this version
+	// number of the same project; file_id and file_url are ignored then.
+	ModtaleVersion string `json:"modtale_version"`
 }
 
-// SwitchModVersion replaces the current mod version with a new CurseForge file atomically.
+// storedModURL is what server_mods.download_url keeps: the download URL, or
+// for Modtale the project page (its download links expire within minutes).
+func storedModURL(downloadURL string, modtaleID *string) string {
+	if modtaleID != nil {
+		return modtalePageURL(*modtaleID)
+	}
+	return downloadURL
+}
+
+// SwitchModVersion replaces the current mod version with another file of the
+// same CurseForge or Modtale project atomically.
 func (s *ModService) SwitchModVersion(ctx context.Context, callerRole string, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
+	if strings.TrimSpace(req.ModtaleVersion) != "" {
+		return s.switchModtaleVersion(ctx, serverID, oldFilename, req)
+	}
 	if err := ValidateModDownloadURL(req.FileURL, callerRole); err != nil {
 		return err
 	}
@@ -427,6 +505,87 @@ func (s *ModService) SwitchModVersion(ctx context.Context, callerRole string, se
 		return fmt.Errorf("switch mod version: enqueue install: %w", err)
 	}
 
+	return tx.Commit(ctx)
+}
+
+// switchModtaleVersion replaces a Modtale-installed mod with another version
+// of the same project. The project comes from the existing row, never from
+// the request, so the switch cannot turn into an install of something else.
+func (s *ModService) switchModtaleVersion(ctx context.Context, serverID uuid.UUID, oldFilename string, req ModVersionSwitchRequest) error {
+	var projectID *string
+	var displayName string
+	err := s.db.QueryRow(ctx, `
+		SELECT modtale_project_id, display_name FROM server_mods
+		WHERE server_id = $1 AND filename = $2 AND COALESCE(mod_dir, 'mods') = 'mods'
+	`, serverID, oldFilename).Scan(&projectID, &displayName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrModNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("switch mod version: look up mod: %w", err)
+	}
+	if projectID == nil || *projectID == "" {
+		return fmt.Errorf("%w: this mod was not installed from Modtale", ErrModRequestInvalid)
+	}
+	if s.modtale == nil {
+		return ErrModtaleUnavailable
+	}
+	dl, err := s.modtale.ResolveDownload(ctx, *projectID, req.ModtaleVersion)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.DisplayName) != "" {
+		displayName = req.DisplayName
+	}
+
+	var nodeID uuid.UUID
+	var dataPath string
+	if err := s.db.QueryRow(ctx, `SELECT node_id, data_path FROM servers WHERE id = $1`, serverID).Scan(&nodeID, &dataPath); err != nil {
+		return fmt.Errorf("switch mod version: fetch server: %w", err)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("switch mod version: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM server_mods WHERE server_id = $1 AND filename = $2 AND COALESCE(mod_dir, 'mods') = 'mods'
+	`, serverID, oldFilename); err != nil {
+		return fmt.Errorf("switch mod version: delete old: %w", err)
+	}
+	if dl.FileName != oldFilename {
+		removePayload, _ := json.Marshal(map[string]string{"data_path": dataPath, "filename": oldFilename})
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO node_commands (node_id, server_id, command_type, payload)
+			VALUES ($1, $2, 'remove_mod', $3)
+		`, nodeID, serverID, removePayload); err != nil {
+			return fmt.Errorf("switch mod version: enqueue remove: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO server_mods (server_id, filename, display_name, version, download_url, source, modtale_project_id, mod_dir, is_present)
+		VALUES ($1, $2, $3, $4, $5, 'modtale', $6, 'mods', true)
+		ON CONFLICT (server_id, mod_dir, filename) DO UPDATE
+		  SET display_name = EXCLUDED.display_name, version = EXCLUDED.version,
+		      download_url = EXCLUDED.download_url, source = 'modtale',
+		      modtale_project_id = EXCLUDED.modtale_project_id,
+		      cf_mod_id = NULL, cf_file_id = NULL, installed_at = NOW()
+	`, serverID, dl.FileName, displayName, dl.Version, modtalePageURL(dl.ProjectID), dl.ProjectID); err != nil {
+		return fmt.Errorf("switch mod version: insert new mod: %w", err)
+	}
+	installPayload, _ := json.Marshal(map[string]any{
+		"data_path":    dataPath,
+		"filename":     dl.FileName,
+		"download_url": dl.URL,
+	})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO node_commands (node_id, server_id, command_type, payload)
+		VALUES ($1, $2, 'install_mod', $3)
+	`, nodeID, serverID, installPayload); err != nil {
+		return fmt.Errorf("switch mod version: enqueue install: %w", err)
+	}
 	return tx.Commit(ctx)
 }
 

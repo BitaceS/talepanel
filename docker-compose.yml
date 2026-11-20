@@ -127,6 +127,7 @@ services:
       CORS_ORIGINS: "http://localhost:3000"
       DAEMON_SERVERS_DIR: /srv/taledaemon/servers
       CURSEFORGE_API_KEY: ${CURSEFORGE_API_KEY:-}
+      MODTALE_API_KEY: ${MODTALE_API_KEY:-}
       CURSEFORGE_GAME_ID: "70216"
       MARIADB_DSN: "root:${MARIADB_ROOT_PASSWORD:-changeme}@tcp(mariadb:3306)/"
       MARIADB_HOST: mariadb

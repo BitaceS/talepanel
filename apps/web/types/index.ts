@@ -126,6 +126,8 @@ export interface InstalledMod {
   download_url: string
   cf_mod_id: number | null
   cf_file_id: number | null
+  /** Set for mods installed from Modtale (modtale.net). */
+  modtale_project_id?: string | null
   installed_at: string
   source: string
   plugin_name: string | null
@@ -139,6 +141,36 @@ export interface InstalledMod {
   is_present: boolean
   /** Directory the file lives in on the node. Decides which toggle endpoint applies. */
   mod_dir: 'mods' | 'plugins'
+}
+
+/** A Modtale project as the panel's /modtale/search returns it. */
+export interface ModtaleProject {
+  id: string
+  title: string
+  description: string
+  author: string
+  image_url: string
+  classification: 'PLUGIN' | 'DATA' | 'ART' | string
+  downloads: number
+  updated_at: string
+  page_url: string
+}
+
+export interface ModtaleSearchResult {
+  projects: ModtaleProject[]
+  page: number
+  total: number
+}
+
+/** One version of a Modtale project, newest first. */
+export interface ModtaleVersion {
+  id: string
+  version: string
+  file_name: string
+  channel: 'RELEASE' | 'BETA' | 'ALPHA' | string
+  game_versions: string[]
+  released_at: string
+  downloads: number
 }
 
 export interface CFModFile {

@@ -31,8 +31,14 @@ func cfErrStatus(err error) int {
 type ModHandler struct {
 	modSvc  *services.ModService
 	cfSvc   *services.CurseForgeService
+	mtSvc   *services.ModtaleService
 	daemons *daemon.ClientPool
 	log     *zap.Logger
+}
+
+// SetModtale wires the Modtale client for the /modtale routes.
+func (h *ModHandler) SetModtale(m *services.ModtaleService) {
+	h.mtSvc = m
 }
 
 func NewModHandler(modSvc *services.ModService, cfSvc *services.CurseForgeService, daemons *daemon.ClientPool, log *zap.Logger) *ModHandler {
@@ -77,6 +83,54 @@ func (h *ModHandler) GetModFiles(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"files": files})
 }
 
+// ─── Modtale proxy ────────────────────────────────────────────────────────────
+
+// modtaleErr writes the response for a Modtale lookup error.
+func (h *ModHandler) modtaleErr(c *gin.Context, err error) {
+	var mtErr *services.ModtaleError
+	switch {
+	case errors.Is(err, services.ErrModtaleNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrModtaleInvalidID), errors.Is(err, services.ErrModtaleNotInstallable):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.As(err, &mtErr) && mtErr.Status == http.StatusTooManyRequests:
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+	default:
+		h.log.Warn("modtale request failed", zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Modtale is not reachable right now"})
+	}
+}
+
+// SearchModtale handles GET /modtale/search?q=&type=PLUGIN|DATA|ART&sort=&page=.
+func (h *ModHandler) SearchModtale(c *gin.Context) {
+	if h.mtSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Modtale is not available"})
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "0"))
+	size, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	res, err := h.mtSvc.Search(c.Request.Context(), c.Query("q"), c.Query("type"), c.Query("sort"), page, size)
+	if err != nil {
+		h.modtaleErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// GetModtaleVersions handles GET /modtale/projects/:project_id/versions.
+func (h *ModHandler) GetModtaleVersions(c *gin.Context) {
+	if h.mtSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Modtale is not available"})
+		return
+	}
+	versions, err := h.mtSvc.Versions(c.Request.Context(), c.Param("project_id"))
+	if err != nil {
+		h.modtaleErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"versions": versions})
+}
+
 // ─── Per-server mod management ────────────────────────────────────────────────
 
 // ListMods handles GET /servers/:id/mods.
@@ -110,11 +164,15 @@ func (h *ModHandler) InstallMod(c *gin.Context) {
 	caller := mustUser(c)
 	mod, err := h.modSvc.InstallMod(c.Request.Context(), caller.Role, serverID, req)
 	if err != nil {
+		var mtErr *services.ModtaleError
 		switch {
-		case errors.Is(err, services.ErrModURLNotAllowed):
+		case errors.Is(err, services.ErrModURLNotAllowed), errors.Is(err, services.ErrModRequestInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrServerNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		case errors.Is(err, services.ErrModtaleNotFound), errors.Is(err, services.ErrModtaleInvalidID),
+			errors.Is(err, services.ErrModtaleNotInstallable), errors.As(err, &mtErr):
+			h.modtaleErr(c, err)
 		default:
 			h.log.Error("install mod failed", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not install mod"})
@@ -193,14 +251,23 @@ func (h *ModHandler) SwitchModVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.FileURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file_url required"})
+	if req.FileURL == "" && req.ModtaleVersion == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file_url or modtale_version required"})
 		return
 	}
 	caller := mustUser(c)
 	if err := h.modSvc.SwitchModVersion(c.Request.Context(), caller.Role, serverID, filename, req); err != nil {
-		if errors.Is(err, services.ErrModURLNotAllowed) {
+		var mtErr *services.ModtaleError
+		switch {
+		case errors.Is(err, services.ErrModURLNotAllowed), errors.Is(err, services.ErrModRequestInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		case errors.Is(err, services.ErrModNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "mod not found"})
+			return
+		case errors.Is(err, services.ErrModtaleNotFound), errors.Is(err, services.ErrModtaleInvalidID),
+			errors.Is(err, services.ErrModtaleNotInstallable), errors.As(err, &mtErr):
+			h.modtaleErr(c, err)
 			return
 		}
 		h.log.Error("switch mod version failed", zap.Error(err))

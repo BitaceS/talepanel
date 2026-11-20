@@ -100,6 +100,7 @@ services:
       CORS_ORIGINS: "https://${DOMAIN:?DOMAIN is required}"
       DAEMON_SERVERS_DIR: /srv/taledaemon/servers
       CURSEFORGE_API_KEY: ${CURSEFORGE_API_KEY:-}
+      MODTALE_API_KEY: ${MODTALE_API_KEY:-}
       CURSEFORGE_GAME_ID: "70216"
       DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-solo}
       SETUP_CODE_HASH: ${SETUP_CODE_HASH:-}
