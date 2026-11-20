@@ -126,6 +126,8 @@ const helpLinks = [
 const { info: versionInfo } = useUpdateCheck()
 
 const { theme, setTheme } = useTheme()
+
+const mobileNav = useMobileNav()
 </script>
 
 <template>
@@ -138,9 +140,19 @@ const { theme, setTheme } = useTheme()
     <!-- Main content area -->
     <div class="relative z-10 flex-1 flex flex-col min-w-0 overflow-hidden">
       <!-- Top bar (glass) -->
-      <header class="sticky top-0 z-30 h-14 glass-panel border-b flex items-center justify-between px-6 shrink-0">
-        <div>
-          <h1 class="text-tp-text font-display font-bold text-xl capitalize">
+      <header class="sticky top-0 z-30 h-14 glass-panel border-b flex items-center justify-between gap-2 px-3 md:px-6 shrink-0">
+        <div class="flex items-center gap-1 min-w-0">
+          <button
+            type="button"
+            class="md:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2"
+            aria-label="Open menu"
+            aria-controls="app-sidebar"
+            :aria-expanded="mobileNav.open.value"
+            @click.stop="mobileNav.toggle()"
+          >
+            <span class="material-symbols-outlined text-2xl">menu</span>
+          </button>
+          <h1 class="text-tp-text font-display font-bold text-lg md:text-xl capitalize truncate">
             {{ pageTitle }}
           </h1>
         </div>
