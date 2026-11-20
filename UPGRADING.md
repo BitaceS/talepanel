@@ -100,7 +100,18 @@ Run the installer's **Upgrade** mode on the panel first, **then on every node**.
 
 ---
 
-## v0.15.0 → v1.0.0 (planned)
+## v0.15.0 → v0.16.0
+
+Run the installer's **Upgrade** mode on the panel first, **then on every node**. No migration.
+
+- **Server sandbox** is on by default (`TALEDAEMON_SERVER_SANDBOX=auto`) and needs nothing from you on a standard install: the daemon's `docker-compose.yml` already grants `NET_ADMIN`, which the network guard needs. If you run the daemon another way, give it `NET_ADMIN` (container) or run it as root (systemd), otherwise it logs that the network guard is not active. Admin → Nodes shows per node which layers are active; nodes still on an older daemon show "not reported".
+- After the update, game servers can no longer connect to anything on their own node (the daemon's port, other servers, other services listening there). Plugins that talk to another server **on the same node** directly (e.g. a proxy or a cross-server chat over 127.0.0.1) need that server's public address instead, or `TALEDAEMON_SERVER_SANDBOX=off`. Connections to other machines and the internet are unchanged.
+- **Memory limits** apply only where the daemon may manage cgroups (systemd with `Delegate=yes`, a container with a writable cgroup); in the default container nothing changes. Where they apply, a server is killed and reported as crashed if it uses more than its RAM limit plus half of it (at least 512 MiB more).
+- The **DDoS rules** on the game ports now actually load on nodes with `NET_ADMIN`: more than 5000 UDP packets per second from one address, or 50000 in total, are dropped.
+
+---
+
+## v0.16.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

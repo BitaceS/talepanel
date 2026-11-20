@@ -24,6 +24,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Game theme, real dashboard data, self-hosted fonts/icons, SSE console, schedules, templates, 2FA recovery codes, per-server Linux user, Hytale server updates, API keys | v0.13 |
 | mTLS required by default, 2FA required for admins (optional), new-device sign-in emails, performance graphs per server, slide-in sidebar on phones, changeable update channel, API key shown in the activity log | v0.14 |
 | Modtale as a second mod source, panel CA rotation without downtime, certificate renewal while running | v0.15 |
+| Server sandbox (seccomp filter, network guard, memory and task limits, isolation status per node), working DDoS rules on the game ports | v0.16 |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
 ## Implemented in November 2026
@@ -66,7 +67,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 7 | ~~**Per-server process isolation, step 2**~~ | Done (unreleased, v0.16): sandbox in the daemon, no Docker socket needed. seccomp filter (no ptrace, mounts, namespaces, bpf, io_uring, modules, ...), nftables network guard (servers cannot reach the node's own ports or the cloud metadata address), `memory.max` and `pids.max` per server where cgroups are writable, status per node in the admin panel. Left for a step 3: a container or PID namespace per server (hides the process list; needs `CAP_SYS_ADMIN` or the Docker socket). | — |
+| 7 | ~~**Per-server process isolation, step 2**~~ | Done (v0.16): sandbox in the daemon, no Docker socket needed. seccomp filter (no ptrace, mounts, namespaces, bpf, io_uring, modules, ...), nftables network guard (servers cannot reach the node's own ports or the cloud metadata address), `memory.max` and `pids.max` per server where cgroups are writable, status per node in the admin panel. Left for a step 3: a container or PID namespace per server (hides the process list; needs `CAP_SYS_ADMIN` or the Docker socket). | — |
 | 8 | ~~**Auto-update of the Hytale server per server with a channel (Release / Pre-release)**~~ | Done (v0.13.0): the panel records the installed build; "Update available" + "Update now" on the server page, and an `update` task as maintenance window (warn, backup, stop, install, start). Pre-release → release is never done automatically. | — |
 | 9 | ~~**Scheduled tasks beyond backups**~~ | Done (v0.13.0): restart, command, broadcast. | — |
 | 10 | ~~**Login notification emails** (new device / IP)~~ | Done (v0.14): email on a sign-in with a browser not used from that /24 (/48) in 30 days; opt-out per user. | — |
