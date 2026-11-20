@@ -23,6 +23,7 @@ type NodeHandler struct {
 	log      *zap.Logger
 	devMode  bool
 	alertSvc *services.AlertService
+	metrics  *services.ServerMetricsService // optional; nil = no per-server history
 }
 
 // NewNodeHandler constructs a NodeHandler.
@@ -31,6 +32,9 @@ type NodeHandler struct {
 func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *zap.Logger, devMode bool, alertSvc *services.AlertService) *NodeHandler {
 	return &NodeHandler{svc: svc, daemons: daemons, log: log, devMode: devMode, alertSvc: alertSvc}
 }
+
+// SetServerMetrics enables recording the per-server samples of heartbeats.
+func (h *NodeHandler) SetServerMetrics(m *services.ServerMetricsService) { h.metrics = m }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
 
@@ -201,6 +205,11 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 	go func() {
 		if mErr := h.svc.RecordHeartbeatMetrics(context.Background(), nodeID, req); mErr != nil {
 			h.log.Warn("failed to record heartbeat metrics", zap.String("node_id", nodeID.String()), zap.Error(mErr))
+		}
+		if h.metrics != nil && len(req.Servers) > 0 {
+			if mErr := h.metrics.RecordSamples(context.Background(), nodeID, req.Servers); mErr != nil {
+				h.log.Warn("failed to record server metrics", zap.String("node_id", nodeID.String()), zap.Error(mErr))
+			}
 		}
 	}()
 

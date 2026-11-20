@@ -31,6 +31,7 @@ type ServerHandler struct {
 	dbSvc          *services.DatabaseService       // optional; drops a server's MariaDB database on delete
 	networkRouting *services.NetworkRoutingService // optional; nil = no config fan-out on create
 	updates        *services.ServerUpdateService   // optional; nil = no build tracking or updates
+	metrics        *services.ServerMetricsService  // optional; nil = no performance history
 
 	sessionMu    sync.Mutex
 	lastSessions map[uuid.UUID]time.Time // server -> last game-session mint
@@ -139,6 +140,9 @@ func (h *ServerHandler) DaemonGameSession(c *gin.Context) {
 // SetUpdates wires the Hytale update service (installed-build tracking and
 // the update endpoints).
 func (h *ServerHandler) SetUpdates(u *services.ServerUpdateService) { h.updates = u }
+
+// SetServerMetrics enables GET /servers/:id/metrics/history.
+func (h *ServerHandler) SetServerMetrics(m *services.ServerMetricsService) { h.metrics = m }
 
 // expectBuild records the build a provisioning run about to be dispatched
 // will install (see ServerUpdateService.ExpectBuild).
@@ -822,6 +826,44 @@ func (h *ServerHandler) GetMetrics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, h.metricsPayload(c.Request.Context(), server))
+}
+
+// GetMetricsHistory handles GET /servers/:id/metrics/history?range=24h.
+// Returns CPU, RAM and online players averaged into buckets for the graphs on
+// the Overview tab. range is 1h, 6h, 24h (default) or 7d.
+func (h *ServerHandler) GetMetricsHistory(c *gin.Context) {
+	user := mustUser(c)
+	serverID, ok := parseUUID(c, "id")
+	if !ok {
+		return
+	}
+	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if h.metrics == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "performance history is not available"})
+		return
+	}
+
+	rangeKey := c.DefaultQuery("range", "24h")
+	hist, err := h.metrics.History(c.Request.Context(), server.ID, rangeKey)
+	if errors.Is(err, services.ErrInvalidMetricsRange) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		h.log.Error("reading server metrics history", zap.String("server_id", server.ID.String()), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load performance history"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"range":        hist.Range,
+		"bucket_s":     hist.BucketS,
+		"ram_limit_mb": server.RAMLimitMB,
+		"points":       hist.Points,
+	})
 }
 
 // metricsPayload fetches a server's live resource metrics from its daemon.

@@ -67,6 +67,8 @@ type NodeHeartbeatRequest struct {
 	CPUPercent float32 `json:"cpu_percent"`
 	RAMUsedMB  uint64  `json:"ram_used_mb"`
 	DiskUsedMB uint64  `json:"disk_used_mb"`
+	// Per-server usage for the performance graphs (daemon v0.14+).
+	Servers []ServerMetricSample `json:"servers,omitempty"`
 	// mTLS state advertised by daemons that hold a panel-issued certificate.
 	// Absent on older daemons, in which case nothing is changed.
 	MTLSReady    bool       `json:"mtls_ready,omitempty"`

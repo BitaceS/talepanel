@@ -36,6 +36,18 @@ pub struct HeartbeatMetrics {
     pub timestamp: DateTime<Utc>,
     /// Set only when the local listener really serves TLS with the node cert.
     pub mtls: Option<MtlsAdvert>,
+    /// Per-server usage of the running servers, for the panel's performance
+    /// graphs. Panels older than v0.14 ignore it.
+    pub servers: Vec<ServerSample>,
+}
+
+/// One running server's resource usage in a heartbeat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerSample {
+    pub server_id: String,
+    /// Process CPU since the previous sample; 100 = one full core.
+    pub cpu_percent: f32,
+    pub ram_mb: u64,
 }
 
 /// Node certificate details advertised in the heartbeat so the panel can
@@ -144,6 +156,8 @@ struct HeartbeatBody<'a> {
     cert_serial: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cert_not_after: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "<[ServerSample]>::is_empty")]
+    servers: &'a [ServerSample],
 }
 
 impl<'a> HeartbeatBody<'a> {
@@ -159,6 +173,7 @@ impl<'a> HeartbeatBody<'a> {
             mtls_ready: metrics.mtls.as_ref().map(|_| true),
             cert_serial: metrics.mtls.as_ref().map(|m| m.serial.as_str()),
             cert_not_after: metrics.mtls.as_ref().map(|m| m.not_after),
+            servers: &metrics.servers,
         }
     }
 }
@@ -695,7 +710,27 @@ mod heartbeat_body_tests {
             server_count: 0,
             timestamp: Utc::now(),
             mtls,
+            servers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn heartbeat_body_carries_server_samples_only_when_present() {
+        let m = metrics(None);
+        let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
+        assert!(!v.as_object().unwrap().contains_key("servers"));
+
+        let mut m = metrics(None);
+        m.servers.push(ServerSample {
+            server_id: "abc".into(),
+            cpu_percent: 12.5,
+            ram_mb: 2048,
+        });
+        let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
+        assert_eq!(
+            v["servers"],
+            serde_json::json!([{"server_id": "abc", "cpu_percent": 12.5, "ram_mb": 2048}])
+        );
     }
 
     #[test]
