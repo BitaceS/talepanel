@@ -32,7 +32,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hyta
 
 It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed. Latest release: [v0.14.0](https://github.com/BitaceS/talepanel/releases/tag/v0.14.0) (2026-11-20), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed. Latest release: [v0.15.0](https://github.com/BitaceS/talepanel/releases/tag/v0.15.0) (2026-11-20), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ### At a glance
 
@@ -472,7 +472,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Multi-node with enrollment tokens | Shipped |
 | Upload-based mod installer | Shipped |
 | CurseForge mod browser | Shipped (needs an API key in Admin → Integrations) |
-| Modtale mod browser | Unreleased (no key needed) |
+| Modtale mod browser (no key needed) | Shipped (v0.15) |
 | Backups (create / restore / download / schedule) | Shipped |
 | Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV) | Shipped (v0.11) |
 | Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |
@@ -483,7 +483,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
 | mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Shipped (v0.14) |
-| Panel CA rotation and certificate renewal without restarts | Unreleased |
+| Panel CA rotation and certificate renewal without restarts | Shipped (v0.15) |
 | Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Shipped (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |

@@ -90,11 +90,19 @@ Run the installer's **Upgrade** mode on the panel first, **then on every node**.
 
 ---
 
-## v0.14.0 → v1.0.0 (planned)
+## v0.14.0 → v0.15.0
 
-_Not released yet. Notes so far:_
+Run the installer's **Upgrade** mode on the panel first, **then on every node**. Migrations 049 and 050 run automatically when the API starts.
 
-- **Panel CA rotation** needs the new daemon on every node. Update the panel first, then the nodes. Admin → Nodes → Node certificates lists nodes whose daemon cannot follow a rotation yet; rotate only when that list is empty. Migration 050 runs automatically when the API starts.
+- **Panel CA rotation** needs the v0.15 daemon on every node. Admin → Nodes → Node certificates lists nodes whose daemon cannot follow a rotation yet; rotate only when that list is empty. Nodes that are not updated keep working with their current certificate, which they renew on a restart within 30 days of expiry, as before.
+- **Modtale** works without configuration. On a busy panel, `MODTALE_API_KEY` in the panel `.env` raises Modtale's limit of 60 requests per minute.
+- Mods installed from CurseForge before v0.15 still show the source `manual`; new installs are recorded as `curseforge`.
+
+---
+
+## v0.15.0 → v1.0.0 (planned)
+
+_Not released yet. Notes will appear here._
 
 ---
 
