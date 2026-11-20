@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, instrument, warn};
 
-use crate::api_client::{ApiClient, HeartbeatMetrics, MtlsAdvert, ServerSample};
+use crate::api_client::{ApiClient, HeartbeatMetrics, ServerSample};
+use crate::cert_renewal::NodePki;
 use crate::config::Config;
 use crate::disk_used_mb;
 use crate::process::hytale::ServerMetrics;
@@ -16,7 +17,9 @@ use crate::process::ProcessManager;
 ///   2. Builds a `HeartbeatMetrics` snapshot.
 ///   3. Calls `api_client.heartbeat("online", metrics)`.
 ///
-/// `mtls` is `Some` only when the listener actually serves TLS with the node cert.
+/// `pki` is `Some` only when the listener actually serves TLS with the node
+/// cert. After each heartbeat it renews the certificate or adopts a new panel
+/// CA bundle when due (see [`NodePki::on_heartbeat`]).
 ///
 /// Heartbeat failures are logged at WARN level but do not stop the loop.
 #[instrument(skip_all)]
@@ -24,7 +27,7 @@ pub async fn run_heartbeat_loop(
     api_client: Arc<ApiClient>,
     process_manager: Arc<ProcessManager>,
     config: Arc<Config>,
-    mtls: Option<MtlsAdvert>,
+    pki: Option<Arc<NodePki>>,
     mut shutdown: broadcast::Receiver<()>,
 ) {
     let interval_duration = tokio::time::Duration::from_secs(config.resources.heartbeat_interval_s);
@@ -38,7 +41,7 @@ pub async fn run_heartbeat_loop(
         &api_client,
         &process_manager,
         &config,
-        mtls.as_ref(),
+        pki.as_deref(),
         "online",
     )
     .await;
@@ -51,7 +54,7 @@ pub async fn run_heartbeat_loop(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                send_heartbeat(&api_client, &process_manager, &config, mtls.as_ref(), "online").await;
+                send_heartbeat(&api_client, &process_manager, &config, pki.as_deref(), "online").await;
             }
 
             _ = shutdown.recv() => {
@@ -69,7 +72,7 @@ async fn send_heartbeat(
     api_client: &Arc<ApiClient>,
     process_manager: &Arc<ProcessManager>,
     config: &Arc<Config>,
-    mtls: Option<&MtlsAdvert>,
+    pki: Option<&NodePki>,
     node_status: &str,
 ) {
     let all_metrics = process_manager.collect_all_metrics().await;
@@ -102,12 +105,17 @@ async fn send_heartbeat(
         disk_used_mb: disk_used_mb(&config.daemon.data_root),
         server_count,
         timestamp: chrono::Utc::now(),
-        mtls: mtls.cloned(),
+        mtls: pki.map(NodePki::advert),
         servers,
     };
 
-    if let Err(err) = api_client.heartbeat(node_status, metrics).await {
-        warn!(%err, "Heartbeat failed");
+    match api_client.heartbeat(node_status, metrics).await {
+        Ok(hint) => {
+            if let Some(pki) = pki {
+                pki.on_heartbeat(api_client, hint.as_ref()).await;
+            }
+        }
+        Err(err) => warn!(%err, "Heartbeat failed"),
     }
 }
 

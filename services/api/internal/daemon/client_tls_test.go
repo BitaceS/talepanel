@@ -385,3 +385,48 @@ func TestClientPool_mtlsClientPinsNodeCN(t *testing.T) {
 		}
 	}
 }
+
+// CA rotation: new TLS material reaches clients that already exist, so a
+// node serving a certificate from the new CA is reachable right away.
+func TestClientPool_setTLSMaterialRebuildsClients(t *testing.T) {
+	oldCA, newCA := newTestCA(t), newTestCA(t)
+	certPEM, keyPEM, err := oldCA.IssueClientCert("panel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Renewed node: serves a new-CA cert, still accepts the old panel cert.
+	srv, _ := startMTLSDaemon(t, oldCA, signServerCert(t, newCA, testNodeID, []string{"daemon"}))
+	_, portStr, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	portN, _ := strconv.Atoi(portStr)
+
+	p := NewClientPool(zap.NewNop())
+	if err := p.SetTLSMaterial(oldCA.CertPEM, certPEM, keyPEM); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Register(testNodeID, "127.0.0.1", portN, "t", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Register(otherNodeID, "127.0.0.1", portN, "t", false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := p.Get(testNodeID)
+	legacy, _ := p.Get(otherNodeID)
+	if _, err := before.Health(context.Background()); err == nil {
+		t.Fatal("old trust accepted a certificate from the new CA")
+	}
+
+	bundle := append(append([]byte{}, newCA.CertPEM...), oldCA.CertPEM...)
+	if err := p.SetTLSMaterial(bundle, certPEM, keyPEM); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := p.Get(testNodeID)
+	if after == before {
+		t.Fatal("mTLS client not rebuilt")
+	}
+	if _, err := after.Health(context.Background()); err != nil {
+		t.Fatalf("rebuilt client: %v", err)
+	}
+	if l, _ := p.Get(otherNodeID); l != legacy {
+		t.Fatal("legacy client was rebuilt")
+	}
+}

@@ -26,7 +26,7 @@ func mtlsTestService(t *testing.T) (*AppSettingsService, *pgxpool.Pool) {
 	pool := openTestDB(t)
 	clean := func() {
 		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM app_settings WHERE key IN ('daemon_mtls_ca','daemon_mtls_panel_cert')`)
+			`DELETE FROM app_settings WHERE key IN ('daemon_mtls_ca','daemon_mtls_panel_cert','daemon_mtls_ca_previous')`)
 	}
 	clean()
 	t.Cleanup(clean)

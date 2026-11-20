@@ -3064,11 +3064,41 @@ pub async fn bind_listener(listen_addr: std::net::SocketAddr) -> anyhow::Result<
     Ok(listener)
 }
 
+/// The listener's TLS acceptor, replaceable while running: a renewed node
+/// certificate or a new panel CA bundle applies to the next connection,
+/// without a restart. Connections already open keep their session.
+pub struct TlsHandle(std::sync::RwLock<TlsAcceptor>);
+
+impl TlsHandle {
+    pub fn new(pki: &LoadedPki) -> anyhow::Result<Self> {
+        Ok(Self(std::sync::RwLock::new(TlsAcceptor::from(Arc::new(
+            build_tls_config(pki)?,
+        )))))
+    }
+
+    /// Switch to `pki`. On error the current acceptor stays in place.
+    pub fn replace(&self, pki: &LoadedPki) -> anyhow::Result<()> {
+        let next = TlsAcceptor::from(Arc::new(build_tls_config(pki)?));
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = next;
+        Ok(())
+    }
+
+    fn current(&self) -> TlsAcceptor {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+impl std::fmt::Debug for TlsHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TlsHandle")
+    }
+}
+
 /// How the local listener authenticates the panel.
 #[derive(Debug, Clone)]
 pub struct ListenerSecurity {
     /// Node cert/key + panel CA. `None` = no PKI yet, plain HTTP only.
-    pub pki: Option<LoadedPki>,
+    pub tls: Option<Arc<TlsHandle>>,
     /// Serve plaintext HTTP (bearer token only) next to mTLS.
     pub allow_legacy_bearer: bool,
     /// Refuse anything that is not mTLS with a panel client cert.
@@ -3102,8 +3132,8 @@ pub async fn serve_listener(
     router: Router,
     security: ListenerSecurity,
 ) -> anyhow::Result<()> {
-    let acceptor = match &security.pki {
-        Some(pki) => Some(TlsAcceptor::from(Arc::new(build_tls_config(pki)?))),
+    let tls = match security.tls {
+        Some(t) => Some(t),
         None if security.require_mtls => anyhow::bail!(
             "require_mtls is set but no node PKI is loaded; refusing to serve plaintext"
         ),
@@ -3112,10 +3142,9 @@ pub async fn serve_listener(
             None
         }
     };
-    let allow_plain =
-        acceptor.is_none() || (security.allow_legacy_bearer && !security.require_mtls);
+    let allow_plain = tls.is_none() || (security.allow_legacy_bearer && !security.require_mtls);
     info!(
-        mtls = acceptor.is_some(),
+        mtls = tls.is_some(),
         legacy_plaintext = allow_plain,
         "Local HTTP server security mode"
     );
@@ -3131,7 +3160,7 @@ pub async fn serve_listener(
             }
         };
         let router = router.clone();
-        let acceptor = acceptor.clone();
+        let acceptor = tls.as_ref().map(|t| t.current());
         tokio::spawn(handle_connection(
             stream,
             peer,
@@ -3781,7 +3810,7 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let security = ListenerSecurity {
-                pki,
+                tls: pki.map(|p| Arc::new(TlsHandle::new(&p).unwrap())),
                 allow_legacy_bearer,
                 require_mtls,
             };
@@ -3854,6 +3883,94 @@ mod tests {
             assert_eq!(status(&c, url.clone(), Some(TOKEN)).await.unwrap(), 200);
             assert_eq!(status(&c, url.clone(), None).await.unwrap(), 401);
             assert_eq!(status(&c, url, Some("wrong")).await.unwrap(), 401);
+        }
+
+        /// CA rotation on a running listener: new node cert + bundle, then
+        /// the old CA dropped. Each step applies to the next connection.
+        #[tokio::test]
+        async fn tls_handle_swaps_certificate_and_trust_while_running() {
+            let old = make_ca("TalePanel CA");
+            let new = make_ca("TalePanel CA 2");
+            let node = |ca: &Ca, ca_pem: String| {
+                let (cert_pem, key_pem) = make_leaf(ca, NODE_ID, vec!["127.0.0.1".into()]);
+                LoadedPki {
+                    ca_pem,
+                    cert_pem,
+                    key_pem,
+                    not_after: chrono::Utc::now() + chrono::Duration::days(30),
+                    serial: "1".into(),
+                }
+            };
+            let panel_old = make_leaf(&old, "panel", vec![]);
+            let panel_new = make_leaf(&new, "panel", vec![]);
+            let handle = Arc::new(TlsHandle::new(&node(&old, old.cert.pem())).unwrap());
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(serve_listener(
+                listener,
+                build_router(test_state()),
+                ListenerSecurity {
+                    tls: Some(Arc::clone(&handle)),
+                    allow_legacy_bearer: false,
+                    require_mtls: true,
+                },
+            ));
+            let url = format!("https://{addr}/network-stats");
+            let ok = |c: reqwest::Client| {
+                let url = url.clone();
+                async move { status(&c, url, Some(TOKEN)).await }
+            };
+
+            assert_eq!(
+                ok(tls_client(&old.cert.pem(), Some(&panel_old)))
+                    .await
+                    .unwrap(),
+                200
+            );
+
+            // Renewed from the new CA, trusting both.
+            let bundle = format!("{}{}", new.cert.pem(), old.cert.pem());
+            handle.replace(&node(&new, bundle)).unwrap();
+            assert_eq!(
+                ok(tls_client(&new.cert.pem(), Some(&panel_old)))
+                    .await
+                    .unwrap(),
+                200
+            );
+            assert_eq!(
+                ok(tls_client(&new.cert.pem(), Some(&panel_new)))
+                    .await
+                    .unwrap(),
+                200
+            );
+            assert_refused(
+                ok(tls_client(&old.cert.pem(), Some(&panel_old))).await,
+                "panel that only trusts the old CA after renewal",
+            );
+
+            // Rotation finished: the old CA is no longer trusted.
+            handle.replace(&node(&new, new.cert.pem())).unwrap();
+            assert_eq!(
+                ok(tls_client(&new.cert.pem(), Some(&panel_new)))
+                    .await
+                    .unwrap(),
+                200
+            );
+            assert_refused(
+                ok(tls_client(&new.cert.pem(), Some(&panel_old))).await,
+                "panel cert from the retired CA",
+            );
+
+            // A broken set is refused and the listener keeps serving.
+            let mut broken = node(&new, new.cert.pem());
+            broken.key_pem = make_leaf(&new, NODE_ID, vec![]).1;
+            assert!(handle.replace(&broken).is_err());
+            assert_eq!(
+                ok(tls_client(&new.cert.pem(), Some(&panel_new)))
+                    .await
+                    .unwrap(),
+                200
+            );
         }
 
         #[tokio::test]
@@ -4008,7 +4125,7 @@ mod tests {
         fn listener_security_debug_redacts_key() {
             let f = fixture();
             let sec = ListenerSecurity {
-                pki: Some(f.node.clone()),
+                tls: Some(Arc::new(TlsHandle::new(&f.node).unwrap())),
                 allow_legacy_bearer: true,
                 require_mtls: false,
             };
@@ -4057,7 +4174,7 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let security = ListenerSecurity {
-                pki: None,
+                tls: None,
                 allow_legacy_bearer: true,
                 require_mtls: false,
             };
@@ -4114,7 +4231,7 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let security = ListenerSecurity {
-                pki: None,
+                tls: None,
                 allow_legacy_bearer: true,
                 require_mtls: false,
             };

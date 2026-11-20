@@ -24,6 +24,7 @@ type NodeHandler struct {
 	devMode  bool
 	alertSvc *services.AlertService
 	metrics  *services.ServerMetricsService // optional; nil = no per-server history
+	mtls     *services.MTLSManager          // optional; nil = no certificate hints
 }
 
 // NewNodeHandler constructs a NodeHandler.
@@ -35,6 +36,9 @@ func NewNodeHandler(svc *services.NodeService, daemons *daemon.ClientPool, log *
 
 // SetServerMetrics enables recording the per-server samples of heartbeats.
 func (h *NodeHandler) SetServerMetrics(m *services.ServerMetricsService) { h.metrics = m }
+
+// SetMTLS wires the certificate manager whose hints go into heartbeat answers.
+func (h *NodeHandler) SetMTLS(m *services.MTLSManager) { h.mtls = m }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
 
@@ -195,11 +199,6 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 		nodeError(c, err)
 		return
 	}
-	if mtlsRejected {
-		h.log.Warn("node advertised an mTLS certificate this panel did not issue to it; staying on legacy transport",
-			zap.String("node_id", nodeID.String()),
-			zap.String("cert_serial", req.CertSerial))
-	}
 
 	// Record metrics for the cluster dashboard time-series chart.
 	go func() {
@@ -218,6 +217,19 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 	// validated by DaemonNodeAuth) to build the daemon HTTP client.
 	rawToken := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	node, err := h.svc.GetNode(c.Request.Context(), nodeID)
+	if mtlsRejected {
+		// Right after a renewal the node may still advertise its previous
+		// certificate for a heartbeat or two; only a node that never got
+		// onto mTLS is worth a warning.
+		if err == nil && node.MTLSEnabled {
+			h.log.Debug("node still advertises its previous certificate",
+				zap.String("node_id", nodeID.String()), zap.String("cert_serial", req.CertSerial))
+		} else {
+			h.log.Warn("node advertised an mTLS certificate this panel did not issue to it; staying on legacy transport",
+				zap.String("node_id", nodeID.String()),
+				zap.String("cert_serial", req.CertSerial))
+		}
+	}
 	if err == nil {
 		if regErr := h.daemons.Register(nodeID.String(), node.FQDN, node.Port, rawToken, node.MTLSEnabled); regErr != nil {
 			h.log.Warn("node has an invalid fqdn/port; daemon client not registered",
@@ -253,7 +265,15 @@ func (h *NodeHandler) NodeHeartbeat(c *gin.Context) {
 		)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("heartbeat received from node %s", nodeID)})
+	resp := gin.H{"message": fmt.Sprintf("heartbeat received from node %s", nodeID)}
+	if h.mtls != nil && req.CertRenewal {
+		if hint, hErr := h.mtls.HeartbeatHint(c.Request.Context(), nodeID); hErr != nil {
+			h.log.Warn("building certificate hint failed", zap.String("node_id", nodeID.String()), zap.Error(hErr))
+		} else if hint != nil {
+			resp["pki"] = hint
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // ─── ReportDDoS ───────────────────────────────────────────────────────────────

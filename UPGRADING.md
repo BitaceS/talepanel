@@ -92,7 +92,9 @@ Run the installer's **Upgrade** mode on the panel first, **then on every node**.
 
 ## v0.14.0 → v1.0.0 (planned)
 
-_Not released yet. Notes will appear here._
+_Not released yet. Notes so far:_
+
+- **Panel CA rotation** needs the new daemon on every node. Update the panel first, then the nodes. Admin → Nodes → Node certificates lists nodes whose daemon cannot follow a rotation yet; rotate only when that list is empty. Migration 050 runs automatically when the API starts.
 
 ---
 

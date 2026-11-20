@@ -11,7 +11,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair};
 use tracing::{info, warn};
 
-use crate::api_client::ApiClient;
+use crate::api_client::{ApiClient, NodeCertResponse};
 
 const CA_FILE: &str = "ca.pem";
 const CERT_FILE: &str = "node-cert.pem";
@@ -108,18 +108,90 @@ fn cert_meta(cert_pem: &str) -> Result<(DateTime<Utc>, String)> {
     Ok((not_after, cert.tbs_certificate.serial.to_str_radix(16)))
 }
 
-/// Validate the PKI set for `node_id`: `ca_pem` parses, `key_pem` is a P-256
-/// key whose public half equals the public key in `cert_pem`, the cert is
-/// signed by that CA, its subject CN is `node_id`, and it is valid for at
-/// least [`MIN_REMAINING_DAYS`] more days.
+/// DER of every CERTIFICATE block in a PEM bundle.
+fn bundle_ders(pem: &str) -> Result<Vec<Vec<u8>>> {
+    let mut out = Vec::new();
+    for block in x509_parser::pem::Pem::iter_from_buffer(pem.as_bytes()) {
+        let block = block.context("parsing CA bundle PEM")?;
+        if block.label == "CERTIFICATE" {
+            out.push(block.contents);
+        }
+    }
+    if out.is_empty() {
+        bail!("CA bundle contains no certificate");
+    }
+    Ok(out)
+}
+
+fn parse_der(der: &[u8]) -> Result<x509_parser::certificate::X509Certificate<'_>> {
+    use x509_parser::prelude::FromDer;
+    let (_, c) = x509_parser::certificate::X509Certificate::from_der(der)
+        .map_err(|e| anyhow::anyhow!("parsing certificate DER: {e}"))?;
+    Ok(c)
+}
+
+/// True if `cert` is signed by one of the CAs in `ca_ders`.
+fn signed_by_any(
+    cert: &x509_parser::certificate::X509Certificate<'_>,
+    ca_ders: &[Vec<u8>],
+) -> bool {
+    ca_ders.iter().any(|der| {
+        parse_der(der).is_ok_and(|ca| cert.verify_signature(Some(ca.public_key())).is_ok())
+    })
+}
+
+/// Check that `new_bundle` may replace `current_bundle` as this node's trust.
+///
+/// Dropping CAs is always allowed. A CA that is not trusted yet is accepted
+/// only with an endorsement: a currently valid cross certificate in
+/// `endorsements` with the new CA's subject and public key, signed by a CA
+/// this node already trusts. So a new root can only come from the panel that
+/// holds the old CA's key, not from whoever answers on the API address.
+pub fn accept_bundle(current_bundle: &str, new_bundle: &str, endorsements: &str) -> Result<()> {
+    let current = bundle_ders(current_bundle)?;
+    let incoming = bundle_ders(new_bundle)?;
+    let cross: Vec<Vec<u8>> = if endorsements.trim().is_empty() {
+        Vec::new()
+    } else {
+        bundle_ders(endorsements)?
+    };
+    for der in &incoming {
+        let ca = parse_der(der)?;
+        if !ca.is_ca() {
+            bail!("CA bundle entry {} is not a CA certificate", ca.subject());
+        }
+        if current.contains(der) {
+            continue;
+        }
+        let endorsed = cross.iter().any(|e| {
+            parse_der(e).is_ok_and(|e| {
+                e.subject().as_raw() == ca.subject().as_raw()
+                    && e.public_key().raw == ca.public_key().raw
+                    && e.validity().is_valid()
+                    && signed_by_any(&e, &current)
+            })
+        });
+        if !endorsed {
+            bail!(
+                "new panel CA {} is not endorsed by a CA this node trusts; \
+                 re-enrol the node (delete the PKI directory and restart the daemon)",
+                ca.subject()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Validate the PKI set for `node_id`: `ca_pem` (a bundle) parses, `key_pem`
+/// is a P-256 key whose public half equals the public key in `cert_pem`, the
+/// cert is signed by one of the bundle's CAs, its subject CN is `node_id`,
+/// and it is valid for at least [`MIN_REMAINING_DAYS`] more days.
 ///
 /// A set failing any check is stale (left over from an earlier install with
 /// another node id, issued by another panel, expired) and must be re-enrolled
 /// rather than served, or the panel would pin a cert the daemon cannot present.
 fn validate(ca_pem: &str, cert_pem: &str, key_pem: &str, node_id: &str) -> Result<()> {
-    let (_, ca_pem_obj) =
-        x509_parser::pem::parse_x509_pem(ca_pem.as_bytes()).context("parsing CA PEM")?;
-    let ca = ca_pem_obj.parse_x509().context("parsing CA DER")?;
+    let cas = bundle_ders(ca_pem)?;
 
     let key = KeyPair::from_pem(key_pem).context("parsing node key")?;
     if !key.is_compatible(&rcgen::PKCS_ECDSA_P256_SHA256) {
@@ -131,8 +203,9 @@ fn validate(ca_pem: &str, cert_pem: &str, key_pem: &str, node_id: &str) -> Resul
     if cert.public_key().subject_public_key.data.as_ref() != key.public_key_raw() {
         bail!("node cert public key does not match node key");
     }
-    cert.verify_signature(Some(ca.public_key()))
-        .map_err(|e| anyhow::anyhow!("node cert is not signed by the stored CA: {e}"))?;
+    if !signed_by_any(&cert, &cas) {
+        bail!("node cert is not signed by a stored CA");
+    }
 
     let mut cns = cert.subject().iter_common_name();
     let cn = cns.next().and_then(|a| a.as_str().ok());
@@ -193,16 +266,60 @@ pub async fn ensure_pki(pki_dir: &Path, api: &ApiClient, node_id: &str) -> Resul
         return Ok(p);
     }
     let (key_pem, csr_pem) = generate_csr(node_id)?;
-    let (ca_pem, cert_pem) = api.request_node_cert(&csr_pem).await?;
-    if ca_pem.trim().is_empty() || cert_pem.trim().is_empty() {
-        bail!("panel returned an empty certificate");
-    }
-    validate(&ca_pem, &cert_pem, &key_pem, node_id)
-        .context("panel-issued certificate is unusable")?;
-    let pki = build(ca_pem, cert_pem, key_pem)?;
+    let resp = api.request_node_cert(&csr_pem).await?;
+    let pki = issued(resp, key_pem, node_id)?;
     write_pki(pki_dir, &pki.ca_pem, &pki.cert_pem, &pki.key_pem)?;
     info!(not_after = %pki.not_after, serial = %pki.serial, "Obtained node certificate from panel");
     Ok(pki)
+}
+
+/// Check and assemble a panel CSR answer for the key that made the CSR.
+fn issued(resp: NodeCertResponse, key_pem: String, node_id: &str) -> Result<LoadedPki> {
+    if resp.ca_pem.trim().is_empty() || resp.cert_pem.trim().is_empty() {
+        bail!("panel returned an empty certificate");
+    }
+    validate(&resp.ca_pem, &resp.cert_pem, &key_pem, node_id)
+        .context("panel-issued certificate is unusable")?;
+    build(resp.ca_pem, resp.cert_pem, key_pem)
+}
+
+/// True when the certificate is inside the renewal window.
+pub fn needs_renewal(p: &LoadedPki) -> bool {
+    p.not_after - Utc::now() < chrono::Duration::days(MIN_REMAINING_DAYS)
+}
+
+/// Get a new key and certificate while running. The panel's answer must be a
+/// trust bundle this node may switch to (see [`accept_bundle`]). Nothing is
+/// written; the caller persists the result once the listener accepted it.
+pub async fn renew(api: &ApiClient, node_id: &str, current: &LoadedPki) -> Result<LoadedPki> {
+    let (key_pem, csr_pem) = generate_csr(node_id)?;
+    let resp = api.request_node_cert(&csr_pem).await?;
+    accept_bundle(&current.ca_pem, &resp.ca_pem, &resp.endorsements_pem)?;
+    issued(resp, key_pem, node_id)
+}
+
+/// The PKI with `bundle` as trust, if it differs from the current trust, the
+/// node may switch to it and its own certificate still chains to it.
+/// `Ok(None)` means nothing to change.
+pub fn with_trust(
+    current: &LoadedPki,
+    bundle: &str,
+    endorsements: &str,
+) -> Result<Option<LoadedPki>> {
+    if bundle_ders(bundle)? == bundle_ders(&current.ca_pem)? {
+        return Ok(None);
+    }
+    accept_bundle(&current.ca_pem, bundle, endorsements)?;
+    let (_, pem) = x509_parser::pem::parse_x509_pem(current.cert_pem.as_bytes())
+        .context("parsing node cert PEM")?;
+    let cert = pem.parse_x509().context("parsing node cert DER")?;
+    if !signed_by_any(&cert, &bundle_ders(bundle)?) {
+        bail!("the new trust bundle no longer contains the CA of this node's certificate");
+    }
+    Ok(Some(LoadedPki {
+        ca_pem: bundle.to_string(),
+        ..current.clone()
+    }))
 }
 
 #[cfg(test)]
@@ -388,6 +505,92 @@ mod tests {
             .expect("Go-issued PKI rejected");
         assert!(p.not_after > Utc::now() + chrono::Duration::days(365));
         let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    /// A CA (`CN=name`) and its key.
+    fn ca(name: &str) -> (rcgen::Certificate, KeyPair) {
+        let key = KeyPair::generate().unwrap();
+        let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+        p.distinguished_name.push(rcgen::DnType::CommonName, name);
+        p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        (p.self_signed(&key).unwrap(), key)
+    }
+
+    /// Cross certificate: `subject_ca`'s name and key, signed by `issuer`.
+    fn endorse(
+        subject_name: &str,
+        subject_key: &KeyPair,
+        issuer: &rcgen::Certificate,
+        issuer_key: &KeyPair,
+    ) -> String {
+        let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+        p.distinguished_name
+            .push(rcgen::DnType::CommonName, subject_name);
+        p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        p.signed_by(subject_key, issuer, issuer_key).unwrap().pem()
+    }
+
+    /// Node cert for NODE signed by `issuer`, plus its key.
+    fn node_cert(issuer: &rcgen::Certificate, issuer_key: &KeyPair) -> (String, KeyPair) {
+        let key = KeyPair::generate().unwrap();
+        let mut p = CertificateParams::new(vec!["x".to_string()]).unwrap();
+        p.distinguished_name.push(rcgen::DnType::CommonName, NODE);
+        (p.signed_by(&key, issuer, issuer_key).unwrap().pem(), key)
+    }
+
+    #[test]
+    fn bundle_accepts_endorsed_new_ca_only() {
+        let (old, old_key) = ca("TalePanel Root CA");
+        let (new, new_key) = ca("TalePanel Root CA 2");
+        let (rogue, rogue_key) = ca("TalePanel Root CA 2");
+        let bundle = format!("{}{}", new.pem(), old.pem());
+
+        // No endorsement: refused.
+        assert!(accept_bundle(&old.pem(), &bundle, "").is_err());
+        // Endorsed by the trusted old CA: accepted.
+        let cross = endorse("TalePanel Root CA 2", &new_key, &old, &old_key);
+        accept_bundle(&old.pem(), &bundle, &cross).unwrap();
+        // Endorsement for another key with the same name does not count.
+        let rogue_bundle = format!("{}{}", rogue.pem(), old.pem());
+        assert!(accept_bundle(&old.pem(), &rogue_bundle, &cross).is_err());
+        // An endorsement signed by an untrusted CA does not count either.
+        let self_cross = endorse("TalePanel Root CA 2", &rogue_key, &rogue, &rogue_key);
+        assert!(accept_bundle(&old.pem(), &rogue_bundle, &self_cross).is_err());
+        // Dropping a CA needs nothing.
+        accept_bundle(&bundle, &new.pem(), "").unwrap();
+        // A leaf in the bundle is refused.
+        let (leaf, _) = node_cert(&old, &old_key);
+        assert!(accept_bundle(&old.pem(), &format!("{}{leaf}", old.pem()), "").is_err());
+    }
+
+    #[test]
+    fn node_cert_from_any_bundle_ca_validates() {
+        let (old, old_key) = ca("TalePanel Root CA");
+        let (new, new_key) = ca("TalePanel Root CA 2");
+        let (cert, key) = node_cert(&new, &new_key);
+        let bundle = format!("{}{}", old.pem(), new.pem());
+        validate(&bundle, &cert, &key.serialize_pem(), NODE).unwrap();
+        assert!(validate(&old.pem(), &cert, &key.serialize_pem(), NODE).is_err());
+        let _ = old_key;
+    }
+
+    #[test]
+    fn with_trust_switches_only_when_safe() {
+        let (old, old_key) = ca("TalePanel Root CA");
+        let (new, new_key) = ca("TalePanel Root CA 2");
+        let (cert, key) = node_cert(&old, &old_key);
+        let current = build(old.pem(), cert, key.serialize_pem()).unwrap();
+
+        // Same bundle: nothing to do.
+        assert!(with_trust(&current, &old.pem(), "").unwrap().is_none());
+        // New CA added with endorsement: switch.
+        let bundle = format!("{}{}", new.pem(), old.pem());
+        let cross = endorse("TalePanel Root CA 2", &new_key, &old, &old_key);
+        let next = with_trust(&current, &bundle, &cross).unwrap().unwrap();
+        assert_eq!(next.ca_pem, bundle);
+        assert_eq!(next.serial, current.serial);
+        // Dropping the CA of our own cert is refused (renew first).
+        assert!(with_trust(&next, &new.pem(), "").is_err());
     }
 
     #[test]

@@ -464,3 +464,27 @@ export interface CommandParam {
   placeholder: string
   default?: string
 }
+
+// ── Node certificates / CA rotation (admin) ─────────────────────────────────
+export interface MTLSNodeState {
+  id: string
+  name: string
+  status: string
+  mtls_enabled: boolean
+  cert_not_after?: string | null
+  on_active_ca: boolean
+  serving: boolean
+  renewal_supported: boolean
+  last_heartbeat?: string | null
+}
+
+export interface MTLSStatus {
+  ca_fingerprint: string
+  ca_not_after: string
+  rotating: boolean
+  previous_ca_fingerprint?: string
+  panel_cert_not_after: string
+  nodes: MTLSNodeState[]
+  nodes_pending_renewal: number
+  nodes_without_renewal: number
+}

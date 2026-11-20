@@ -7,8 +7,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -203,4 +205,79 @@ func (ca *CA) IssueClientCert(cn string) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 	return certPEM, keyPEM, nil
+}
+
+// firstCert decodes the first CERTIFICATE block of a PEM bundle.
+func firstCert(certPEM []byte) (*x509.Certificate, error) {
+	for rest := certPEM; ; {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			return nil, errors.New("no CERTIFICATE PEM block")
+		}
+		if b.Type == "CERTIFICATE" {
+			return x509.ParseCertificate(b.Bytes)
+		}
+	}
+}
+
+// Fingerprint is the lowercase hex SHA-256 of the first certificate's DER.
+func Fingerprint(certPEM []byte) (string, error) {
+	c, err := firstCert(certPEM)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(c.Raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// CertInfo returns the first certificate's validity window.
+func CertInfo(certPEM []byte) (notBefore, notAfter time.Time, err error) {
+	c, err := firstCert(certPEM)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return c.NotBefore, c.NotAfter, nil
+}
+
+// Endorse issues a cross-certificate for other: same subject and public key
+// as other's CA certificate, signed by ca. A daemon that already trusts ca
+// uses it to accept other as a new root during a CA rotation, so a new root
+// can never reach a node without the old CA vouching for it. The cross
+// certificate is not valid past ca's own expiry.
+func (ca *CA) Endorse(otherCertPEM []byte) ([]byte, error) {
+	caCert, caKey, err := ca.parse()
+	if err != nil {
+		return nil, err
+	}
+	other, err := firstCert(otherCertPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parsing endorsed CA: %w", err)
+	}
+	if !other.IsCA {
+		return nil, errors.New("endorsed certificate is not a CA")
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	notAfter := other.NotAfter
+	if caCert.NotAfter.Before(notAfter) {
+		notAfter = caCert.NotAfter
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               other.Subject,
+		NotBefore:             time.Now().Add(-clockSkew),
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, other.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("creating cross certificate: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }

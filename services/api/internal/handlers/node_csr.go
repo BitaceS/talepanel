@@ -106,20 +106,30 @@ func (h *NodeCSRHandler) SignCSR(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load CA"})
 		return
 	}
+	trust, err := h.settings.MTLSTrust(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load CA"})
+		return
+	}
 	certPEM, serial, notAfter, err := ca.SignCSR(csrPEM, nodeID.String(), []string{sanFromFQDN(fqdn)}, nodeCertValidity)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not sign certificate"})
 		return
 	}
 	if _, err := h.db.Exec(ctx,
-		`UPDATE nodes SET cert_serial = $2, cert_not_after = $3 WHERE id = $1`,
-		nodeID, serial, notAfter); err != nil {
+		`UPDATE nodes SET cert_serial = $2, cert_not_after = $3, cert_ca_fingerprint = $4 WHERE id = $1`,
+		nodeID, serial, notAfter, trust.ActiveFP); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not record certificate"})
 		return
 	}
 
+	// ca_cert_pem is the trust bundle: the signing (active) CA first, so
+	// daemons that only read the first certificate still find the issuer,
+	// then the previous CA while a rotation runs. The endorsements let a
+	// node that trusts an older CA accept a new one.
 	c.JSON(http.StatusOK, gin.H{
-		"ca_cert_pem":   string(ca.CertPEM),
-		"node_cert_pem": string(certPEM),
+		"ca_cert_pem":         string(trust.BundlePEM),
+		"node_cert_pem":       string(certPEM),
+		"ca_endorsements_pem": string(trust.EndorsementsPEM),
 	})
 }
