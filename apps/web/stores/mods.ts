@@ -19,6 +19,8 @@ export const useModsStore = defineStore('mods', {
     loadingInstalled: false,
     loadingSearch: false,
     installingId: null as number | null,
+    /** "<projectId>@<version>" while a Modtale install runs ("@" + "" = latest). */
+    installingModtale: null as string | null,
     removingFilename: null as string | null,
     error: null as string | null,
   }),
@@ -77,6 +79,34 @@ export const useModsStore = defineStore('mods', {
         throw err
       } finally {
         this.installingId = null
+      }
+    },
+
+    // Install from Modtale. The API picks the file and asks Modtale for a
+    // fresh download link; version empty means the newest release.
+    async installModtale(serverId: string, projectId: string, version: string, title: string): Promise<InstalledMod> {
+      this.installingModtale = `${projectId}@${version}`
+      this.error = null
+      try {
+        const api = useApi()
+        const data = await api.post<{ mod: InstalledMod }>(`/servers/${serverId}/mods`, {
+          modtale_project_id: projectId,
+          modtale_version: version,
+          display_name: title,
+        })
+        const idx = this.installed.findIndex(m => m.filename === data.mod.filename && (m.mod_dir || 'mods') === 'mods')
+        if (idx !== -1) {
+          this.installed[idx] = data.mod
+        } else {
+          this.installed.unshift(data.mod)
+        }
+        return data.mod
+      } catch (err: unknown) {
+        const e = err as { data?: { error?: string }; message?: string }
+        this.error = e.data?.error ?? e.message ?? 'Install failed'
+        throw err
+      } finally {
+        this.installingModtale = null
       }
     },
 

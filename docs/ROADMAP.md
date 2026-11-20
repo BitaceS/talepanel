@@ -71,7 +71,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 | 10 | ~~**Login notification emails** (new device / IP)~~ | Done (v0.14): email on a sign-in with a browser not used from that /24 (/48) in 30 days; opt-out per user. | — |
 | 11 | ~~**API keys for automation** (scoped, hashed)~~ | Done (v0.13.0): per-user keys with scopes (power, console, manage, backups, players; read always), optional server list, expiry, last use, revoke; SHA-256 hashed; explicit route allowlist, no account/admin/node access. Next step, if hosters ask: admin-scoped keys for user and server provisioning. | — |
 | 12 | ~~**Performance graphs per server** (CPU, RAM, players over time)~~ | Done (v0.14): CPU, memory and players online over 1 h / 6 h / 24 h / 7 d on the server's Overview tab; one sample per server and minute from the node heartbeat, kept 8 days. | — |
-| 13 | **Modtale as a second mod source** | Ketbome, nebula and KyuubiSoft support Modtale besides CurseForge. Same install path as CurseForge. | M |
+| 13 | ~~**Modtale as a second mod source**~~ | Done (unreleased): search, install (latest release or a chosen version) and version switch for plugins, data and art packs; no key needed; the panel builds the download link itself. | — |
 | 14 | **Panel CA rotation and certificate renewal while running** | `SECURITY.md` known limitation. | M |
 | 15 | ~~**Require mTLS by default** (turn off the legacy bearer listener)~~ | Done (v0.14): `TALEDAEMON_REQUIRE_MTLS` defaults to on; the transition mode stays available for panels older than v0.12. | — |
 

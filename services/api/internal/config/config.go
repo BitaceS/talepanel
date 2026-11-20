@@ -67,6 +67,9 @@ type Config struct {
 	CurseForgeAPIKey string
 	CurseForgeGameID int
 
+	// Modtale — optional key; the public API works without one (60 req/min).
+	ModtaleAPIKey string
+
 	// MariaDB (for per-server databases)
 	MariaDBDSN  string // e.g. "root:password@tcp(mariadb:3306)/"
 	MariaDBHost string // hostname for server connections, e.g. "mariadb"
@@ -232,6 +235,7 @@ func Load() (*Config, error) {
 
 	// CurseForge — optional; features degrade gracefully when absent.
 	cfg.CurseForgeAPIKey = os.Getenv("CURSEFORGE_API_KEY")
+	cfg.ModtaleAPIKey = os.Getenv("MODTALE_API_KEY")
 	if gameIDStr := os.Getenv("CURSEFORGE_GAME_ID"); gameIDStr != "" {
 		id, err := strconv.Atoi(gameIDStr)
 		if err != nil {

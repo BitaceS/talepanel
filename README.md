@@ -28,7 +28,7 @@ Built by [BitaceS](https://github.com/BitaceS) · AGPL-3.0 · free, forever
 
 ## What is TalePanel?
 
-TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hytale server manager**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
+TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hytale server manager**. You use it to run and manage Hytale servers from your browser: start and stop servers, use the live console, and manage mods (CurseForge, Modtale or upload), worlds, players and backups. It works on a single VPS or across many nodes. Install takes one command and HTTPS is set up automatically. Accounts get 2FA and permissions per server, and every action is audit-logged.
 
 It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
@@ -42,7 +42,7 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 | **Servers** | Create from templates, start / stop / restart / kill, live console (SSE), RAM + CPU limits, auto restart after crashes |
 | **Automation** | Scheduled restarts (with in-game warning), Hytale updates in a maintenance window (backup first), console commands and broadcasts; scheduled backups; API keys with limited rights for scripts and bots ([example](examples/api/)) |
 | **Hytale-native** | Launch flags, auth modes, exit codes, Release / Pre-release builds, Hytale account link (OAuth device flow) |
-| **Content** | Worlds, file manager, mod upload + CurseForge browser, players (kick, ban, whitelist, op) |
+| **Content** | Worlds, file manager, mod upload + CurseForge and Modtale browsers, players (kick, ban, whitelist, op) |
 | **Backups** | Scheduled, encrypted (ChaCha20-Poly1305), off-site via rclone (S3, B2, OneDrive, Google Drive, Dropbox, SFTP, WebDAV) |
 | **Scale** | Multi-node with one-time enrollment tokens, mutual TLS between panel and nodes, network mod with `/play` handoff |
 | **Security** | 2FA with recovery codes (can be required for admins), new-device sign-in emails, RBAC per server, audit log, rate limiting, optional admin IP allowlist, no default accounts |
@@ -79,7 +79,7 @@ A lot of Hytale panels are showing up right now. A game panel hands strangers a 
 
 ### Made for Hytale, not adapted to it
 
-Worlds, mods, players and the Hytale account link are real objects in the UI, not files you edit by hand. The daemon knows Hytale's launch flags, auth modes and exit codes. Mods come from CurseForge or from upload.
+Worlds, mods, players and the Hytale account link are real objects in the UI, not files you edit by hand. The daemon knows Hytale's launch flags, auth modes and exit codes. Mods come from CurseForge, Modtale or from upload.
 
 ---
 
@@ -96,6 +96,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Files** — browse, edit, upload, download inside the server directory.
 - **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
 - **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
+- **Modtale mod browser** — search [modtale.net](https://modtale.net) for plugins, data packs and art packs and install the newest release or a chosen version; switch versions later. No API key needed.
 - **Backups** — create/restore/download/schedule a Zip snapshot of a server. The archive is written on the node; optionally the node also uploads it off-site with rclone to **OneDrive, Google Drive, Dropbox, S3-compatible storage (AWS, Wasabi, R2), Backblaze B2, SFTP or WebDAV/Nextcloud**, with upload status, retention and "keep local copy" per destination. Archives are encrypted (ChaCha20-Poly1305) on the node before they are written, under a panel-managed key.
 - **Players** — list, kick, ban, whitelist.
 - **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest) with single-use recovery codes, RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure.
@@ -471,6 +472,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Multi-node with enrollment tokens | Shipped |
 | Upload-based mod installer | Shipped |
 | CurseForge mod browser | Shipped (needs an API key in Admin → Integrations) |
+| Modtale mod browser | Unreleased (no key needed) |
 | Backups (create / restore / download / schedule) | Shipped |
 | Off-site backups via rclone (OneDrive, Google Drive, Dropbox, S3, B2, SFTP, WebDAV) | Shipped (v0.11) |
 | Encrypted backups (ChaCha20-Poly1305, panel-managed key) | Shipped (v0.12) |

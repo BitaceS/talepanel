@@ -4,6 +4,12 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Modtale as a second mod source.** Mods → **Modtale** (and the **Modtale** tab under a server's Mods) searches [modtale.net](https://modtale.net), a community repository of Hytale plugins, data packs and art packs, and installs them with one click: the newest release, or any version from the version list. It needs no API key. Mods installed from Modtale show **Change version** like CurseForge mods. The panel asks Modtale for the file and a fresh download link itself (Modtale's links expire after a few minutes), so users without admin rights can install from Modtale without being able to point the node at other URLs; worlds and modpacks are refused. Search results and version lists are cached for a few minutes to stay under Modtale's limit of 60 requests per minute per panel; `MODTALE_API_KEY` in the panel `.env` raises it. API: `GET /api/v1/modtale/search?q=&type=PLUGIN|DATA|ART&sort=&page=`, `GET /api/v1/modtale/projects/:id/versions`; `POST /api/v1/servers/:id/mods` takes `modtale_project_id` and `modtale_version`, `PATCH /api/v1/servers/:id/mods/:filename` takes `modtale_version`. Migration 049 adds `server_mods.modtale_project_id`.
+
+### Changed
+- Mods installed from CurseForge are now recorded with the source `curseforge` (before: `manual` unless their version was switched later).
+
 ## [0.14.0] — 2026-11-20
 
 Hardening: nodes require mutual TLS, owners can require 2FA for admins, and users get an email when their account is signed into from a new device. Plus performance graphs per server and a slide-in sidebar on phones. Panel older than v0.12? Read `UPGRADING.md` before updating the nodes.
