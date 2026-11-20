@@ -74,6 +74,9 @@ type NodeHeartbeatRequest struct {
 	MTLSReady    bool       `json:"mtls_ready,omitempty"`
 	CertSerial   string     `json:"cert_serial,omitempty"`
 	CertNotAfter *time.Time `json:"cert_not_after,omitempty"`
+	// CertRenewal: the daemon renews its certificate while running and
+	// follows CA rotations (TaleDaemon v0.15+).
+	CertRenewal bool `json:"cert_renewal,omitempty"`
 }
 
 // NodeService handles CRUD and heartbeat logic for daemon nodes.
@@ -283,10 +286,12 @@ func (s *NodeService) UpdateNodeHeartbeat(ctx context.Context, nodeID uuid.UUID,
 		SET status = CASE WHEN status = 'draining' THEN status ELSE $1::node_status END,
 		    last_heartbeat = $2,
 		    mtls_enabled   = mtls_enabled OR COALESCE($4 AND cert_serial = NULLIF($5, ''), false),
-		    cert_not_after = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $6 ELSE cert_not_after END
+		    cert_not_after = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $6 ELSE cert_not_after END,
+		    served_cert_serial = CASE WHEN COALESCE($4 AND cert_serial = NULLIF($5, ''), false) THEN $5 ELSE served_cert_serial END,
+		    cert_renewal_supported = $7
 		WHERE id = $3
 		RETURNING COALESCE($4 AND cert_serial = NULLIF($5, ''), false)
-	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter).Scan(&accepted)
+	`, status, time.Now().UTC(), nodeID, req.MTLSReady, req.CertSerial, req.CertNotAfter, req.CertRenewal).Scan(&accepted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNodeNotFound
 	}

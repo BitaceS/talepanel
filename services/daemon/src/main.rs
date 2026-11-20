@@ -1,5 +1,6 @@
 mod api_client;
 mod backup_crypto;
+mod cert_renewal;
 mod command_poller;
 mod config;
 mod downloader;
@@ -23,7 +24,7 @@ use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use api_client::{ApiClient, CsrUnsupported, HeartbeatMetrics, MtlsAdvert, NodeRegistration};
+use api_client::{ApiClient, CsrUnsupported, HeartbeatMetrics, NodeRegistration};
 use config::Config;
 use http_server::AppState;
 use pki::LoadedPki;
@@ -140,10 +141,22 @@ async fn main() -> Result<()> {
     // Bind before the heartbeat starts: mTLS is advertised only once the
     // listener is really up (a bind failure is fatal, before any advert).
     let listener = http_server::bind_listener(listen_addr).await?;
-    let mtls_advert = pki.as_ref().map(|p| MtlsAdvert {
-        serial: p.serial.clone(),
-        not_after: p.not_after,
-    });
+    // The listener's TLS acceptor and the renewal runtime share one handle,
+    // so a renewed certificate or CA bundle applies without a restart.
+    let (tls_handle, node_pki) = match pki {
+        Some(p) => {
+            let tls =
+                Arc::new(http_server::TlsHandle::new(&p).context("building TLS listener config")?);
+            let runtime = Arc::new(cert_renewal::NodePki::new(
+                std::path::PathBuf::from(&config.daemon.pki_dir),
+                config.daemon.node_id.clone(),
+                Arc::clone(&tls),
+                p,
+            ));
+            (Some(tls), Some(runtime))
+        }
+        None => (None, None),
+    };
 
     // ── 5. Set up the graceful-shutdown broadcast channel ───────────────────
     //
@@ -158,10 +171,10 @@ async fn main() -> Result<()> {
         let api = Arc::clone(&api_client);
         let pm = Arc::clone(&process_manager);
         let cfg = Arc::clone(&config);
-        let mtls = mtls_advert.clone();
+        let node_pki = node_pki.clone();
         let rx = shutdown_tx.subscribe();
         tokio::spawn(async move {
-            heartbeat::run_heartbeat_loop(api, pm, cfg, mtls, rx).await;
+            heartbeat::run_heartbeat_loop(api, pm, cfg, node_pki, rx).await;
         })
     };
 
@@ -210,7 +223,7 @@ async fn main() -> Result<()> {
     let http_require_mtls = config.daemon.require_mtls;
     let http_handle = tokio::spawn(async move {
         let security = http_server::ListenerSecurity {
-            pki,
+            tls: tls_handle,
             allow_legacy_bearer: http_legacy_bearer,
             require_mtls: http_require_mtls,
         };
@@ -243,7 +256,7 @@ async fn main() -> Result<()> {
         disk_used_mb: 0,
         server_count: 0,
         timestamp: chrono::Utc::now(),
-        mtls: mtls_advert,
+        mtls: node_pki.as_ref().map(|p| p.advert()),
         servers: Vec::new(),
     };
     if let Err(err) = api_client.heartbeat("offline", offline_metrics).await {

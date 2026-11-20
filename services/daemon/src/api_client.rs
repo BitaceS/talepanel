@@ -50,6 +50,17 @@ pub struct ServerSample {
     pub ram_mb: u64,
 }
 
+/// Extract the certificate hint from a heartbeat answer. Older panels send
+/// none; a malformed one is ignored rather than failing the heartbeat.
+fn parse_heartbeat_hint(body: &[u8]) -> Option<PkiHint> {
+    #[derive(Deserialize)]
+    struct Answer {
+        #[serde(default)]
+        pki: Option<PkiHint>,
+    }
+    serde_json::from_slice::<Answer>(body).ok()?.pki
+}
+
 /// Node certificate details advertised in the heartbeat so the panel can
 /// switch to https + mTLS for this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +68,33 @@ pub struct MtlsAdvert {
     /// Certificate serial, lowercase hex.
     pub serial: String,
     pub not_after: DateTime<Utc>,
+}
+
+/// What the panel answers to a CSR.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NodeCertResponse {
+    /// Trust bundle: the CA that signed `node_cert_pem` first, then any CA
+    /// still trusted while a rotation runs.
+    #[serde(rename = "ca_cert_pem")]
+    pub ca_pem: String,
+    #[serde(rename = "node_cert_pem")]
+    pub cert_pem: String,
+    /// Cross certificates that prove a new CA in the bundle to a node that
+    /// trusts an older one (panel v0.15+; empty otherwise).
+    #[serde(rename = "ca_endorsements_pem", default)]
+    pub endorsements_pem: String,
+}
+
+/// Certificate hint in a heartbeat answer (panel v0.15+).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct PkiHint {
+    /// CAs the node should trust from now on.
+    pub ca_bundle_pem: String,
+    #[serde(default)]
+    pub endorsements_pem: String,
+    /// The node's certificate is not from the panel's active CA.
+    #[serde(default)]
+    pub renew: bool,
 }
 
 /// The panel has no CSR endpoint (older panel): 404 or 405. Not retryable.
@@ -156,6 +194,10 @@ struct HeartbeatBody<'a> {
     cert_serial: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cert_not_after: Option<DateTime<Utc>>,
+    /// This daemon renews its certificate while running and follows panel
+    /// CA rotations, so the panel may send it certificate hints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cert_renewal: Option<bool>,
     #[serde(skip_serializing_if = "<[ServerSample]>::is_empty")]
     servers: &'a [ServerSample],
 }
@@ -173,6 +215,7 @@ impl<'a> HeartbeatBody<'a> {
             mtls_ready: metrics.mtls.as_ref().map(|_| true),
             cert_serial: metrics.mtls.as_ref().map(|m| m.serial.as_str()),
             cert_not_after: metrics.mtls.as_ref().map(|m| m.not_after),
+            cert_renewal: metrics.mtls.as_ref().map(|_| true),
             servers: &metrics.servers,
         }
     }
@@ -301,13 +344,7 @@ impl ApiClient {
     ///
     /// Returns `(ca_cert_pem, node_cert_pem)`.
     #[instrument(skip(self, csr_pem), fields(node_id = %self.node_id))]
-    pub async fn request_node_cert(&self, csr_pem: &str) -> Result<(String, String)> {
-        #[derive(Deserialize)]
-        struct CsrResponse {
-            ca_cert_pem: String,
-            node_cert_pem: String,
-        }
-
+    pub async fn request_node_cert(&self, csr_pem: &str) -> Result<NodeCertResponse> {
         let url = format!("{}/api/v1/nodes/{}/csr", self.base_url, self.node_id);
         debug!(%url, "Requesting node certificate");
 
@@ -332,15 +369,20 @@ impl ApiClient {
             bail!("Node CSR request failed: HTTP {status} – {body}");
         }
 
-        let body: CsrResponse = resp.json().await.context("Invalid CSR response body")?;
-        Ok((body.ca_cert_pem, body.node_cert_pem))
+        resp.json().await.context("Invalid CSR response body")
     }
 
     /// Send a heartbeat to the TalePanel API.
     ///
     /// The `status` string should be one of: `"online"`, `"degraded"`, `"offline"`.
     #[instrument(skip(self, metrics), fields(node_id = %self.node_id, status))]
-    pub async fn heartbeat(&self, status: &str, metrics: HeartbeatMetrics) -> Result<()> {
+    ///
+    /// Returns the panel's certificate hint, if it sent one.
+    pub async fn heartbeat(
+        &self,
+        status: &str,
+        metrics: HeartbeatMetrics,
+    ) -> Result<Option<PkiHint>> {
         let url = format!("{}/api/v1/nodes/{}/heartbeat", self.base_url, self.node_id);
         debug!(%url, "Sending heartbeat");
 
@@ -360,9 +402,12 @@ impl ApiClient {
             let text = resp.text().await.unwrap_or_default();
             // Heartbeat failures are non-fatal; we warn but do not bail.
             warn!(%status_code, response_body = %text, "Heartbeat HTTP error");
+            return Ok(None);
         }
 
-        Ok(())
+        Ok(parse_heartbeat_hint(
+            &resp.bytes().await.unwrap_or_default(),
+        ))
     }
 
     /// Fetch the list of commands that the TalePanel API wants this node to
@@ -756,6 +801,45 @@ mod heartbeat_body_tests {
         assert!(!o.contains_key("mtls_ready"));
         assert!(!o.contains_key("cert_serial"));
         assert!(!o.contains_key("cert_not_after"));
+        assert!(!o.contains_key("cert_renewal"));
         assert_eq!(v["node_token"], "tok");
+    }
+
+    #[test]
+    fn heartbeat_body_announces_cert_renewal_with_mtls() {
+        let m = metrics(Some(MtlsAdvert {
+            serial: "1".into(),
+            not_after: Utc::now(),
+        }));
+        let v = serde_json::to_value(HeartbeatBody::new("online", &m, "tok")).unwrap();
+        assert_eq!(v["cert_renewal"], true);
+    }
+
+    #[test]
+    fn heartbeat_hint_parsing() {
+        assert_eq!(parse_heartbeat_hint(br#"{"message":"ok"}"#), None);
+        assert_eq!(parse_heartbeat_hint(b"not json"), None);
+        let h = parse_heartbeat_hint(
+            br#"{"message":"ok","pki":{"ca_bundle_pem":"A","endorsements_pem":"E","renew":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            h,
+            PkiHint {
+                ca_bundle_pem: "A".into(),
+                endorsements_pem: "E".into(),
+                renew: true
+            }
+        );
+        let h = parse_heartbeat_hint(br#"{"pki":{"ca_bundle_pem":"A","renew":false}}"#).unwrap();
+        assert!(!h.renew && h.endorsements_pem.is_empty());
+    }
+
+    #[test]
+    fn csr_response_without_endorsements_parses() {
+        let r: NodeCertResponse =
+            serde_json::from_str(r#"{"ca_cert_pem":"C","node_cert_pem":"N"}"#).unwrap();
+        assert_eq!((r.ca_pem.as_str(), r.cert_pem.as_str()), ("C", "N"));
+        assert!(r.endorsements_pem.is_empty());
     }
 }

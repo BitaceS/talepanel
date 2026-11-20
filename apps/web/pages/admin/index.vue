@@ -975,6 +975,8 @@ async function submitCreateUser() {
         <Network class="w-10 h-10 text-tp-muted mx-auto mb-3" />
         <p class="text-tp-muted text-sm">No nodes registered</p>
       </div>
+
+      <AdminNodeCertificatesPanel @toast="showToast" />
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════════

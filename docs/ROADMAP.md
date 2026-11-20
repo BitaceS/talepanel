@@ -72,7 +72,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 | 11 | ~~**API keys for automation** (scoped, hashed)~~ | Done (v0.13.0): per-user keys with scopes (power, console, manage, backups, players; read always), optional server list, expiry, last use, revoke; SHA-256 hashed; explicit route allowlist, no account/admin/node access. Next step, if hosters ask: admin-scoped keys for user and server provisioning. | — |
 | 12 | ~~**Performance graphs per server** (CPU, RAM, players over time)~~ | Done (v0.14): CPU, memory and players online over 1 h / 6 h / 24 h / 7 d on the server's Overview tab; one sample per server and minute from the node heartbeat, kept 8 days. | — |
 | 13 | ~~**Modtale as a second mod source**~~ | Done (unreleased): search, install (latest release or a chosen version) and version switch for plugins, data and art packs; no key needed; the panel builds the download link itself. | — |
-| 14 | **Panel CA rotation and certificate renewal while running** | `SECURITY.md` known limitation. | M |
+| 14 | ~~**Panel CA rotation and certificate renewal while running**~~ | Done (unreleased): owner-triggered two-phase rotation (new CA trusted next to the old one, nodes renew on their heartbeat, finish retires the old CA), cross-certificate check on the node, hot-swapped TLS listener; nodes and panel renew 30 days before expiry without a restart. | — |
 | 15 | ~~**Require mTLS by default** (turn off the legacy bearer listener)~~ | Done (v0.14): `TALEDAEMON_REQUIRE_MTLS` defaults to on; the transition mode stays available for panels older than v0.12. | — |
 
 ### Later

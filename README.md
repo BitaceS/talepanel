@@ -99,7 +99,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Modtale mod browser** — search [modtale.net](https://modtale.net) for plugins, data packs and art packs and install the newest release or a chosen version; switch versions later. No API key needed.
 - **Backups** — create/restore/download/schedule a Zip snapshot of a server. The archive is written on the node; optionally the node also uploads it off-site with rclone to **OneDrive, Google Drive, Dropbox, S3-compatible storage (AWS, Wasabi, R2), Backblaze B2, SFTP or WebDAV/Nextcloud**, with upload status, retention and "keep local copy" per destination. Archives are encrypted (ChaCha20-Poly1305) on the node before they are written, under a panel-managed key.
 - **Players** — list, kick, ban, whitelist.
-- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest) with single-use recovery codes, RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure.
+- **Auth & security** — JWT + refresh, TOTP 2FA (AES-256-GCM at rest) with single-use recovery codes, RBAC (owner > admin > moderator > user), audit log, rate limiting, no seed account, no default password. Panel and nodes talk over mutual TLS with certificates the panel issues itself; nothing to configure. Certificates renew while running, and the owner can rotate the panel CA without downtime.
 - **Install** — one script for panel or daemon, automatic Let's Encrypt TLS, works without a domain via `sslip.io`.
 
 **Not there yet (roadmap, tracked publicly):**
@@ -483,6 +483,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
 | mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Shipped (v0.14) |
+| Panel CA rotation and certificate renewal without restarts | Unreleased |
 | Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Shipped (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |

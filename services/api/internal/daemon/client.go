@@ -857,16 +857,33 @@ func NewClientPool(log *zap.Logger) *ClientPool {
 	}
 }
 
-// SetTLSMaterial gives the pool the panel CA certificate and the panel's
-// client certificate/key, enabling https+mTLS for nodes registered with mtls.
-// The material is validated up front; on error the pool stays legacy-only.
+// SetTLSMaterial gives the pool the panel CA bundle and the panel's client
+// certificate/key, enabling https+mTLS for nodes registered with mtls. The
+// material is validated up front; on error the pool keeps what it had.
+//
+// It may be called again at runtime (CA rotation, renewed panel client
+// certificate): every existing mTLS client is rebuilt with the new material
+// right away, so the next request already uses it.
 func (p *ClientPool) SetTLSMaterial(caPEM, certPEM, keyPEM []byte) error {
 	if _, err := BuildPanelTLSConfig(caPEM, certPEM, keyPEM, "validate"); err != nil {
 		return err
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.caPEM, p.certPEM, p.keyPEM = caPEM, certPEM, keyPEM
-	p.mu.Unlock()
+	for nodeID, old := range p.clients {
+		if !old.tls {
+			continue
+		}
+		cfg, err := BuildPanelTLSConfig(caPEM, certPEM, keyPEM, nodeID)
+		if err != nil {
+			p.log.Warn("rebuilding node TLS config failed; keeping the old client",
+				zap.String("node_id", nodeID), zap.Error(err))
+			continue
+		}
+		old.closeIdle()
+		p.clients[nodeID] = NewClientTLS(old.baseURL, old.nodeToken, cfg, p.log)
+	}
 	return nil
 }
 

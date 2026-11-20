@@ -209,3 +209,70 @@ func TestSignCSR_rejectsBadArgs(t *testing.T) {
 		t.Fatal("expected error for empty cn")
 	}
 }
+
+func TestEndorse_crossCertBridgesOldTrustToNewCA(t *testing.T) {
+	oldCA, err := GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCA, err := GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossPEM, err := oldCA.Endorse(newCA.CertPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cross, oldCert, newCert := parseCert(t, crossPEM), parseCert(t, oldCA.CertPEM), parseCert(t, newCA.CertPEM)
+	if err := cross.CheckSignatureFrom(oldCert); err != nil {
+		t.Fatalf("cross cert not signed by old CA: %v", err)
+	}
+	if !cross.PublicKey.(*ecdsa.PublicKey).Equal(newCert.PublicKey) ||
+		cross.Subject.String() != newCert.Subject.String() || !cross.IsCA {
+		t.Fatal("cross cert does not carry the new CA's identity")
+	}
+	if cross.NotAfter.After(oldCert.NotAfter) {
+		t.Fatal("cross cert outlives the endorsing CA")
+	}
+
+	// The cross certificate is an endorsement the daemon checks, not a chain
+	// link (the old root has path length 0): it carries the new CA's key, so
+	// whatever the new CA signs verifies against it.
+	certPEM, _, _, err := newCA.SignCSR(newCSR(t, "node"), "node", []string{"daemon"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := parseCert(t, certPEM).CheckSignatureFrom(cross); err != nil {
+		t.Fatalf("new-CA cert against cross cert key: %v", err)
+	}
+
+	leaf, _, err := oldCA.IssueClientCert("panel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldCA.Endorse(leaf); err == nil {
+		t.Fatal("endorsed a non-CA certificate")
+	}
+}
+
+func TestFingerprintAndCertInfo(t *testing.T) {
+	ca, err := GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp, err := Fingerprint(ca.CertPEM)
+	if err != nil || len(fp) != 64 {
+		t.Fatalf("fingerprint %q: %v", fp, err)
+	}
+	other, _ := GenerateCA()
+	if fp2, _ := Fingerprint(append(append([]byte{}, ca.CertPEM...), other.CertPEM...)); fp2 != fp {
+		t.Fatal("bundle fingerprint is not the first certificate's")
+	}
+	nb, na, err := CertInfo(ca.CertPEM)
+	if err != nil || !na.After(nb) || na.Before(time.Now().Add(9*365*24*time.Hour)) {
+		t.Fatalf("CertInfo %v %v: %v", nb, na, err)
+	}
+	if _, err := Fingerprint([]byte("junk")); err == nil {
+		t.Fatal("junk accepted")
+	}
+}

@@ -77,14 +77,15 @@ func SetupRouter(
 	}
 	// Give the daemon pool the panel's mTLS material so mTLS-ready nodes are
 	// reached over https. Without it the panel still starts and talks legacy
-	// http+bearer to every node.
-	if caPEM, err := appSettingsSvc.CACertPEM(ctx); err != nil {
-		log.Warn("could not load daemon mTLS CA; daemon calls stay on legacy http", zap.Error(err))
-	} else if certPEM, keyPEM, err := appSettingsSvc.PanelClientCert(ctx); err != nil {
-		log.Warn("could not load panel mTLS client cert; daemon calls stay on legacy http", zap.Error(err))
-	} else if err := daemonPool.SetTLSMaterial(caPEM, certPEM, keyPEM); err != nil {
-		log.Warn("invalid panel mTLS material; daemon calls stay on legacy http", zap.Error(err))
+	// http+bearer to every node. The manager keeps it current afterwards
+	// (CA rotation, panel client certificate renewal while running).
+	mtlsMgr := services.NewMTLSManager(db, appSettingsSvc, daemonPool, log)
+	if err := mtlsMgr.Refresh(ctx); err != nil {
+		log.Warn("could not load panel mTLS material; daemon calls stay on legacy http", zap.Error(err))
+	} else if err := mtlsMgr.BackfillFingerprints(ctx); err != nil {
+		log.Warn("recording issuing CA of existing node certificates failed", zap.Error(err))
 	}
+	go mtlsMgr.Run(ctx)
 
 	worldSvc := services.NewWorldService(db)
 	playerSvc := services.NewPlayerService(db)
@@ -150,6 +151,7 @@ func SetupRouter(
 	templateH := handlers.NewServerTemplateHandler(services.NewServerTemplateService(db), log)
 	nodeH := handlers.NewNodeHandler(nodeSvc, daemonPool, log, cfg.IsDevelopment(), alertSvc)
 	nodeH.SetServerMetrics(serverMetricsSvc)
+	nodeH.SetMTLS(mtlsMgr)
 	enrollmentSvc := services.NewEnrollmentService(db)
 	enrollmentH := handlers.NewEnrollmentHandler(enrollmentSvc, log)
 	healthH := handlers.NewHealthHandler(db, rdb, cfg.DeploymentProfile, updateSvc, cfg.AppVersion, cfg.SetupCodeHash != "")
@@ -492,6 +494,13 @@ func SetupRouter(
 		adminGroup.GET("/backup-key", backupKeyH.Status)
 		adminGroup.GET("/backup-key/export", middleware.RequireRole(models.RoleOwner), backupKeyH.Export)
 		adminGroup.POST("/backup-key/rotate", middleware.RequireRole(models.RoleOwner), backupKeyH.Rotate)
+
+		// Node certificates and panel CA rotation. Owners rotate.
+		mtlsH := handlers.NewMTLSAdminHandler(mtlsMgr, log)
+		adminGroup.GET("/mtls", mtlsH.Status)
+		adminGroup.POST("/mtls/rotation", middleware.RequireRole(models.RoleOwner), mtlsH.StartRotation)
+		adminGroup.POST("/mtls/rotation/finish", middleware.RequireRole(models.RoleOwner), mtlsH.FinishRotation)
+		adminGroup.POST("/mtls/rotation/cancel", middleware.RequireRole(models.RoleOwner), mtlsH.CancelRotation)
 
 		// Off-site backup destinations (rclone remotes on the nodes).
 		adminGroup.GET("/backup-destinations/providers", backupDestH.Providers)
