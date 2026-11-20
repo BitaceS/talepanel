@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '~/stores/auth'
 import { useModulesStore } from '~/stores/modules'
+import { useMediaQuery } from '@vueuse/core'
 
 const authStore = useAuthStore()
 const modulesStore = useModulesStore()
@@ -20,6 +21,28 @@ function toggleCollapse() {
   collapsed.value = !collapsed.value
   localStorage.setItem('tp_sidebar_collapsed', String(collapsed.value))
 }
+
+// Below md the sidebar is an off-canvas drawer: always full width when open,
+// closed after navigating, on Escape and on a tap outside.
+const isDesktop = useMediaQuery('(min-width: 768px)')
+const mini = computed(() => isDesktop.value && collapsed.value)
+const { open: drawerOpen, close: closeDrawer } = useMobileNav()
+watch(() => route.fullPath, closeDrawer)
+watch(isDesktop, (d) => { if (d) closeDrawer() })
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && drawerOpen.value) closeDrawer()
+}
+onMounted(() => document.addEventListener('keydown', onKey))
+onUnmounted(() => document.removeEventListener('keydown', onKey))
+
+// Move focus into the drawer when it opens so keyboard users land in it.
+const asideEl = ref<HTMLElement | null>(null)
+watch(drawerOpen, async (o) => {
+  if (!o) return
+  await nextTick()
+  asideEl.value?.querySelector<HTMLElement>('nav a')?.focus()
+})
 
 interface NavItem {
   label: string
@@ -91,23 +114,46 @@ function isActive(to: string): boolean {
 </script>
 
 <template>
+  <Transition name="backdrop">
+    <div
+      v-if="drawerOpen && !isDesktop"
+      class="fixed inset-0 z-40 bg-black/60"
+      aria-hidden="true"
+      @click="closeDrawer"
+    />
+  </Transition>
   <aside
+    id="app-sidebar"
+    ref="asideEl"
     :class="[
-      'flex flex-col bg-tp-surface glass-panel border-r transition-all duration-300 shrink-0 h-screen sticky top-0',
-      collapsed ? 'w-16' : 'w-64',
+      'flex flex-col bg-tp-surface glass-panel border-r transition-all duration-300 shrink-0 h-screen',
+      'fixed inset-y-0 left-0 z-50 w-64 md:sticky md:top-0 md:z-auto md:translate-x-0',
+      drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+      mini ? 'md:w-16' : 'md:w-64',
     ]"
+    aria-label="Main navigation"
+    :inert="!isDesktop && !drawerOpen ? true : undefined"
   >
     <!-- Logo section -->
-    <div class="flex items-center h-14 px-4 shrink-0">
+    <div class="flex items-center justify-between h-14 px-4 shrink-0">
       <NuxtLink to="/" class="flex items-center gap-3 min-w-0">
         <img src="/logo.svg" alt="" class="w-8 h-8 shrink-0" />
         <Transition name="fade-width">
-          <div v-if="!collapsed" class="flex flex-col min-w-0">
+          <div v-if="!mini" class="flex flex-col min-w-0">
             <span class="text-tp-text font-display font-bold text-lg leading-none">TalePanel</span>
             <span class="text-tp-outline font-mono text-[10px] leading-none mt-1 uppercase tracking-wider">Hytale servers</span>
           </div>
         </Transition>
       </NuxtLink>
+      <button
+        v-if="!isDesktop"
+        type="button"
+        class="w-9 h-9 -mr-2 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2"
+        aria-label="Close menu"
+        @click="closeDrawer"
+      >
+        <span class="material-symbols-outlined text-xl">close</span>
+      </button>
     </div>
 
     <!-- Navigation -->
@@ -115,7 +161,7 @@ function isActive(to: string): boolean {
       <template v-for="section in allSections" :key="section.title">
         <!-- Section label -->
         <div
-          v-if="!collapsed"
+          v-if="!mini"
           class="px-3 pt-5 pb-2 first:pt-0"
         >
           <span class="text-tp-outline font-mono text-[10px] font-medium uppercase tracking-[0.18em]">
@@ -137,10 +183,10 @@ function isActive(to: string): boolean {
               ? 'is-active bg-tp-surface2 text-tp-text'
               : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2/60',
           ]"
-          :title="collapsed ? item.label : undefined"
+          :title="mini ? item.label : undefined"
         >
           <span :class="['material-symbols-outlined text-xl shrink-0', isActive(item.to) ? 'text-tp-primary' : '']">{{ item.icon }}</span>
-          <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
+          <span v-if="!mini" class="truncate">{{ item.label }}</span>
         </NuxtLink>
       </template>
     </nav>
@@ -149,12 +195,12 @@ function isActive(to: string): boolean {
     <div class="p-3 shrink-0">
       <!-- Collapse toggle -->
       <button
-        class="w-full flex items-center justify-center mb-3 rounded-lg h-8 text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
+        class="hidden md:flex w-full items-center justify-center mb-3 rounded-lg h-8 text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
         @click="toggleCollapse"
-        :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        :title="mini ? 'Expand sidebar' : 'Collapse sidebar'"
       >
         <span
-          :class="['material-symbols-outlined text-lg transition-transform duration-300', collapsed ? 'rotate-180' : '']"
+          :class="['material-symbols-outlined text-lg transition-transform duration-300', mini ? 'rotate-180' : '']"
         >chevron_left</span>
       </button>
 
@@ -162,13 +208,13 @@ function isActive(to: string): boolean {
       <div
         :class="[
           'flex items-center gap-2.5 rounded-xl p-2.5 bg-tp-surface2 border border-tp-border/60',
-          collapsed ? 'justify-center' : '',
+          mini ? 'justify-center' : '',
         ]"
       >
         <div class="w-8 h-8 rounded-full bg-tp-surface-highest flex items-center justify-center text-tp-accent text-sm font-semibold uppercase shrink-0">
           {{ authStore.user?.username?.charAt(0) ?? 'U' }}
         </div>
-        <div v-if="!collapsed" class="flex-1 min-w-0">
+        <div v-if="!mini" class="flex-1 min-w-0">
           <p class="text-tp-text text-sm font-medium truncate">
             {{ authStore.user?.username ?? 'User' }}
           </p>
@@ -182,13 +228,13 @@ function isActive(to: string): boolean {
       <button
         :class="[
           'w-full flex items-center gap-2 mt-2 rounded-lg px-3 py-2 text-sm text-tp-muted hover:text-tp-error hover:bg-tp-error/10 transition-colors',
-          collapsed ? 'justify-center' : '',
+          mini ? 'justify-center' : '',
         ]"
         title="Logout"
         @click="authStore.logout()"
       >
         <span class="material-symbols-outlined text-lg shrink-0">logout</span>
-        <span v-if="!collapsed">Logout</span>
+        <span v-if="!mini">Logout</span>
       </button>
     </div>
   </aside>
@@ -215,6 +261,15 @@ function isActive(to: string): boolean {
   margin-top: -3px;
   background: #f2c14e;
   transform: rotate(45deg);
+}
+
+.backdrop-enter-active,
+.backdrop-leave-active {
+  transition: opacity 0.2s ease;
+}
+.backdrop-enter-from,
+.backdrop-leave-to {
+  opacity: 0;
 }
 
 .fade-width-enter-active,
