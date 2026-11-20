@@ -108,6 +108,7 @@ var APIKeyRoutes = map[string]string{
 	"GET /api/v1/hytale/versions":                           "",
 	"GET /api/v1/servers/:id":                               "",
 	"GET /api/v1/servers/:id/metrics":                       "",
+	"GET /api/v1/servers/:id/metrics/history":               "",
 	"GET /api/v1/servers/:id/logs":                          "",
 	"GET /api/v1/servers/:id/update":                        "",
 	"GET /api/v1/servers/:id/players":                       "",

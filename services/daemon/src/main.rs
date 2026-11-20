@@ -244,6 +244,7 @@ async fn main() -> Result<()> {
         server_count: 0,
         timestamp: chrono::Utc::now(),
         mtls: mtls_advert,
+        servers: Vec::new(),
     };
     if let Err(err) = api_client.heartbeat("offline", offline_metrics).await {
         warn!(%err, "Failed to send offline heartbeat (non-fatal)");

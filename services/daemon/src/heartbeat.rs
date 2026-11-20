@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, instrument, warn};
 
-use crate::api_client::{ApiClient, HeartbeatMetrics, MtlsAdvert};
+use crate::api_client::{ApiClient, HeartbeatMetrics, MtlsAdvert, ServerSample};
 use crate::config::Config;
 use crate::disk_used_mb;
+use crate::process::hytale::ServerMetrics;
 use crate::process::ProcessManager;
 
 /// Run the heartbeat loop until a shutdown signal is received.
@@ -92,6 +94,8 @@ async fn send_heartbeat(
     // shows 0% when servers are clearly working (sysinfo lags by one sample).
     let reported_cpu = host_cpu.max(avg_server_cpu);
 
+    let servers = server_samples(&all_metrics);
+
     let metrics = HeartbeatMetrics {
         cpu_percent: reported_cpu,
         ram_used_mb: host_ram_used_mb,
@@ -99,10 +103,63 @@ async fn send_heartbeat(
         server_count,
         timestamp: chrono::Utc::now(),
         mtls: mtls.cloned(),
+        servers,
     };
 
     if let Err(err) = api_client.heartbeat(node_status, metrics).await {
         warn!(%err, "Heartbeat failed");
+    }
+}
+
+/// Per-server samples for the panel's performance graphs. A process without a
+/// live PID reports zero CPU and RAM; those are left out rather than drawn as
+/// a drop to zero.
+fn server_samples(all: &HashMap<String, ServerMetrics>) -> Vec<ServerSample> {
+    let mut out: Vec<ServerSample> = all
+        .iter()
+        .filter(|(_, m)| m.ram_mb > 0 || m.cpu_percent > 0.0)
+        .map(|(id, m)| ServerSample {
+            server_id: id.clone(),
+            cpu_percent: m.cpu_percent,
+            ram_mb: m.ram_mb,
+        })
+        .collect();
+    out.sort_by(|a, b| a.server_id.cmp(&b.server_id));
+    out
+}
+
+#[cfg(test)]
+mod sample_tests {
+    use super::*;
+
+    #[test]
+    fn idle_processes_are_left_out() {
+        let mut all = HashMap::new();
+        all.insert(
+            "b".to_string(),
+            ServerMetrics {
+                cpu_percent: 5.0,
+                ram_mb: 900,
+                uptime_s: 60,
+            },
+        );
+        all.insert(
+            "a".to_string(),
+            ServerMetrics {
+                cpu_percent: 0.0,
+                ram_mb: 0,
+                uptime_s: 0,
+            },
+        );
+        let s = server_samples(&all);
+        assert_eq!(
+            s,
+            vec![ServerSample {
+                server_id: "b".into(),
+                cpu_percent: 5.0,
+                ram_mb: 900
+            }]
+        );
     }
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/BitaceS/talepanel/api/internal/config"
 	"github.com/BitaceS/talepanel/api/internal/db"
 	"github.com/BitaceS/talepanel/api/internal/router"
+	"github.com/BitaceS/talepanel/api/internal/services"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -87,7 +88,8 @@ func main() {
 
 	// ── Session cleanup worker ────────────────────────────────────────────────
 	// Runs every 6 hours, removes sessions whose expires_at is more than 30
-	// days in the past.  Prevents unbounded growth of the sessions table.
+	// days in the past and metric rows past services.MetricsRetention.
+	// Prevents unbounded growth of these tables.
 	go runSessionCleanup(workerCtx, pool, log)
 
 	// ── HTTP Server ────────────────────────────────────────────────────────────
@@ -189,5 +191,14 @@ func cleanupOnce(parent context.Context, pool *pgxpool.Pool, log *zap.Logger) {
 	}
 	if n := ct.RowsAffected(); n > 0 {
 		log.Info("session cleanup", zap.Int64("removed", n))
+	}
+
+	// Node and server metrics are written every heartbeat; keep only what
+	// the longest graph range (7 days) can show.
+	removed, err := services.PruneMetrics(ctx, pool)
+	if err != nil {
+		log.Warn("metrics retention failed", zap.Error(err))
+	} else if removed > 0 {
+		log.Info("metrics retention", zap.Int64("removed", removed))
 	}
 }

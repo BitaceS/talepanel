@@ -90,6 +90,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Servers** — create (blank or from a template: survival, community survival, creative, network lobby, modding sandbox, or your own), start, stop, restart, kill, resource limits, per-server member roles.
 - **Schedules** — restarts (with an optional in-game warning), console commands and broadcasts on a cron schedule, run with the permissions of the user who saved them.
 - **Live console + logs** — command input and log tail. Log lines, status changes and metrics (every 5 s) are pushed to the browser over Server-Sent Events (`GET /api/v1/servers/:id/stream`); commands still go out as plain POSTs. If the stream cannot connect (three failed attempts, e.g. a proxy that buffers responses) the page falls back to the old polling (logs ~1 s, metrics ~5 s, status 4–15 s); the console header shows **Live** or **Polling**.
+- **Performance graphs** — CPU, memory and players online per server over 1 h, 6 h, 24 h or 7 days on the server's Overview tab (one sample per minute, kept 8 days).
 - **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
 - **Worlds** — list, switch and delete the worlds the Hytale server created. TalePanel does not generate worlds itself.
 - **Files** — browse, edit, upload, download inside the server directory.
@@ -480,6 +481,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | Scheduled restarts, commands and broadcasts | Shipped (v0.13) |
 | 2FA recovery codes, admin IP allowlist, `tale-cli admin disable-2fa` and `reset-password` | Shipped (v0.13) |
 | mTLS required by default, optional 2FA requirement for admins, new-device sign-in emails | Unreleased (v0.14) |
+| Performance graphs per server (CPU, RAM, players; 1 h – 7 d) | Unreleased (v0.14) |
 | Local demo with simulated servers (`examples/demo`) | Shipped (v0.13) |
 | Per-server process isolation, step 1: own Linux user per server | Shipped (v0.13) |
 | Per-server process isolation, step 2: container per server | Next |

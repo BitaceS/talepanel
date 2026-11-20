@@ -1491,6 +1491,8 @@ const sidebarMods = computed(() => {
           </div>
         </div>
 
+        <ServerPerformanceCharts :server-id="serverId" />
+
         <!-- Server info table -->
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border">
