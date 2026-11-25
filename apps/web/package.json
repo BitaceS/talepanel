@@ -8,7 +8,8 @@
     "preview": "nuxt preview",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "vitest run"
   },
   "dependencies": {
     "@lucide/vue": "^1.52.0",
@@ -24,6 +25,7 @@
     "eslint": "^9.39.5",
     "nuxt": "4.5.2",
     "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
     "vue-tsc": "^3.3.12"
   }
 }

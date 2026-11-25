@@ -89,20 +89,27 @@ function loadInto(content: string) {
   if (formBlocked.value) mode.value = 'raw'
 }
 
+// Bumped on every openFile, so a slow read of a file the user already left
+// can't land in the editor under the newer file's name (and be saved there).
+let openSeq = 0
+
 async function openFile(name: string) {
   if (name === selected.value) return
   if (dirty.value && !window.confirm(`Discard unsaved changes to ${selected.value}?`)) return
+  const seq = ++openSeq
   selected.value = name
   fileLoading.value = true
   fileError.value = ''
   mode.value = 'form'
   try {
     const data = await api.get<{ content: string }>(`/servers/${props.serverId}/files/content`, { path: '/' + name })
+    if (seq !== openSeq) return
     loadInto(data.content)
   } catch (err) {
+    if (seq !== openSeq) return
     fileError.value = errorMessage(err, 'Failed to read the file')
   } finally {
-    fileLoading.value = false
+    if (seq === openSeq) fileLoading.value = false
   }
 }
 
@@ -143,11 +150,12 @@ async function save() {
       return
     }
   }
+  const name = selected.value
   saving.value = true
   try {
-    await api.put(`/servers/${props.serverId}/files/content`, { path: '/' + selected.value, content })
-    loadInto(content)
-    emit('toast', running.value ? `${selected.value} saved. Restart the server to apply it.` : `${selected.value} saved`, 'success')
+    await api.put(`/servers/${props.serverId}/files/content`, { path: '/' + name, content })
+    if (selected.value === name) loadInto(content)
+    emit('toast', running.value ? `${name} saved. Restart the server to apply it.` : `${name} saved`, 'success')
   } catch (err) {
     emit('toast', errorMessage(err, 'Failed to save the file'), 'error')
   } finally {
