@@ -300,9 +300,30 @@ fn compile_seccomp() -> Result<SeccompFilters> {
     .try_into()
     .context("compiling the clone3 filter")?;
 
-    Ok(SeccompFilters {
-        programs: vec![clone3, deny],
-    })
+    // The x32 ABI shares AUDIT_ARCH_X86_64 and only sets bit 30 of the call
+    // number, so x32 `unshare`, `mount`, `bpf` ... match none of the rules
+    // above and would be allowed. Refuse every x32 call.
+    #[cfg(target_arch = "x86_64")]
+    let programs = vec![clone3, deny, x32_filter()];
+    #[cfg(not(target_arch = "x86_64"))]
+    let programs = vec![clone3, deny];
+    Ok(SeccompFilters { programs })
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const X32_SYSCALL_BIT: u32 = 0x4000_0000;
+
+/// `nr >= X32_SYSCALL_BIT` -> EPERM, else allow. The arch itself is checked
+/// (kill on mismatch) by the seccompiler-built filters.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn x32_filter() -> seccompiler::BpfProgram {
+    let ins = |code: u16, jt: u8, jf: u8, k: u32| seccompiler::sock_filter { code, jt, jf, k };
+    vec![
+        ins(0x20, 0, 0, 0),               // BPF_LD|BPF_W|BPF_ABS seccomp_data.nr
+        ins(0x35, 0, 1, X32_SYSCALL_BIT), // BPF_JMP|BPF_JGE|BPF_K
+        ins(0x06, 0, 0, 0x0005_0000 | libc::EPERM as u32), // RET ERRNO(EPERM)
+        ins(0x06, 0, 0, 0x7fff_0000),     // RET ALLOW
+    ]
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -505,6 +526,37 @@ mod tests {
         if std::env::var_os("TP_SECCOMP_STRICT_TEST").is_some() {
             assert_eq!(checked, cases.len(), "run unconfined with SYS_ADMIN");
         }
+    }
+
+    /// x32 system calls (bit 30 set, same audit arch) bypass a number-keyed
+    /// deny list unless refused explicitly. Probed with x32 getpid: EPERM
+    /// from the filter, not ENOSYS (x32 off) or success (x32 on).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn seccomp_refuses_x32_system_calls() {
+        use std::os::unix::process::CommandExt;
+        let f = Arc::new(compile_seccomp().unwrap());
+        let mut cmd = std::process::Command::new("true");
+        // SAFETY: prctl, the pre-compiled filter install and one syscall.
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                f.apply()?;
+                let r = libc::syscall(0x4000_0000 | libc::SYS_getpid);
+                let err = std::io::Error::last_os_error();
+                if r == -1 && err.raw_os_error() == Some(libc::EPERM) {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::other("x32 call not refused"))
+                }
+            });
+        }
+        assert!(
+            cmd.status().is_ok_and(|s| s.success()),
+            "x32 call passed the filter"
+        );
     }
 
     /// The JVM must start under the filter: it creates threads through
