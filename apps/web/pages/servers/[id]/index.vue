@@ -7,7 +7,7 @@ import {
   Send, ChevronRight, Search, Download, Trash2, Package, ExternalLink,
   Gamepad2, Loader2, Plus, Database,
   File, FileText, FileArchive, FolderPlus, ArrowUpLeft, Save, X,
-  Upload, PackageOpen, Copy, Info, CalendarClock,
+  Upload, PackageOpen, Copy, Info, CalendarClock, SlidersHorizontal,
 } from '@lucide/vue'
 import { useServersStore } from '~/stores/servers'
 import { useModsStore } from '~/stores/mods'
@@ -96,7 +96,7 @@ const displayId = computed(() => {
 })
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'console' | 'game-control' | 'files' | 'mods' | 'worlds' | 'players' | 'backups' | 'tasks' | 'databases' | 'settings'
+type TabId = 'overview' | 'console' | 'game-control' | 'files' | 'config' | 'mods' | 'worlds' | 'players' | 'backups' | 'tasks' | 'databases' | 'settings'
 
 interface Tab { id: TabId; label: string; icon: unknown }
 
@@ -105,6 +105,7 @@ const tabs: Tab[] = [
   { id: 'console',   label: 'Console',   icon: Terminal },
   { id: 'game-control', label: 'Game Control', icon: Gamepad2 },
   { id: 'files',     label: 'Files',     icon: FolderOpen },
+  { id: 'config',    label: 'Config',    icon: SlidersHorizontal },
   { id: 'mods',      label: 'Mods',      icon: Puzzle },
   { id: 'worlds',    label: 'Worlds',    icon: Globe },
   { id: 'players',   label: 'Players',   icon: Users },
@@ -2246,6 +2247,8 @@ const sidebarMods = computed(() => {
       </div>
 
       <!-- ── Schedules tab ──────────────────────────────────────────────── -->
+      <ServerConfigEditor v-else-if="activeTab === 'config'" :server-id="serverId" :status="server.status" @toast="showToast" />
+
       <ServerTasksPanel v-else-if="activeTab === 'tasks'" :server-id="serverId" @toast="showToast" />
 
       <!-- ── Databases tab ──────────────────────────────────────────────── -->
