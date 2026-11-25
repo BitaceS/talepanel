@@ -111,7 +111,15 @@ Run the installer's **Upgrade** mode on the panel first, **then on every node**.
 
 ---
 
-## v0.16.0 → v1.0.0 (planned)
+## v0.16.0 → v0.17.0
+
+Run the installer's **Upgrade** mode on the panel. No migration, and nodes need no update: the new Config tab reads and writes files through the existing file routes.
+
+- The **Config tab** writes the file as you see it in the form. Save while the server is stopped: Hytale reads its config at start, and a running server can write its own copy back when it stops.
+
+---
+
+## v0.17.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

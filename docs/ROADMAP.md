@@ -25,6 +25,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | mTLS required by default, 2FA required for admins (optional), new-device sign-in emails, performance graphs per server, slide-in sidebar on phones, changeable update channel, API key shown in the activity log | v0.14 |
 | Modtale as a second mod source, panel CA rotation without downtime, certificate renewal while running | v0.15 |
 | Server sandbox (seccomp filter, network guard, memory and task limits, isolation status per node), working DDoS rules on the game ports | v0.16 |
+| Config editor with forms (Config tab: form built from the file, Raw JSON view, JSON validated before saving) | v0.17 |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
 ## Implemented in November 2026
@@ -82,7 +83,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 | # | Item | Why | Effort |
 |---|---|---|---|
 | 16 | **Internationalisation** (German first, then ES/PT) | Ketbome and KyuubiSoft ship several UI languages; a German UI suits the DACH community. Needs string extraction across all pages. | L |
-| 17 | ~~**Config editor with forms** (Hytale `config.json`, whitelist, bans, permissions)~~ | Done (unreleased): Config tab with a form built from the file itself (known keys get labels and hints), Raw JSON view, JSON validation before saving, formatting kept. | — |
+| 17 | ~~**Config editor with forms** (Hytale `config.json`, whitelist, bans, permissions)~~ | Done (v0.17): Config tab with a form built from the file itself (known keys get labels and hints), Raw JSON view, JSON validation before saving, formatting kept. | — |
 | 18 | **SFTP access per server** | Pterodactyl/Pelican standard; useful for big world uploads. Needs process isolation first. | L |
 | 19 | **Discord bot / richer notifications** (status, start/stop from Discord, web push) | KyuubiSoft offers Discord/Slack/web push; TalePanel has Discord webhooks for alerts. | M |
 | 20 | **OIDC / SSO login** | Ketbome advertises SSO; interesting for hosters and communities with an existing identity provider. | M–L |
