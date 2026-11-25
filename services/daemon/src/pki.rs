@@ -165,7 +165,10 @@ pub fn accept_bundle(current_bundle: &str, new_bundle: &str, endorsements: &str)
         }
         let endorsed = cross.iter().any(|e| {
             parse_der(e).is_ok_and(|e| {
-                e.subject().as_raw() == ca.subject().as_raw()
+                // Only a CA cross certificate endorses: a node's leaf cert is
+                // also signed by the trusted CA, and its key is on that node.
+                e.is_ca()
+                    && e.subject().as_raw() == ca.subject().as_raw()
                     && e.public_key().raw == ca.public_key().raw
                     && e.validity().is_valid()
                     && signed_by_any(&e, &current)
@@ -561,6 +564,20 @@ mod tests {
         // A leaf in the bundle is refused.
         let (leaf, _) = node_cert(&old, &old_key);
         assert!(accept_bundle(&old.pem(), &format!("{}{leaf}", old.pem()), "").is_err());
+    }
+
+    #[test]
+    fn node_leaf_cert_is_not_an_endorsement() {
+        // A compromised node holds a leaf signed by the trusted CA. A
+        // self-made "CA" with that leaf's name and key must not pass.
+        let (old, old_key) = ca("TalePanel Root CA");
+        let (leaf, leaf_key) = node_cert(&old, &old_key);
+        let mut p = CertificateParams::new(Vec::<String>::new()).unwrap();
+        p.distinguished_name.push(rcgen::DnType::CommonName, NODE);
+        p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let rogue = p.self_signed(&leaf_key).unwrap();
+        let bundle = format!("{}{}", rogue.pem(), old.pem());
+        assert!(accept_bundle(&old.pem(), &bundle, &leaf).is_err());
     }
 
     #[test]
