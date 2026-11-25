@@ -46,22 +46,9 @@ for cmd in go cargo node npm openssl python3 curl; do
 done
 mkdir -p "$STATE/node/hytale-bin" "$STATE/node/servers"
 
-# ── Postgres + Redis ─────────────────────────────────────────────────────────
-DATABASE_URL="${DEMO_DATABASE_URL:-}"
-REDIS_URL="${DEMO_REDIS_URL:-}"
-if [[ -z "$DATABASE_URL" || -z "$REDIS_URL" ]]; then
-  command -v docker >/dev/null || die "no Docker: set DEMO_DATABASE_URL and DEMO_REDIS_URL"
-  log "starting Postgres and Redis (docker compose)"
-  (cd "$ROOT" && docker compose up -d postgres redis >/dev/null)
-  DATABASE_URL="postgres://talepanel:changeme@localhost:5432/talepanel?sslmode=disable"
-  REDIS_URL="redis://:changeme@localhost:6379/0"
-  for _ in $(seq 1 30); do
-    (cd "$ROOT" && docker compose exec -T postgres pg_isready -U talepanel >/dev/null 2>&1) && break
-    sleep 1
-  done
-fi
-
 # ── Secrets (generated once, kept in the state dir) ───────────────────────────
+# Loaded before `docker compose`: the root compose file requires the JWT and
+# TOTP variables even when only Postgres and Redis are started.
 if [[ ! -f "$STATE/secrets.env" ]]; then
   umask 077
   {
@@ -77,6 +64,22 @@ SERVER_PORT="$API_PORT"; ENV=development; LOG_LEVEL=info
 CORS_ORIGINS="http://localhost:$PANEL_PORT"
 DAEMON_SERVERS_DIR="$STATE/node/servers"
 set +a
+
+# ── Postgres + Redis ─────────────────────────────────────────────────────────
+DATABASE_URL="${DEMO_DATABASE_URL:-}"
+REDIS_URL="${DEMO_REDIS_URL:-}"
+if [[ -z "$DATABASE_URL" || -z "$REDIS_URL" ]]; then
+  command -v docker >/dev/null || die "no Docker: set DEMO_DATABASE_URL and DEMO_REDIS_URL"
+  log "starting Postgres and Redis (docker compose)"
+  (cd "$ROOT" && docker compose up -d postgres redis >/dev/null)
+  DATABASE_URL="postgres://talepanel:changeme@localhost:5432/talepanel?sslmode=disable"
+  REDIS_URL="redis://:changeme@localhost:6379/0"
+  for _ in $(seq 1 30); do
+    (cd "$ROOT" && docker compose exec -T postgres pg_isready -U talepanel >/dev/null 2>&1) && break
+    sleep 1
+  done
+fi
+
 export DATABASE_URL REDIS_URL
 
 # ── Build ────────────────────────────────────────────────────────────────────
