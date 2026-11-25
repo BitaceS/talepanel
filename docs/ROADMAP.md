@@ -55,7 +55,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 |---|---|---|---|
 | 1 | ~~**WebSocket/SSE console, logs and metrics**~~ | Done (v0.13.0): Server-Sent Events stream for logs, status and metrics; the panel falls back to polling when the stream cannot connect. Commands keep using POST. | — |
 | 2 | ~~**Fix the remaining review findings**~~ | Done: mod `dir` handling, start race, streamed downloads, symlinked dirs, `wait_for_status`, MariaDB cleanup. | — |
-| 3 | ~~**ESLint for the web panel**~~ | Done: `@nuxt/eslint`, lint in CI (0 errors; ~28 warnings left to clean up). | — |
+| 3 | ~~**ESLint for the web panel**~~ | Done: `@nuxt/eslint`, lint in CI (0 errors, 0 warnings). | — |
 | 4 | ~~**`cargo fmt` once, then enforce in CI**~~ | Done, plus `gofmt` and the daemon tests in CI. | — |
 | 5 | ~~**2FA backup codes**~~ | Done (v0.13.0). | — |
 | 6 | ~~**Server templates**~~ | Done (v0.13.0). Next step: templates that also carry a mod list and config files ("modpacks"). | — |
@@ -82,7 +82,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 | # | Item | Why | Effort |
 |---|---|---|---|
 | 16 | **Internationalisation** (German first, then ES/PT) | Ketbome and KyuubiSoft ship several UI languages; a German UI suits the DACH community. Needs string extraction across all pages. | L |
-| 17 | **Config editor with forms** (Hytale `config.json`, whitelist, bans, permissions) | Competitors offer form + raw JSON editing; today it's the generic file editor. | M |
+| 17 | ~~**Config editor with forms** (Hytale `config.json`, whitelist, bans, permissions)~~ | Done (unreleased): Config tab with a form built from the file itself (known keys get labels and hints), Raw JSON view, JSON validation before saving, formatting kept. | — |
 | 18 | **SFTP access per server** | Pterodactyl/Pelican standard; useful for big world uploads. Needs process isolation first. | L |
 | 19 | **Discord bot / richer notifications** (status, start/stop from Discord, web push) | KyuubiSoft offers Discord/Slack/web push; TalePanel has Discord webhooks for alerts. | M |
 | 20 | **OIDC / SSO login** | Ketbome advertises SSO; interesting for hosters and communities with an existing identity provider. | M–L |

@@ -94,6 +94,7 @@ Worlds, mods, players and the Hytale account link are real objects in the UI, no
 - **Multi-node** — enroll additional daemon hosts with a one-shot token, servers get scheduled onto nodes.
 - **Worlds** — list, switch and delete the worlds the Hytale server created. TalePanel does not generate worlds itself.
 - **Files** — browse, edit, upload, download inside the server directory.
+- **Config editor** — `config.json`, permissions, whitelist and bans as a form, with a Raw JSON view; invalid JSON is never saved.
 - **Mods (upload-based)** — upload a mod file, it is installed, enabled/disabled and tracked per server. Mod files are detected by filename + SHA-256; where a metadata manifest exists (`plugin.yml`, `fabric.mod.json`) it is parsed. A Hytale-native manifest format does not exist publicly yet — when it does, TalePanel will read it.
 - **CurseForge mod browser** — search and install mods from CurseForge. Needs only an API key (Admin → Integrations); the Hytale game ID is looked up automatically. Upload-based install keeps working without a key.
 - **Modtale mod browser** — search [modtale.net](https://modtale.net) for plugins, data packs and art packs and install the newest release or a chosen version; switch versions later. No API key needed.

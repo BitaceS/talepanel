@@ -4,6 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Config editor with forms.** A new Config tab on the server page lists the server's JSON config files (`config.json`, `permissions.json`, `whitelist.json`, `bans.json`, then any other `*.json` in the server root) and edits them as a form: text and password fields, numbers, switches, lists with add/remove, nested groups. Known Hytale settings get a readable label and a hint; every other key is shown as it is in the file, so new Hytale settings appear without a panel update. A Raw JSON view sits next to the form, and invalid JSON is never saved. Saving keeps the file's indentation and line endings and leaves untouched keys as they were. Files with integers too large for JavaScript open as raw JSON only, so no digits are lost. Reads and writes use the existing file routes and permissions. While the server is running, the tab says that changes apply after a restart.
+
 ## [0.16.0] — 2026-11-20
 
 ### Added
