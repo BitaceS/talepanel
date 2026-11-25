@@ -1225,7 +1225,13 @@ mod tests {
             unsafe { libc::geteuid() == 0 }
         }
 
-        fn setup() -> (PathBuf, Isolation) {
+        // Every test allocates from the same UID base, and `prepare` kills
+        // all processes of its UID, so parallel tests would kill each other's
+        // children. The guard runs them one at a time.
+        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+        fn setup() -> (PathBuf, Isolation, std::sync::MutexGuard<'static, ()>) {
+            let guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
             let root = std::env::temp_dir().join(format!("iso-{}", uuid::Uuid::new_v4()));
             let servers = root.join("servers");
             std::fs::create_dir_all(&servers).unwrap();
@@ -1244,7 +1250,7 @@ mod tests {
                 locks: DashMap::new(),
                 sandbox: crate::sandbox::Sandbox::disabled(true),
             };
-            (root, iso)
+            (root, iso, guard)
         }
 
         fn rt() -> tokio::runtime::Runtime {
@@ -1259,7 +1265,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             let b = root.join("servers").join(SID_B);
             std::fs::create_dir_all(a.join("universe/worlds")).unwrap();
@@ -1297,7 +1303,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(&a).unwrap();
             let rt = rt();
@@ -1315,7 +1321,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let id = rt().block_on(iso.identity_for(SID_A)).unwrap().unwrap();
             let md = std::fs::metadata(root.join("servers").join(SID_A)).unwrap();
             assert_eq!(md.uid(), id.uid);
@@ -1328,7 +1334,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(a.join("mods")).unwrap();
             std::fs::write(a.join("mods/x.jar"), "x").unwrap();
@@ -1346,7 +1352,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(&a).unwrap();
             let secret_dir = root.join("pki");
@@ -1379,7 +1385,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(&a).unwrap();
             let outside = root.join("outside.txt");
@@ -1395,7 +1401,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             let b = root.join("servers").join(SID_B);
             std::fs::create_dir_all(&a).unwrap();
@@ -1414,7 +1420,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(&a).unwrap();
             std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -1437,7 +1443,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             let a = root.join("servers").join(SID_A);
             std::fs::create_dir_all(&a).unwrap();
             let rt = rt();
@@ -1459,7 +1465,7 @@ mod tests {
             if !is_root() {
                 return;
             }
-            let (root, iso) = setup();
+            let (root, iso, _serial) = setup();
             assert_eq!(rt().block_on(iso.prepare(SID_A)).unwrap(), None);
             std::fs::remove_dir_all(&root).unwrap();
         }
