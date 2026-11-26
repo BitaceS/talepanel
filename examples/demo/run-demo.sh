@@ -27,11 +27,18 @@ log() { printf '\033[1;33m[demo]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[demo]\033[0m %s\n' "$*" >&2; exit 1; }
 
 stop_all() {
+  local pids=()
   for name in proxy web daemon api; do
     if [[ -f "$STATE/$name.pid" ]]; then
-      kill "$(cat "$STATE/$name.pid")" 2>/dev/null || true
+      pid=$(cat "$STATE/$name.pid")
+      kill "$pid" 2>/dev/null && pids+=("$pid")
       rm -f "$STATE/$name.pid"
     fi
+  done
+  # Wait for them to exit: the daemon stops its game servers first (up to
+  # 30 s), and a restart must not race it for the port.
+  for pid in "${pids[@]}"; do
+    for _ in $(seq 1 45); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   done
   # The daemon leaves game servers running when it exits (as on a real node,
   # where a daemon update must not kill them); stop the simulated ones too.
@@ -85,7 +92,8 @@ export DATABASE_URL REDIS_URL
 # ── Build ────────────────────────────────────────────────────────────────────
 log "building the API, the daemon and the web panel (first run takes a few minutes)"
 (cd "$ROOT/services/api" && go build -o "$STATE/api" ./cmd/server && go build -o "$STATE/tale-cli" ./cmd/talecli)
-(cd "$ROOT/services/daemon" && cargo build --quiet && cp target/debug/taledaemon "$STATE/taledaemon")
+# rm first: the old daemon may still be running from this binary (Text file busy).
+(cd "$ROOT/services/daemon" && cargo build --quiet && rm -f "$STATE/taledaemon" && cp target/debug/taledaemon "$STATE/taledaemon")
 (cd "$ROOT/apps/web" && { [[ -d node_modules ]] || npm ci --silent; } && NUXT_PUBLIC_API_BASE=/api/v1 npm run build --silent >/dev/null)
 
 # ── Simulated Hytale server binaries (offline install path) ──────────────────
