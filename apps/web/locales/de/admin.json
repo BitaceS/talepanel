@@ -350,7 +350,7 @@
       "defaultRole": "Rolle für neue Konten",
       "trustMfa": "Der Provider erzwingt eine Anmeldung mit zweitem Faktor",
       "trustMfaHint": "Benutzer mit TalePanel-2FA überspringen dann nach SSO den Code. Lass es aus, wenn dein Provider nicht wirklich einen zweiten Faktor verlangt.",
-      "linkHint": "Bestehende Konten werden bei der ersten SSO-Anmeldung über die bestätigte E-Mail verknüpft, Admin- und Owner-Konten nur mit aktivierter 2FA. Admins ohne 2FA bleiben eingeschränkt, solange die 2FA-Pflicht für Staff aktiv ist.",
+      "linkHint": "Konten mit TalePanel-2FA geben nach SSO weiterhin ihren Code ein, außer du hast oben angegeben, dass der Provider einen zweiten Faktor erzwingt. Admins ohne 2FA bleiben eingeschränkt, solange die 2FA-Pflicht für Staff aktiv ist.",
       "saved": "SSO-Einstellungen gespeichert",
       "saveFailed": "SSO-Einstellungen konnten nicht gespeichert werden",
       "onlyOwner": "Nur der Owner kann das ändern."
