@@ -23,6 +23,7 @@ import type { CommandParam, GameCommand } from '~/stores/gameCommands'
 definePageMeta({ middleware: 'auth' })
 
 const route = useRoute()
+const { t } = useI18n()
 const serversStore = useServersStore()
 const api = useApi()
 
@@ -100,19 +101,20 @@ type TabId = 'overview' | 'console' | 'game-control' | 'files' | 'config' | 'mod
 
 interface Tab { id: TabId; label: string; icon: unknown }
 
+// label holds the i18n key; the template translates it.
 const tabs: Tab[] = [
-  { id: 'overview',  label: 'Overview',  icon: Cpu },
-  { id: 'console',   label: 'Console',   icon: Terminal },
-  { id: 'game-control', label: 'Game Control', icon: Gamepad2 },
-  { id: 'files',     label: 'Files',     icon: FolderOpen },
-  { id: 'config',    label: 'Config',    icon: SlidersHorizontal },
-  { id: 'mods',      label: 'Mods',      icon: Puzzle },
-  { id: 'worlds',    label: 'Worlds',    icon: Globe },
-  { id: 'players',   label: 'Players',   icon: Users },
-  { id: 'databases', label: 'Databases', icon: Database },
-  { id: 'backups',   label: 'Backups',   icon: DatabaseBackup },
-  { id: 'tasks',     label: 'Schedules', icon: CalendarClock },
-  { id: 'settings',  label: 'Settings',  icon: Settings },
+  { id: 'overview',  label: 'server.tabs.overview',  icon: Cpu },
+  { id: 'console',   label: 'server.tabs.console',   icon: Terminal },
+  { id: 'game-control', label: 'server.tabs.gameControl', icon: Gamepad2 },
+  { id: 'files',     label: 'server.tabs.files',     icon: FolderOpen },
+  { id: 'config',    label: 'server.tabs.config',    icon: SlidersHorizontal },
+  { id: 'mods',      label: 'server.tabs.mods',      icon: Puzzle },
+  { id: 'worlds',    label: 'server.tabs.worlds',    icon: Globe },
+  { id: 'players',   label: 'server.tabs.players',   icon: Users },
+  { id: 'databases', label: 'server.tabs.databases', icon: Database },
+  { id: 'backups',   label: 'server.tabs.backups',   icon: DatabaseBackup },
+  { id: 'tasks',     label: 'server.tabs.schedules', icon: CalendarClock },
+  { id: 'settings',  label: 'server.tabs.settings',  icon: Settings },
 ]
 
 const activeTab = ref<TabId>('overview')
@@ -132,12 +134,12 @@ function confirmAction(message: string): boolean {
 }
 
 async function deleteServerAndLeave() {
-  if (!confirmAction('Delete this server? This cannot be undone.')) return
+  if (!confirmAction(t('server.settings.deleteConfirm'))) return
   try {
     await serversStore.deleteServer(serverId.value)
     await navigateTo('/servers')
   } catch {
-    showToast('Failed to delete server', 'error')
+    showToast(t('server.settings.deleteFailed'), 'error')
   }
 }
 
@@ -149,10 +151,11 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
 }
 
 // ── Launch settings (RAM + allowlisted Hytale flags; apply on next start) ──
+// key: i18n key under server.settings.launch.flags (label + hint).
 const LAUNCH_FLAG_OPTIONS = [
-  { flag: '--accept-early-plugins', label: 'Accept early plugins', hint: 'Required by mods that load before the server boots.' },
-  { flag: '--allow-op', label: 'Allow /op', hint: 'Lets players grant themselves op in game. Admins only.', adminOnly: true },
-  { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'Do not send crash reports to Hypixel (Sentry).' },
+  { flag: '--accept-early-plugins', key: 'acceptEarlyPlugins' },
+  { flag: '--allow-op', key: 'allowOp', adminOnly: true },
+  { flag: '--disable-sentry', key: 'disableSentry' },
 ]
 const launchForm = reactive({ ram_limit_mb: 0, launch_flags: [] as string[], use_hytale_account: false, hytale_version: 'latest' })
 // Stored as 'latest' / 'release' / 'pre-release'; 'latest' and 'release' are the same channel.
@@ -169,10 +172,11 @@ watch(server, (s) => {
 
 // ── Network routing (hub / gamemode role for the bundled network mod) ──────
 // Needs the global network.manage permission (admins and owners).
+// Label and hint: server.settings.network.roles.<value>.
 const NETWORK_ROLE_OPTIONS = [
-  { value: 'none', label: 'Not in the network', hint: 'The network mod ignores this server.' },
-  { value: 'hub', label: 'Hub', hint: 'Players land here and use /play <gamemode> to switch. The hub holds every gamemode\'s ticket key, so only use a server you trust.' },
-  { value: 'gamemode', label: 'Gamemode', hint: 'Listed on every hub as a /play target.' },
+  { value: 'none' },
+  { value: 'hub' },
+  { value: 'gamemode' },
 ] as const
 type NetworkRoleOption = typeof NETWORK_ROLE_OPTIONS[number]['value']
 const networkRole = ref<NetworkRoleOption>('none')
@@ -192,10 +196,10 @@ async function saveNetworkRole() {
   try {
     await api.post(`/network/servers/${serverId.value}/role`, { role: networkRole.value })
     await serversStore.fetchServer(serverId.value)
-    showToast('Network role saved and config sent to all networked servers')
+    showToast(t('server.settings.network.roleSaved'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to save the network role', 'error')
+    showToast(e.data?.error ?? t('server.settings.network.roleSaveFailed'), 'error')
   } finally {
     networkSaving.value = false
   }
@@ -205,10 +209,10 @@ async function redistributeNetworkConfig() {
   networkDistributing.value = true
   try {
     await api.post('/network/distribute')
-    showToast('Network config sent to all networked servers')
+    showToast(t('server.settings.network.distributed'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to distribute the network config', 'error')
+    showToast(e.data?.error ?? t('server.settings.network.distributeFailed'), 'error')
   } finally {
     networkDistributing.value = false
   }
@@ -230,10 +234,10 @@ async function saveLaunchSettings() {
     await api.patch(`/servers/${serverId.value}`, body)
     await serversStore.fetchServer(serverId.value)
     if (channelChanged) await loadUpdateInfo()
-    showToast(server.value?.status === 'running' ? 'Saved. Restart the server to apply.' : 'Saved.')
+    showToast(server.value?.status === 'running' ? t('server.settings.launch.savedRestart') : t('server.settings.launch.saved'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to save launch settings', 'error')
+    showToast(e.data?.error ?? t('server.settings.launch.saveFailed'), 'error')
   } finally {
     launchSaving.value = false
   }
@@ -244,10 +248,10 @@ async function runAction(action: 'start' | 'stop' | 'restart' | 'kill') {
   actionLoading[action] = true
   try {
     await serversStore[`${action}Server`](serverId.value)
-    showToast(`Server ${action} command sent`)
+    showToast(t(`server.power.sent.${action}`))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? e.message ?? `Failed to ${action} server`, 'error')
+    showToast(e.data?.error ?? e.message ?? t(`server.power.failed.${action}`), 'error')
   } finally {
     actionLoading[action] = false
   }
@@ -265,14 +269,14 @@ const reinstalling = ref(false)
 
 async function reinstallServer() {
   if (!server.value) return
-  if (!confirmAction('Reinstall the Hytale server files? Worlds and configs are kept; the server binaries are downloaded again.')) return
+  if (!confirmAction(t('server.reinstall.confirm'))) return
   reinstalling.value = true
   try {
     await serversStore.reinstallServer(serverId.value)
-    showToast('Reinstall started — follow the progress in the console')
+    showToast(t('server.reinstall.started'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? e.message ?? 'Failed to start the reinstall', 'error')
+    showToast(e.data?.error ?? e.message ?? t('server.reinstall.failed'), 'error')
   } finally {
     reinstalling.value = false
   }
@@ -295,24 +299,27 @@ async function loadUpdateInfo() {
 }
 
 const patchlineLabel = computed(() =>
-  updateInfo.value?.patchline === 'pre-release' ? 'Pre-release' : 'Release')
+  updateInfo.value?.patchline === 'pre-release' ? t('server.update.preRelease') : t('server.update.release'))
 
 async function startUpdate() {
   const info = updateInfo.value
   if (!server.value || !info) return
   const running = server.value.status === 'running'
   const warn = running ? Math.min(15, Math.max(0, Number(updateWarnMinutes.value) || 0)) : 0
+  const version = info.latest
   const steps = running
-    ? `${warn > 0 ? `Players are warned ${warn} minute${warn === 1 ? '' : 's'} ahead, then a` : 'A'} backup is taken, the server stops, Hytale ${info.latest} is installed and the server starts again.`
-    : `A backup is taken and Hytale ${info.latest} is installed. The server stays stopped.`
-  if (!confirmAction(`Update to Hytale ${info.latest}? ${steps} Worlds and configs are kept.`)) return
+    ? (warn > 0
+        ? t('server.update.stepsRunningWarn', { n: warn, version }, warn)
+        : t('server.update.stepsRunning', { version }))
+    : t('server.update.stepsStopped', { version })
+  if (!confirmAction(t('server.update.confirm', { version, steps }))) return
   updateStarting.value = true
   try {
     updateInfo.value = await serversStore.startUpdate(serverId.value, warn)
-    showToast('Update started — follow the progress in the console')
+    showToast(t('server.update.started'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? e.message ?? 'Failed to start the update', 'error')
+    showToast(e.data?.error ?? e.message ?? t('server.update.failed'), 'error')
     await loadUpdateInfo()
   } finally {
     updateStarting.value = false
@@ -350,7 +357,7 @@ async function openMigrateModal() {
     const data = await api.get<{ nodes: Array<{id: string, name: string, status: string}> }>('/nodes')
     migrateNodes.value = (data.nodes ?? []).filter(n => n.id !== server.value?.node_id && n.status === 'online')
   } catch {
-    migrateError.value = 'Failed to load nodes'
+    migrateError.value = t('server.migrate.loadNodesFailed')
   }
 }
 
@@ -363,11 +370,11 @@ async function submitMigrate() {
     // for large worlds; the request resolves once the move is complete.
     await api.post(`/servers/${serverId.value}/migrate`, { target_node_id: migrateTargetId.value })
     showMigrateModal.value = false
-    showToast('Server migrated')
+    showToast(t('server.migrate.migrated'))
     await serversStore.fetchServer(serverId.value)
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    migrateError.value = e.data?.error ?? e.message ?? 'Migration failed'
+    migrateError.value = e.data?.error ?? e.message ?? t('server.migrate.failed')
   } finally {
     migrateLoading.value = false
   }
@@ -520,9 +527,9 @@ const showHytaleAuthModal = computed(() =>
 async function copyHytaleAuthCode() {
   try {
     await navigator.clipboard.writeText(hytaleAuthCode.value)
-    showToast('Code copied to clipboard')
+    showToast(t('server.hytaleAuth.codeCopied'))
   } catch {
-    showToast('Could not copy — select the code manually', 'error')
+    showToast(t('server.hytaleAuth.copyFailed'), 'error')
   }
 }
 
@@ -580,7 +587,7 @@ async function sendCommand() {
     consoleInput.value = ''
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to send command', 'error')
+    showToast(e.data?.error ?? t('server.console.sendFailed'), 'error')
   } finally {
     sendingCmd.value = false
   }
@@ -598,7 +605,7 @@ async function triggerHytaleAuth() {
     await api.post(`/servers/${serverId.value}/console`, { cmd: 'auth login device' })
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to send command', 'error')
+    showToast(e.data?.error ?? t('server.console.sendFailed'), 'error')
   } finally {
     sendingCmd.value = false
   }
@@ -652,7 +659,7 @@ async function copyToClipboard(text: string, field: string) {
     copiedField.value = field
     setTimeout(() => { copiedField.value = '' }, 2000)
   } catch {
-    showToast('Failed to copy', 'error')
+    showToast(t('server.console.copyFailed'), 'error')
   }
 }
 
@@ -709,18 +716,18 @@ async function installMod(mod: CFMod) {
       cf_mod_id: mod.id,
       cf_file_id: file.id,
     })
-    showToast(`${mod.name} installed`)
+    showToast(t('server.mods.installedToast', { name: mod.name }))
   } catch {
-    showToast(modsStore.error ?? 'Install failed', 'error')
+    showToast(modsStore.error ?? t('server.mods.installFailed'), 'error')
   }
 }
 
 async function removeMod(filename: string, displayName: string, dir: 'mods' | 'plugins' = 'mods') {
   try {
     await modsStore.remove(serverId.value, filename, dir)
-    showToast(`${displayName} removed`)
+    showToast(t('server.mods.removedToast', { name: displayName }))
   } catch {
-    showToast(modsStore.error ?? 'Remove failed', 'error')
+    showToast(modsStore.error ?? t('server.mods.removeFailed'), 'error')
   }
 }
 
@@ -734,6 +741,8 @@ const authStore = useAuthStore()
 const activeCmdCategory = ref<string | null>(null)
 const commandParams = ref<Record<string, Record<string, string>>>({})
 const showAddCommand = ref(false)
+// Example for the params placeholder; JSON, so not translated.
+const PARAMS_EXAMPLE = '[{"name":"player","type":"string","required":true,"placeholder":"Player name"}]'
 const newCommand = ref({
   category: '',
   name: '',
@@ -794,7 +803,7 @@ async function executeCmd(cmd: GameCommand) {
   const params = getParamValues(cmd.id)
   await gameCmdStore.executeCommand(serverId.value, cmd, params)
   if (gameCmdStore.lastResult) {
-    showToast(`Sent: ${gameCmdStore.lastResult.command}`)
+    showToast(t('server.gameControl.sentToast', { command: gameCmdStore.lastResult.command }))
   }
   if (gameCmdStore.error) {
     showToast(gameCmdStore.error, 'error')
@@ -806,7 +815,7 @@ async function addCustomCommand() {
   try {
     parsedParams = JSON.parse(newCommand.value.params)
   } catch {
-    showToast('Invalid params JSON', 'error')
+    showToast(t('server.gameControl.invalidParams'), 'error')
     return
   }
   await gameCmdStore.createCommand(serverId.value, {
@@ -814,7 +823,7 @@ async function addCustomCommand() {
     params: parsedParams,
   })
   if (!gameCmdStore.error) {
-    showToast('Command added')
+    showToast(t('server.gameControl.added'))
     showAddCommand.value = false
     newCommand.value = { category: '', name: '', description: '', command_template: '', icon: 'terminal', params: '[]', sort_order: 0, min_role: 'user' }
   } else {
@@ -824,7 +833,7 @@ async function addCustomCommand() {
 
 async function deleteCmd(cmdId: string) {
   await gameCmdStore.deleteCommand(serverId.value, cmdId)
-  if (!gameCmdStore.error) showToast('Command removed')
+  if (!gameCmdStore.error) showToast(t('server.gameControl.removed'))
 }
 
 watch(activeTab, (tab) => {
@@ -869,22 +878,22 @@ async function createDatabase() {
   try {
     const data = await api.post<{ database: ServerDatabase }>(`/servers/${serverId.value}/database`, {})
     database.value = data.database
-    showToast('Database created')
+    showToast(t('server.databases.created'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to create database', 'error')
+    showToast(e.data?.error ?? t('server.databases.createFailed'), 'error')
   } finally {
     creatingDb.value = false
   }
 }
 
 async function deleteDatabase() {
-  if (!confirm('Delete this database?\n\nAll data in it will be permanently lost.')) return
+  if (!confirm(t('server.databases.deleteConfirm'))) return
   try {
     await api.delete(`/servers/${serverId.value}/database`)
     database.value = null
-    showToast('Database deleted')
-  } catch { showToast('Failed to delete database', 'error') }
+    showToast(t('server.databases.deleted'))
+  } catch { showToast(t('server.databases.deleteFailed'), 'error') }
 }
 
 const rotatingDb = ref(false)
@@ -906,28 +915,28 @@ async function createServerInvitation() {
   try {
     await invitationsStore.createInvitation(serverId.value, inviteForm.email, inviteForm.role)
     inviteForm.email = ''
-    showToast('Invitation sent')
+    showToast(t('server.settings.access.sent'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to invite', 'error')
+    showToast(e.data?.error ?? t('server.settings.access.inviteFailed'), 'error')
   } finally {
     invitingEmail.value = false
   }
 }
 
 async function revokeServerInvitation(invitationId: string) {
-  if (!confirm('Revoke this invitation?')) return
+  if (!confirm(t('server.settings.access.revokeConfirm'))) return
   try {
     await invitationsStore.revokeInvitation(serverId.value, invitationId)
-    showToast('Invitation revoked')
+    showToast(t('server.settings.access.revoked'))
   } catch {
-    showToast('Failed to revoke', 'error')
+    showToast(t('server.settings.access.revokeFailed'), 'error')
   }
 }
 
 async function rotateDatabasePassword() {
   if (!database.value) return
-  if (!confirm('Rotate the database password?\n\nAny service using the old password will break until you update its connection string.')) return
+  if (!confirm(t('server.databases.rotateConfirm'))) return
   rotatingDb.value = true
   try {
     const res = await api.post<{ database: ServerDatabase }>(
@@ -936,10 +945,10 @@ async function rotateDatabasePassword() {
     )
     database.value = res.database
     rotatedCreds.value = res.database
-    showToast('Password rotated — copy the new credentials now')
+    showToast(t('server.databases.rotated'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to rotate password', 'error')
+    showToast(e.data?.error ?? t('server.databases.rotateFailed'), 'error')
   } finally {
     rotatingDb.value = false
   }
@@ -967,7 +976,7 @@ const deletingPath = ref('')
 
 const breadcrumbs = computed(() => {
   const parts = filePath.value.split('/').filter(Boolean)
-  const crumbs = [{ label: 'root', path: '/' }]
+  const crumbs = [{ label: t('server.files.root'), path: '/' }]
   let current = ''
   for (const part of parts) {
     current += '/' + part
@@ -986,7 +995,7 @@ async function fetchFiles(path?: string) {
     fileEntries.value = data.entries ?? []
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    filesError.value = e.data?.error ?? e.message ?? 'Failed to load files'
+    filesError.value = e.data?.error ?? e.message ?? t('server.files.loadFailed')
   } finally {
     filesLoading.value = false
   }
@@ -1004,12 +1013,12 @@ async function openFile(entry: FileEntry) {
   }
   // Only open text files (< 1MB)
   if (entry.size > 1_048_576) {
-    showToast('File too large to edit (max 1 MB)', 'error')
+    showToast(t('server.files.tooLarge'), 'error')
     return
   }
   const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'jar') {
-    showToast('Cannot edit binary files', 'error')
+    showToast(t('server.files.binary'), 'error')
     return
   }
   try {
@@ -1019,7 +1028,7 @@ async function openFile(entry: FileEntry) {
     editContent.value = data.content
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to read file', 'error')
+    showToast(e.data?.error ?? t('server.files.readFailed'), 'error')
   }
 }
 
@@ -1028,11 +1037,11 @@ async function saveFile() {
   savingFile.value = true
   try {
     await api.put(`/servers/${serverId.value}/files/content`, { path: editingFile.value.path, content: editContent.value })
-    showToast('File saved')
+    showToast(t('server.files.saved'))
     editingFile.value.content = editContent.value
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to save file', 'error')
+    showToast(e.data?.error ?? t('server.files.saveFailed'), 'error')
   } finally {
     savingFile.value = false
   }
@@ -1043,11 +1052,11 @@ async function deleteFileOrDir(entry: FileEntry) {
   deletingPath.value = entry.name
   try {
     await api.delete(`/servers/${serverId.value}/files`, { path: fpath })
-    showToast(`${entry.name} deleted`)
+    showToast(t('server.files.deleted', { name: entry.name }))
     fetchFiles()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to delete', 'error')
+    showToast(e.data?.error ?? t('server.files.deleteFailed'), 'error')
   } finally {
     deletingPath.value = ''
   }
@@ -1059,13 +1068,13 @@ async function createFolder() {
   try {
     const fpath = filePath.value === '/' ? '/' + newFolderName.value.trim() : filePath.value + '/' + newFolderName.value.trim()
     await api.post(`/servers/${serverId.value}/files/directory`, { path: fpath })
-    showToast('Folder created')
+    showToast(t('server.files.folderCreated'))
     newFolderName.value = ''
     showNewFolder.value = false
     fetchFiles()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to create folder', 'error')
+    showToast(e.data?.error ?? t('server.files.folderFailed'), 'error')
   } finally {
     creatingFolder.value = false
   }
@@ -1167,9 +1176,9 @@ async function runUpload(files: File[]) {
 
     const single = files.length === 1 ? files[0] : undefined
     if (failed > 0) {
-      showToast(`${failed} of ${files.length} file(s) failed to upload`, 'error')
+      showToast(t('server.files.uploadFailedSome', { failed, total: files.length }), 'error')
     } else {
-      showToast(single ? `${single.name} uploaded` : `${files.length} files uploaded`)
+      showToast(single ? t('server.files.uploadedOne', { name: single.name }) : t('server.files.uploadedMany', { n: files.length }))
     }
 
     // Auto-extract when a single .zip was uploaded and the option is enabled.
@@ -1178,10 +1187,10 @@ async function runUpload(files: File[]) {
       const fpath = filePath.value === '/' ? '/' + name : filePath.value + '/' + name
       try {
         await api.post(`/servers/${serverId.value}/files/extract`, { path: fpath })
-        showToast(`${name} extracted`)
+        showToast(t('server.files.extracted', { name }))
       } catch (err: unknown) {
         const e = err as { data?: { error?: string } }
-        showToast(e.data?.error ?? 'Extract failed', 'error')
+        showToast(e.data?.error ?? t('server.files.extractFailed'), 'error')
       }
     }
 
@@ -1210,7 +1219,7 @@ async function downloadFile(entry: FileEntry) {
     a.click()
     URL.revokeObjectURL(url)
   } catch {
-    showToast('Download failed', 'error')
+    showToast(t('server.files.downloadFailed'), 'error')
   }
 }
 
@@ -1219,11 +1228,11 @@ async function extractFile(entry: FileEntry) {
   extractingPath.value = entry.name
   try {
     await api.post(`/servers/${serverId.value}/files/extract`, { path: fpath })
-    showToast(`${entry.name} extracted`)
+    showToast(t('server.files.extracted', { name: entry.name }))
     fetchFiles()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Extract failed', 'error')
+    showToast(e.data?.error ?? t('server.files.extractFailed'), 'error')
   } finally {
     extractingPath.value = ''
   }
@@ -1234,11 +1243,11 @@ async function archiveEntry(entry: FileEntry) {
   archivingPath.value = entry.name
   try {
     await api.post(`/servers/${serverId.value}/files/archive`, { path: fpath })
-    showToast(`${entry.name}.zip created`)
+    showToast(t('server.files.archived', { name: entry.name }))
     fetchFiles()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Archive failed', 'error')
+    showToast(e.data?.error ?? t('server.files.archiveFailed'), 'error')
   } finally {
     archivingPath.value = ''
   }
@@ -1262,7 +1271,7 @@ watch(activeTab, (tab) => {
 const sidebarMods = computed(() => {
   if (!Array.isArray(modsStore.installed) || modsStore.installed.length === 0) {
     return [
-      { name: 'No mods installed', version: '' },
+      { name: t('server.console.noModsInstalled'), version: '' },
     ]
   }
   return modsStore.installed.slice(0, 5).map(m => ({
@@ -1277,7 +1286,7 @@ const sidebarMods = computed(() => {
     <NuxtLink to="/servers"
       class="inline-flex items-center gap-1.5 text-tp-muted hover:text-tp-text text-sm transition-colors">
       <ArrowLeft class="w-4 h-4" />
-      Back to Servers
+      {{ t('server.page.backToServers') }}
     </NuxtLink>
 
     <!-- Loading -->
@@ -1291,9 +1300,9 @@ const sidebarMods = computed(() => {
     <!-- Not found -->
     <div v-else-if="!server && !serversStore.loading"
       class="bg-tp-surface rounded-xl p-12 text-center">
-      <p class="text-tp-muted">Server not found.</p>
+      <p class="text-tp-muted">{{ t('server.page.notFound') }}</p>
       <NuxtLink to="/servers">
-        <UiButton variant="secondary" size="sm" class="mt-4">Go back</UiButton>
+        <UiButton variant="secondary" size="sm" class="mt-4">{{ t('server.page.goBack') }}</UiButton>
       </NuxtLink>
     </div>
 
@@ -1306,24 +1315,24 @@ const sidebarMods = computed(() => {
               <h2 class="text-tp-text font-display font-bold text-3xl">{{ server.name }}</h2>
               <ServerStatusBadge :status="server.status" />
             </div>
-            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; Port {{ server.port }} &middot; {{ formatHytaleVersion(server.hytale_version) }}<template v-if="server.installed_build"> &middot; build {{ server.installed_build }}</template></p>
+            <p class="text-tp-outline text-sm font-mono">{{ displayId }} &middot; {{ t('server.page.port', { port: server.port }) }} &middot; {{ formatHytaleVersion(server.hytale_version) }}<template v-if="server.installed_build"> &middot; {{ t('server.page.build', { build: server.installed_build }) }}</template></p>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <UiButton variant="secondary" size="sm" :disabled="!canStart || actionLoading.start"
               :loading="actionLoading.start" @click="runAction('start')">
-              <Play class="w-3.5 h-3.5" /> Start
+              <Play class="w-3.5 h-3.5" /> {{ t('actions.start') }}
             </UiButton>
             <UiButton variant="secondary" size="sm" :disabled="!canStop || actionLoading.stop"
               :loading="actionLoading.stop" @click="runAction('stop')">
-              <Square class="w-3.5 h-3.5" /> Stop
+              <Square class="w-3.5 h-3.5" /> {{ t('actions.stop') }}
             </UiButton>
             <UiButton variant="secondary" size="sm" :disabled="!canRestart || actionLoading.restart"
               :loading="actionLoading.restart" @click="runAction('restart')">
-              <RotateCcw class="w-3.5 h-3.5" /> Restart
+              <RotateCcw class="w-3.5 h-3.5" /> {{ t('actions.restart') }}
             </UiButton>
             <UiButton variant="danger" size="sm" :disabled="!canKill || actionLoading.kill"
               :loading="actionLoading.kill" @click="runAction('kill')">
-              <Zap class="w-3.5 h-3.5" /> Kill
+              <Zap class="w-3.5 h-3.5" /> {{ t('actions.kill') }}
             </UiButton>
             <button
               v-if="server?.status === 'stopped' && isAdmin"
@@ -1331,7 +1340,7 @@ const sidebarMods = computed(() => {
               class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-tp-surface3 text-tp-text hover:bg-tp-surface-highest transition-colors"
             >
               <span class="material-symbols-outlined text-base">swap_horiz</span>
-              Migrate
+              {{ t('server.page.migrate') }}
             </button>
           </div>
         </div>
@@ -1343,23 +1352,20 @@ const sidebarMods = computed(() => {
         <span class="material-symbols-outlined text-tp-error text-2xl shrink-0">system_update</span>
         <div class="flex-1 min-w-0">
           <p class="text-tp-text text-sm font-semibold">
-            The server exited with code {{ reinstallExitCode }} and needs a reinstall
+            {{ t('server.reinstall.title', { code: reinstallExitCode }) }}
           </p>
           <p v-if="reinstallExitCode === 8" class="text-tp-muted text-xs mt-0.5">
-            Hytale downloaded an update and expected its own start script to apply it.
-            TalePanel installs updates itself: reinstall to fetch the current server files.
+            {{ t('server.reinstall.code8') }}
           </p>
-          <p v-else class="text-tp-muted text-xs mt-0.5">
-            Hytale refused to start because its files are inside the Hytale launcher's install folder.
-            Reinstall to fetch a clean copy of the server files. If it keeps happening, enable
-            <span class="font-mono">--allow-install-dir</span> in the node's extra server args.
-          </p>
-          <p class="text-tp-muted text-xs mt-0.5">Only the server binaries are replaced; worlds and configs are kept.</p>
+          <i18n-t v-else keypath="server.reinstall.code11" tag="p" scope="global" class="text-tp-muted text-xs mt-0.5">
+            <template #flag><span class="font-mono">--allow-install-dir</span></template>
+          </i18n-t>
+          <p class="text-tp-muted text-xs mt-0.5">{{ t('server.reinstall.binariesOnly') }}</p>
         </div>
         <UiButton variant="primary" size="sm" class="shrink-0"
           :disabled="!canStart || reinstalling" :loading="reinstalling || server.status === 'installing'"
           @click="reinstallServer">
-          <RotateCcw class="w-3.5 h-3.5" /> {{ server.status === 'installing' ? 'Reinstalling' : 'Reinstall' }}
+          <RotateCcw class="w-3.5 h-3.5" /> {{ server.status === 'installing' ? t('server.reinstall.reinstalling') : t('server.reinstall.reinstall') }}
         </UiButton>
       </div>
 
@@ -1371,31 +1377,31 @@ const sidebarMods = computed(() => {
           :class="updateInfo.blocked ? 'text-tp-muted' : 'text-tp-primary'">system_update_alt</span>
         <div class="flex-1 min-w-0">
           <p class="text-tp-text text-sm font-semibold">
-            <template v-if="updateInfo.running">Updating to Hytale {{ updateInfo.latest }}…</template>
-            <template v-else-if="updateInfo.blocked">No automatic update on this channel</template>
-            <template v-else>Update available: Hytale {{ updateInfo.latest }}</template>
+            <template v-if="updateInfo.running">{{ t('server.update.updating', { version: updateInfo.latest }) }}</template>
+            <template v-else-if="updateInfo.blocked">{{ t('server.update.blocked') }}</template>
+            <template v-else>{{ t('server.update.available', { version: updateInfo.latest }) }}</template>
           </p>
           <p class="text-tp-muted text-xs mt-0.5">
-            {{ patchlineLabel }} channel · installed: {{ updateInfo.installed ?? 'unknown' }}
-            <template v-if="updateInfo.running"> · follow the progress in the console</template>
+            {{ t('server.update.channelInfo', { channel: patchlineLabel, installed: updateInfo.installed ?? t('server.update.unknown') }) }}
+            <template v-if="updateInfo.running"> · {{ t('server.update.followProgress') }}</template>
           </p>
           <p v-if="updateInfo.blocked" class="text-tp-muted text-xs mt-0.5">{{ updateInfo.reason }}</p>
           <p v-else-if="!updateInfo.running" class="text-tp-muted text-xs mt-0.5">
-            A backup is taken first; worlds and configs are kept. Schedule it in a maintenance window under Schedules.
+            {{ t('server.update.backupFirst') }}
           </p>
         </div>
         <div v-if="!updateInfo.blocked && !updateInfo.running" class="flex items-center gap-2 shrink-0">
           <label v-if="server.status === 'running'" class="text-tp-muted text-xs flex items-center gap-1.5"
-            title="Warn players this many minutes before the server stops (0–15)">
-            Warn
+            :title="t('server.update.warnTitle')">
+            {{ t('server.update.warn') }}
             <input v-model.number="updateWarnMinutes" type="number" min="0" max="15"
               class="w-14 bg-tp-surface2 text-tp-text rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
-            min
+            {{ t('server.update.minutes') }}
           </label>
           <UiButton variant="primary" size="sm" :loading="updateStarting"
             :disabled="updateStarting || !['running', 'stopped', 'crashed'].includes(server.status)"
             @click="startUpdate">
-            <Download class="w-3.5 h-3.5" /> Update now
+            <Download class="w-3.5 h-3.5" /> {{ t('server.update.updateNow') }}
           </UiButton>
         </div>
       </div>
@@ -1404,51 +1410,51 @@ const sidebarMods = computed(() => {
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-tp-surface2 rounded-xl p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CPU USAGE</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.stats.cpuUsage') }}</span>
             <Info class="w-3.5 h-3.5 text-tp-outline" />
           </div>
           <p class="text-tp-text font-display font-bold text-2xl">
             {{ metrics ? `${metrics.cpu.usage_percent.toFixed(1)}%` : '\u2014' }}
           </p>
           <p class="text-tp-muted text-xs mt-1">
-            {{ server.cpu_limit ? `Limit: ${server.cpu_limit}%` : 'No limit set' }}
+            {{ server.cpu_limit ? t('server.stats.cpuLimit', { limit: server.cpu_limit }) : t('server.stats.noLimitSet') }}
           </p>
         </div>
 
         <div class="bg-tp-surface2 rounded-xl p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">MEMORY</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.stats.memory') }}</span>
             <Info class="w-3.5 h-3.5 text-tp-outline" />
           </div>
           <p class="text-tp-text font-display font-bold text-2xl">
             {{ metrics ? `${metrics.memory.used_mb} MB` : '\u2014' }}
           </p>
           <p class="text-tp-muted text-xs mt-1">
-            {{ metrics && metrics.memory.limit_mb > 0 ? `of ${metrics.memory.limit_mb} MB allocated` : (server.ram_limit_mb ? `of ${server.ram_limit_mb} MB allocated` : 'No limit') }}
+            {{ metrics && metrics.memory.limit_mb > 0 ? t('server.stats.allocated', { mb: metrics.memory.limit_mb }) : (server.ram_limit_mb ? t('server.stats.allocated', { mb: server.ram_limit_mb }) : t('server.stats.noLimit')) }}
           </p>
         </div>
 
         <div class="bg-tp-surface2 rounded-xl p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">PLAYERS</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.stats.players') }}</span>
             <Info class="w-3.5 h-3.5 text-tp-outline" />
           </div>
           <p class="text-tp-text font-display font-bold text-2xl">
             {{ onlinePlayers ?? '—' }}
           </p>
-          <p class="text-tp-muted text-xs mt-1">Players online now</p>
+          <p class="text-tp-muted text-xs mt-1">{{ t('server.stats.playersOnline') }}</p>
         </div>
 
         <div class="bg-tp-surface2 rounded-xl p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">UPTIME</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.stats.uptime') }}</span>
             <Info class="w-3.5 h-3.5 text-tp-outline" />
           </div>
           <p class="text-tp-text font-display font-bold text-2xl">
             {{ metrics ? formatUptime(metrics.uptime_s) : '\u2014' }}
           </p>
           <p class="text-tp-muted text-xs mt-1">
-            {{ metrics?.note ?? 'Live from daemon' }}
+            {{ metrics?.note ?? t('server.stats.liveFromDaemon') }}
           </p>
         </div>
       </div>
@@ -1467,7 +1473,7 @@ const sidebarMods = computed(() => {
             @click="activeTab = tab.id"
           >
             <component :is="tab.icon" class="w-4 h-4" />
-            {{ tab.label }}
+            {{ t(tab.label) }}
           </button>
         </nav>
       </div>
@@ -1478,7 +1484,7 @@ const sidebarMods = computed(() => {
         <div v-if="metrics && metrics.memory.limit_mb > 0"
           class="bg-tp-surface rounded-xl p-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-tp-text text-sm font-medium">Memory Usage</span>
+            <span class="text-tp-text text-sm font-medium">{{ t('server.overview.memoryUsage') }}</span>
             <span class="text-tp-outline text-xs">
               {{ metrics.memory.used_mb }} / {{ metrics.memory.limit_mb }} MB
             </span>
@@ -1497,18 +1503,18 @@ const sidebarMods = computed(() => {
         <!-- Server info table -->
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border">
-            <h3 class="text-tp-text font-display font-semibold text-sm">Server Information</h3>
+            <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('server.overview.serverInfo') }}</h3>
           </div>
           <div class="divide-y divide-tp-border">
             <div v-for="row in [
-              { label: 'Node ID', value: server.node_id, mono: true },
-              { label: 'Port', value: server.port, mono: true },
-              { label: 'Version', value: server.hytale_version, mono: false },
-              { label: 'Auto Restart', value: server.auto_restart ? 'Enabled' : 'Disabled', mono: false },
-              { label: 'Active World', value: server.active_world || '\u2014', mono: false },
-              { label: 'CPU Limit', value: server.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited', mono: false },
-              { label: 'RAM Limit', value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : 'Unlimited', mono: false },
-              { label: 'Created', value: new Date(server.created_at).toLocaleString(), mono: false },
+              { label: t('server.overview.nodeId'), value: server.node_id, mono: true },
+              { label: t('server.overview.port'), value: server.port, mono: true },
+              { label: t('server.overview.version'), value: server.hytale_version, mono: false },
+              { label: t('server.overview.autoRestart'), value: server.auto_restart ? t('server.shared.enabled') : t('server.shared.disabled'), mono: false },
+              { label: t('server.overview.activeWorld'), value: server.active_world || '\u2014', mono: false },
+              { label: t('server.overview.cpuLimit'), value: server.cpu_limit ? `${server.cpu_limit}%` : t('server.shared.unlimited'), mono: false },
+              { label: t('server.overview.ramLimit'), value: server.ram_limit_mb ? `${server.ram_limit_mb} MB` : t('server.shared.unlimited'), mono: false },
+              { label: t('server.overview.created'), value: new Date(server.created_at).toLocaleString(), mono: false },
             ]" :key="row.label" class="flex items-center px-5 py-3">
               <span class="text-tp-outline text-sm w-40 shrink-0">{{ row.label }}</span>
               <span :class="['text-tp-text text-sm truncate', row.mono ? 'font-mono text-xs' : '']">{{ row.value }}</span>
@@ -1524,28 +1530,28 @@ const sidebarMods = computed(() => {
           <!-- Terminal header -->
           <div class="flex items-center gap-2 px-1">
             <span class="w-2 h-2 rounded-full bg-tp-tertiary animate-pulse" />
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">TERMINAL OUTPUT</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.console.terminalOutput') }}</span>
             <span
               v-if="streamLive"
               class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-tertiary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-tertiary"
-              title="Streaming live from the server (Server-Sent Events)"
+              :title="t('server.console.liveTitle')"
             >
-              <span class="w-1.5 h-1.5 rounded-full bg-tp-tertiary" /> Live
+              <span class="w-1.5 h-1.5 rounded-full bg-tp-tertiary" /> {{ t('server.console.live') }}
             </span>
             <button
               v-else-if="streamPolling"
               type="button"
               class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-warning hover:bg-tp-warning/20 transition-colors"
-              title="Live stream unavailable, refreshing every second. Click to retry the live stream."
+              :title="t('server.console.pollingTitle')"
               @click="stream.restart()"
             >
-              <span class="w-1.5 h-1.5 rounded-full bg-tp-warning" /> Polling
+              <span class="w-1.5 h-1.5 rounded-full bg-tp-warning" /> {{ t('server.console.polling') }}
             </button>
             <span
               v-else
               class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-tp-surface2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-tp-outline"
             >
-              <Loader2 class="w-3 h-3 animate-spin" /> Connecting
+              <Loader2 class="w-3 h-3 animate-spin" /> {{ t('server.console.connecting') }}
             </span>
           </div>
 
@@ -1556,7 +1562,7 @@ const sidebarMods = computed(() => {
             @scroll="onConsoleScroll"
           >
             <div v-if="logs.length === 0" class="text-tp-muted py-4 text-center">
-              No log output yet. Start the server to see console output and provisioning progress.
+              {{ t('server.console.noLogs') }}
             </div>
             <div v-for="line in logs" :key="line.id" class="flex gap-2 leading-5">
               <span class="text-tp-outline shrink-0">{{ formatLogTime(line.logged_at) }}</span>
@@ -1575,7 +1581,7 @@ const sidebarMods = computed(() => {
               <input
                 v-model="consoleInput"
                 type="text"
-                placeholder="Enter server command..."
+                :placeholder="t('server.console.placeholder')"
                 :disabled="server.status !== 'running'"
                 class="w-full bg-tp-surface2 text-tp-text rounded-xl pl-9 pr-4 py-2 text-sm font-mono placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-colors disabled:opacity-50"
                 @keydown="handleConsoleKey"
@@ -1589,20 +1595,20 @@ const sidebarMods = computed(() => {
               @click="sendCommand"
             >
               <Send class="w-3.5 h-3.5" />
-              Send
+              {{ t('server.console.send') }}
             </UiButton>
             <UiButton
               variant="secondary"
               size="sm"
               :disabled="server.status !== 'running'"
-              title="Run 'auth login' on the server"
+              :title="t('server.console.hytaleLoginTitle')"
               @click="triggerHytaleAuth"
             >
-              Hytale Login
+              {{ t('server.console.hytaleLogin') }}
             </UiButton>
           </div>
           <p v-if="server.status !== 'running'" class="text-tp-muted text-xs">
-            Server must be running to send commands.
+            {{ t('server.console.mustBeRunning') }}
           </p>
         </div>
 
@@ -1610,19 +1616,21 @@ const sidebarMods = computed(() => {
         <div class="w-[300px] shrink-0 space-y-4 hidden xl:block">
           <!-- Quick Connect -->
           <div class="bg-tp-surface2 rounded-xl p-4 space-y-4">
-            <h4 class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Quick Connect</h4>
+            <h4 class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.console.quickConnect') }}</h4>
 
             <!-- Server Address -->
             <div>
-              <label class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline block mb-1.5">SERVER ADDRESS</label>
+              <label class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline block mb-1.5">{{ t('server.console.serverAddress') }}</label>
               <div class="flex items-center gap-2 bg-tp-surface-lowest rounded-lg px-3 py-2">
                 <span class="text-tp-tertiary text-xs font-mono truncate flex-1">{{ serverAddress }}</span>
                 <button
                   class="text-tp-outline hover:text-tp-text transition-colors shrink-0"
+                  :title="t('server.console.copyAddress')"
+                  :aria-label="t('server.console.copyAddress')"
                   @click="copyToClipboard(serverAddress, 'address')"
                 >
                   <Copy v-if="copiedField !== 'address'" class="w-3.5 h-3.5" />
-                  <span v-else class="text-tp-tertiary text-[10px] font-semibold">OK</span>
+                  <span v-else class="text-tp-tertiary text-[10px] font-semibold">{{ t('server.console.ok') }}</span>
                 </button>
               </div>
             </div>
@@ -1631,7 +1639,7 @@ const sidebarMods = computed(() => {
 
           <!-- Active Mods -->
           <div class="bg-tp-surface2 rounded-xl p-4">
-            <h4 class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-3">Active Mods</h4>
+            <h4 class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-3">{{ t('server.console.activeMods') }}</h4>
             <div class="space-y-2">
               <div v-for="(mod, i) in sidebarMods" :key="i"
                 class="flex items-center gap-2.5 py-1.5">
@@ -1648,7 +1656,7 @@ const sidebarMods = computed(() => {
               class="mt-3 text-tp-tertiary text-xs hover:text-tp-text transition-colors"
               @click="activeTab = 'mods'"
             >
-              Manage Mods &rarr;
+              {{ t('server.console.manageMods') }}
             </button>
           </div>
         </div>
@@ -1659,15 +1667,15 @@ const sidebarMods = computed(() => {
         <!-- Sub-tabs -->
         <div class="flex gap-1 bg-tp-surface2 rounded-xl p-1 w-fit">
           <button
-            v-for="t in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
-            :key="t.id"
+            v-for="sub in [{ id: 'installed', label: t('server.mods.installed') }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
+            :key="sub.id"
             :class="[
               'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
-              modsTab === t.id ? 'bg-tp-surface text-tp-text shadow-sm' : 'text-tp-muted hover:text-tp-text',
+              modsTab === sub.id ? 'bg-tp-surface text-tp-text shadow-sm' : 'text-tp-muted hover:text-tp-text',
             ]"
-            @click="modsTab = (t.id as 'installed' | 'browse' | 'modtale')"
+            @click="modsTab = (sub.id as 'installed' | 'browse' | 'modtale')"
           >
-            {{ t.label }}
+            {{ sub.label }}
           </button>
         </div>
 
@@ -1679,8 +1687,8 @@ const sidebarMods = computed(() => {
           <div v-else-if="!Array.isArray(modsStore.installed) || modsStore.installed.length === 0"
             class="bg-tp-surface rounded-xl p-12 text-center">
             <Package class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-            <p class="text-tp-text font-semibold text-sm mb-1">No mods installed</p>
-            <p class="text-tp-muted text-xs">Find and install mods under CurseForge or Modtale.</p>
+            <p class="text-tp-text font-semibold text-sm mb-1">{{ t('server.mods.emptyTitle') }}</p>
+            <p class="text-tp-muted text-xs">{{ t('server.mods.emptyHint') }}</p>
           </div>
           <div v-else class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="divide-y divide-tp-border">
@@ -1697,6 +1705,8 @@ const sidebarMods = computed(() => {
                   variant="danger"
                   size="sm"
                   :loading="modsStore.removingFilename === mod.filename"
+                  :title="t('server.mods.remove')"
+                  :aria-label="t('server.mods.remove')"
                   @click="removeMod(mod.filename, mod.display_name, mod.mod_dir || 'mods')"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
@@ -1717,7 +1727,7 @@ const sidebarMods = computed(() => {
         <div v-else class="space-y-3">
           <div v-if="modsStore.error && !modsStore.loadingSearch"
             class="flex items-start gap-3 bg-tp-error/10 text-tp-error rounded-xl px-4 py-3 text-sm">
-            <span class="font-medium shrink-0">CurseForge unavailable:</span>
+            <span class="font-medium shrink-0">{{ t('server.mods.cfUnavailable') }}</span>
             <span class="opacity-80">{{ modsStore.error }}</span>
           </div>
           <div class="relative">
@@ -1725,7 +1735,7 @@ const sidebarMods = computed(() => {
             <input
               v-model="modSearch"
               type="text"
-              placeholder="Search mods on CurseForge..."
+              :placeholder="t('server.mods.searchPlaceholder')"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-colors"
               @input="onModSearchInput"
             />
@@ -1736,11 +1746,11 @@ const sidebarMods = computed(() => {
           </div>
           <div v-else-if="safeSearchResults.length === 0 && modSearch.trim()"
             class="bg-tp-surface rounded-xl p-8 text-center">
-            <p class="text-tp-muted text-sm">No results for "{{ modSearch }}"</p>
+            <p class="text-tp-muted text-sm">{{ t('server.mods.noResults', { query: modSearch }) }}</p>
           </div>
           <div v-else class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-2.5 border-b border-tp-border">
-              <p class="text-tp-outline text-xs">{{ modSearch.trim() ? `${safeSearchResults.length} results` : 'Popular mods' }}</p>
+              <p class="text-tp-outline text-xs">{{ modSearch.trim() ? t('server.mods.results', safeSearchResults.length) : t('server.mods.popular') }}</p>
             </div>
             <div class="divide-y divide-tp-border">
               <div v-for="mod in safeSearchResults" :key="mod.id"
@@ -1762,13 +1772,15 @@ const sidebarMods = computed(() => {
                       :href="httpsHref(mod.links.websiteUrl)"
                       target="_blank"
                       rel="noopener noreferrer"
+                      :title="t('server.mods.openWebsite')"
+                      :aria-label="t('server.mods.openWebsite')"
                       class="text-tp-muted hover:text-tp-text transition-colors shrink-0"
                     >
                       <ExternalLink class="w-3.5 h-3.5" />
                     </a>
                   </div>
                   <p class="text-tp-muted text-xs mt-0.5 line-clamp-2">{{ mod.summary }}</p>
-                  <p class="text-tp-outline text-xs mt-1">{{ mod.downloadCount.toLocaleString() }} downloads</p>
+                  <p class="text-tp-outline text-xs mt-1">{{ t('server.mods.downloads', { n: mod.downloadCount.toLocaleString() }) }}</p>
                 </div>
                 <UiButton
                   v-if="!isInstalled(mod.id)"
@@ -1779,9 +1791,9 @@ const sidebarMods = computed(() => {
                   @click="installMod(mod)"
                 >
                   <Download class="w-3.5 h-3.5" />
-                  Install
+                  {{ t('server.mods.install') }}
                 </UiButton>
-                <span v-else class="text-tp-success text-xs font-medium shrink-0 mt-1">Installed</span>
+                <span v-else class="text-tp-success text-xs font-medium shrink-0 mt-1">{{ t('server.mods.installedBadge') }}</span>
               </div>
             </div>
           </div>
@@ -1793,49 +1805,49 @@ const sidebarMods = computed(() => {
         <!-- Header -->
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-tp-text font-display font-semibold text-lg">Game Control</h3>
-            <p class="text-tp-muted text-sm">Execute server and plugin commands with one click</p>
+            <h3 class="text-tp-text font-display font-semibold text-lg">{{ t('server.gameControl.title') }}</h3>
+            <p class="text-tp-muted text-sm">{{ t('server.gameControl.subtitle') }}</p>
           </div>
           <UiButton variant="secondary" size="sm" @click="showAddCommand = !showAddCommand">
             <Plus class="w-3.5 h-3.5" />
-            Custom Command
+            {{ t('server.gameControl.customCommand') }}
           </UiButton>
         </div>
 
         <!-- Server must be running notice -->
         <div v-if="server.status !== 'running'"
           class="flex items-center gap-3 bg-tp-warning/5 border border-tp-warning/20 text-tp-warning rounded-xl px-4 py-3 text-sm">
-          Server must be running to execute commands.
+          {{ t('server.gameControl.mustBeRunning') }}
         </div>
 
         <!-- Add custom command form -->
         <div v-if="showAddCommand" class="bg-tp-surface rounded-xl p-5 space-y-3">
-          <h4 class="text-tp-text font-display font-semibold text-sm">Add Custom Command</h4>
+          <h4 class="text-tp-text font-display font-semibold text-sm">{{ t('server.gameControl.addTitle') }}</h4>
           <div class="grid grid-cols-2 gap-3">
-            <input v-model="newCommand.name" placeholder="Command name"
+            <input v-model="newCommand.name" :placeholder="t('server.gameControl.namePlaceholder')"
               class="bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
-            <input v-model="newCommand.category" placeholder="Category"
+            <input v-model="newCommand.category" :placeholder="t('server.gameControl.categoryPlaceholder')"
               class="bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
           </div>
-          <input v-model="newCommand.command_template" placeholder="Command template (e.g. give {player} {item})"
+          <input v-model="newCommand.command_template" :placeholder="t('server.gameControl.templatePlaceholder', { example: 'give {player} {item}' })"
             class="w-full bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm font-mono placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
-          <input v-model="newCommand.description" placeholder="Description (optional)"
+          <input v-model="newCommand.description" :placeholder="t('server.gameControl.descriptionPlaceholder')"
             class="w-full bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50" />
-          <textarea v-model="newCommand.params" placeholder='Params JSON: [{"name":"player","type":"string","required":true,"placeholder":"Player name"}]'
+          <textarea v-model="newCommand.params" :placeholder="t('server.gameControl.paramsPlaceholder', { example: PARAMS_EXAMPLE })"
             class="w-full bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm font-mono placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50 h-16 resize-none" />
           <div class="flex items-center gap-3">
-            <label class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Min Role:</label>
+            <label class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.gameControl.minRole') }}</label>
             <select v-model="newCommand.min_role"
               class="bg-tp-surface2 text-tp-text rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50">
-              <option value="user">User</option>
-              <option value="moderator">Moderator</option>
-              <option value="admin">Admin</option>
-              <option value="owner">Owner</option>
+              <option value="user">{{ t('server.gameControl.roles.user') }}</option>
+              <option value="moderator">{{ t('server.gameControl.roles.moderator') }}</option>
+              <option value="admin">{{ t('server.gameControl.roles.admin') }}</option>
+              <option value="owner">{{ t('server.gameControl.roles.owner') }}</option>
             </select>
           </div>
           <div class="flex gap-2">
-            <UiButton variant="primary" size="sm" @click="addCustomCommand">Add Command</UiButton>
-            <UiButton variant="secondary" size="sm" @click="showAddCommand = false">Cancel</UiButton>
+            <UiButton variant="primary" size="sm" @click="addCustomCommand">{{ t('server.gameControl.addCommand') }}</UiButton>
+            <UiButton variant="secondary" size="sm" @click="showAddCommand = false">{{ t('actions.cancel') }}</UiButton>
           </div>
         </div>
 
@@ -1877,13 +1889,13 @@ const sidebarMods = computed(() => {
                       <code class="text-[10px] bg-tp-surface2 text-tp-muted px-1.5 py-0.5 rounded font-mono">{{ cmd.command_template }}</code>
                       <span
                         :class="['text-[10px] px-1.5 py-0.5 rounded font-medium capitalize', roleBadgeColor(cmd.min_role)]"
-                      >{{ cmd.min_role }}</span>
+                      >{{ t(`roles.${cmd.min_role}`) }}</span>
                     </div>
                     <p v-if="cmd.description" class="text-tp-muted text-xs">{{ cmd.description }}</p>
 
                     <!-- Insufficient permission notice -->
                     <p v-if="!userCanExecute(cmd)" class="text-tp-error text-xs mt-1.5">
-                      Requires {{ cmd.min_role }} role or higher
+                      {{ t('server.gameControl.requiresRole', { role: t(`roles.${cmd.min_role}`) }) }}
                     </p>
 
                     <!-- Parameter inputs -->
@@ -1910,12 +1922,14 @@ const sidebarMods = computed(() => {
                       @click="executeCmd(cmd)"
                     >
                       <Play class="w-3 h-3" />
-                      Run
+                      {{ t('server.gameControl.run') }}
                     </UiButton>
                     <UiButton
                       v-if="!cmd.is_default"
                       variant="danger"
                       size="sm"
+                      :title="t('server.gameControl.deleteCommand')"
+                      :aria-label="t('server.gameControl.deleteCommand')"
                       @click="deleteCmd(cmd.id)"
                     >
                       <Trash2 class="w-3 h-3" />
@@ -1930,8 +1944,8 @@ const sidebarMods = computed(() => {
           <div v-if="gameCmdStore.categories.length === 0 && !gameCmdStore.loading"
             class="bg-tp-surface rounded-xl p-12 text-center">
             <Gamepad2 class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-            <p class="text-tp-text font-semibold text-sm mb-1">No commands configured</p>
-            <p class="text-tp-muted text-xs">Commands will be loaded when the server is created.</p>
+            <p class="text-tp-text font-semibold text-sm mb-1">{{ t('server.gameControl.emptyTitle') }}</p>
+            <p class="text-tp-muted text-xs">{{ t('server.gameControl.emptyHint') }}</p>
           </div>
         </template>
 
@@ -1956,10 +1970,10 @@ const sidebarMods = computed(() => {
               </div>
               <div class="flex items-center gap-2">
                 <UiButton variant="primary" size="sm" :loading="savingFile" @click="saveFile">
-                  <Save class="w-3.5 h-3.5" /> Save
+                  <Save class="w-3.5 h-3.5" /> {{ t('actions.save') }}
                 </UiButton>
                 <UiButton variant="secondary" size="sm" @click="editingFile = null">
-                  <X class="w-3.5 h-3.5" /> Close
+                  <X class="w-3.5 h-3.5" /> {{ t('actions.close') }}
                 </UiButton>
               </div>
             </div>
@@ -1989,24 +2003,24 @@ const sidebarMods = computed(() => {
             </div>
             <div class="flex items-center gap-2">
               <UiButton v-if="filePath !== '/'" variant="secondary" size="sm" @click="fetchFiles(filePath.split('/').slice(0, -1).join('/') || '/')">
-                <ArrowUpLeft class="w-3.5 h-3.5" /> Up
+                <ArrowUpLeft class="w-3.5 h-3.5" /> {{ t('server.files.up') }}
               </UiButton>
               <UiButton variant="secondary" size="sm" :loading="uploadingFile" @click="triggerUpload">
-                <Upload class="w-3.5 h-3.5" /> Upload
+                <Upload class="w-3.5 h-3.5" /> {{ t('actions.upload') }}
               </UiButton>
               <input ref="fileInputRef" type="file" multiple class="hidden" @change="handleFileUpload" />
               <UiButton variant="secondary" size="sm" :loading="uploadingFile" @click="triggerFolderUpload">
-                <Upload class="w-3.5 h-3.5" /> Folder
+                <Upload class="w-3.5 h-3.5" /> {{ t('server.files.folder') }}
               </UiButton>
               <input ref="folderInputRef" type="file" webkitdirectory class="hidden" @change="handleFileUpload" />
               <label class="flex items-center gap-1.5 text-xs text-tp-muted cursor-pointer select-none">
                 <input v-model="autoExtractZip" type="checkbox" class="accent-tp-primary" />
-                Auto-extract .zip
+                {{ t('server.files.autoExtract') }}
               </label>
               <UiButton variant="secondary" size="sm" @click="showNewFolder = !showNewFolder">
-                <FolderPlus class="w-3.5 h-3.5" /> New Folder
+                <FolderPlus class="w-3.5 h-3.5" /> {{ t('server.files.newFolder') }}
               </UiButton>
-              <UiButton variant="secondary" size="sm" @click="fetchFiles()">
+              <UiButton variant="secondary" size="sm" :title="t('actions.refresh')" :aria-label="t('actions.refresh')" @click="fetchFiles()">
                 <RotateCcw class="w-3.5 h-3.5" />
               </UiButton>
             </div>
@@ -2015,7 +2029,7 @@ const sidebarMods = computed(() => {
           <!-- Upload progress -->
           <div v-if="uploadProgress" class="space-y-1">
             <div class="flex items-center justify-between text-xs text-tp-muted gap-2">
-              <span class="truncate">Uploading {{ uploadProgress.done }}/{{ uploadProgress.total }} — {{ uploadProgress.name }}</span>
+              <span class="truncate">{{ t('server.files.uploading', { done: uploadProgress.done, total: uploadProgress.total, name: uploadProgress.name }) }}</span>
               <span class="shrink-0">{{ uploadProgress.pct }}%</span>
             </div>
             <div class="h-1.5 bg-tp-surface2 rounded-full overflow-hidden">
@@ -2028,12 +2042,12 @@ const sidebarMods = computed(() => {
             <input
               v-model="newFolderName"
               type="text"
-              placeholder="Folder name..."
+              :placeholder="t('server.files.folderPlaceholder')"
               class="flex-1 bg-tp-surface2 text-tp-text rounded-xl px-3 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50"
               @keydown.enter="createFolder"
             />
-            <UiButton variant="primary" size="sm" :loading="creatingFolder" @click="createFolder">Create</UiButton>
-            <UiButton variant="secondary" size="sm" @click="showNewFolder = false; newFolderName = ''">Cancel</UiButton>
+            <UiButton variant="primary" size="sm" :loading="creatingFolder" @click="createFolder">{{ t('actions.create') }}</UiButton>
+            <UiButton variant="secondary" size="sm" @click="showNewFolder = false; newFolderName = ''">{{ t('actions.cancel') }}</UiButton>
           </div>
 
           <!-- Error -->
@@ -2050,10 +2064,10 @@ const sidebarMods = computed(() => {
           <div v-else-if="fileEntries.length > 0" class="bg-tp-surface rounded-xl overflow-hidden">
             <!-- Header -->
             <div class="flex items-center px-4 py-2 border-b border-tp-border text-[10px] uppercase tracking-widest font-semibold text-tp-outline">
-              <span class="flex-1">Name</span>
-              <span class="w-24 text-right">Size</span>
-              <span class="w-44 text-right">Modified</span>
-              <span class="w-32 text-right">Actions</span>
+              <span class="flex-1">{{ t('server.files.name') }}</span>
+              <span class="w-24 text-right">{{ t('server.files.size') }}</span>
+              <span class="w-44 text-right">{{ t('server.files.modified') }}</span>
+              <span class="w-32 text-right">{{ t('server.files.actions') }}</span>
             </div>
             <div class="divide-y divide-tp-border">
               <div
@@ -2074,7 +2088,7 @@ const sidebarMods = computed(() => {
                   <button
                     v-if="!entry.is_dir"
                     class="p-1 text-tp-muted hover:text-tp-accent transition-colors opacity-0 group-hover:opacity-100"
-                    title="Download"
+                    :title="t('actions.download')"
                     @click.stop="downloadFile(entry)"
                   >
                     <Download class="w-3.5 h-3.5" />
@@ -2084,7 +2098,7 @@ const sidebarMods = computed(() => {
                     v-if="!entry.is_dir && entry.name.toLowerCase().endsWith('.zip')"
                     class="p-1 text-tp-muted hover:text-yellow-400 transition-colors opacity-0 group-hover:opacity-100"
                     :disabled="extractingPath === entry.name"
-                    title="Extract"
+                    :title="t('server.files.extract')"
                     @click.stop="extractFile(entry)"
                   >
                     <PackageOpen class="w-3.5 h-3.5" />
@@ -2094,7 +2108,7 @@ const sidebarMods = computed(() => {
                     v-if="entry.is_dir"
                     class="p-1 text-tp-muted hover:text-yellow-400 transition-colors opacity-0 group-hover:opacity-100"
                     :disabled="archivingPath === entry.name"
-                    title="Archive as .zip"
+                    :title="t('server.files.archive')"
                     @click.stop="archiveEntry(entry)"
                   >
                     <FileArchive class="w-3.5 h-3.5" />
@@ -2103,7 +2117,7 @@ const sidebarMods = computed(() => {
                   <button
                     class="p-1 text-tp-muted hover:text-tp-danger transition-colors opacity-0 group-hover:opacity-100"
                     :disabled="deletingPath === entry.name"
-                    title="Delete"
+                    :title="t('actions.delete')"
                     @click.stop="deleteFileOrDir(entry)"
                   >
                     <Trash2 class="w-3.5 h-3.5" />
@@ -2116,8 +2130,8 @@ const sidebarMods = computed(() => {
           <!-- Empty -->
           <div v-else-if="!filesLoading && !filesError" class="bg-tp-surface rounded-xl p-12 text-center">
             <FolderOpen class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-            <p class="text-tp-text font-semibold text-sm mb-1">Empty directory</p>
-            <p class="text-tp-muted text-xs">This folder has no files yet.</p>
+            <p class="text-tp-text font-semibold text-sm mb-1">{{ t('server.files.emptyTitle') }}</p>
+            <p class="text-tp-muted text-xs">{{ t('server.files.emptyHint') }}</p>
           </div>
         </template>
       </div>
@@ -2126,20 +2140,19 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'worlds'" class="space-y-4">
         <div v-if="worldsStore.loading" class="bg-tp-surface rounded-xl p-8 text-center">
           <Loader2 class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-          <p class="text-tp-muted text-sm">Loading worlds...</p>
+          <p class="text-tp-muted text-sm">{{ t('server.worlds.loading') }}</p>
         </div>
         <div v-else-if="worldsStore.worlds.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
           <Globe class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No worlds found on disk</p>
-          <p class="text-tp-muted text-xs">
-            The Hytale server generates worlds under <code class="font-mono">universe/worlds</code>.
-            They appear here once the daemon finds them.
-          </p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">{{ t('server.worlds.emptyTitle') }}</p>
+          <i18n-t keypath="server.worlds.emptyHint" tag="p" scope="global" class="text-tp-muted text-xs">
+            <template #path><code class="font-mono">universe/worlds</code></template>
+          </i18n-t>
         </div>
         <template v-else>
-          <p class="text-tp-muted text-xs">
-            Activating a world rewrites <code class="font-mono">config.json</code> on the node — it applies after a restart.
-          </p>
+          <i18n-t keypath="server.worlds.activateHint" tag="p" scope="global" class="text-tp-muted text-xs">
+            <template #file><code class="font-mono">config.json</code></template>
+          </i18n-t>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div v-for="w in worldsStore.worlds" :key="w.id"
               :class="['bg-tp-surface rounded-xl p-4 flex items-center justify-between', w.is_active ? 'ring-1 ring-tp-success/40' : '']">
@@ -2147,21 +2160,22 @@ const sidebarMods = computed(() => {
                 <Globe :class="['w-5 h-5', w.is_active ? 'text-tp-success' : 'text-tp-muted']" />
                 <div>
                   <p class="text-tp-text text-sm font-medium">{{ w.name }}</p>
-                  <p class="text-tp-muted text-xs">{{ w.is_active ? 'Active' : 'Inactive' }}</p>
+                  <p class="text-tp-muted text-xs">{{ w.is_active ? t('server.worlds.active') : t('server.worlds.inactive') }}</p>
                 </div>
               </div>
               <div class="flex items-center gap-1">
                 <button v-if="!w.is_active" class="p-1.5 rounded-xl text-tp-muted hover:text-tp-success hover:bg-tp-success/10 transition-colors text-xs"
-                  title="Set active — applies after a server restart"
-                  @click="worldsStore.setActive(serverId, w.id).then(r => showToast(r?.message ?? 'Active world updated. Restart the server to load it.')).catch(() => showToast('Failed', 'error'))">
-                  Activate
+                  :title="t('server.worlds.activateTitle')"
+                  @click="worldsStore.setActive(serverId, w.id).then(r => showToast(r?.message ?? t('server.worlds.activated'))).catch(() => showToast(t('server.shared.failed'), 'error'))">
+                  {{ t('server.worlds.activate') }}
                 </button>
                 <!-- Deleting the active world would leave the server booting into
                      a world that no longer exists; the API rejects it (409). -->
                 <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                   :disabled="w.is_active"
-                  :title="w.is_active ? 'Activate another world first' : 'Delete this world from disk'"
-                  @click="confirmAction(`Delete world ${w.name}? This deletes the world folder on the node and cannot be undone.`) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast('World deleted from the panel and from disk')).catch(() => showToast('Failed', 'error'))">
+                  :title="w.is_active ? t('server.worlds.activateOtherFirst') : t('server.worlds.deleteTitle')"
+                  :aria-label="t('server.worlds.deleteTitle')"
+                  @click="confirmAction(t('server.worlds.deleteConfirm', { name: w.name })) && worldsStore.deleteWorld(serverId, w.id).then(() => showToast(t('server.worlds.deleted'))).catch(() => showToast(t('server.shared.failed'), 'error'))">
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -2174,20 +2188,20 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'players'" class="space-y-4">
         <div v-if="playersStore.loading" class="bg-tp-surface rounded-xl p-8 text-center">
           <Loader2 class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-          <p class="text-tp-muted text-sm">Loading players...</p>
+          <p class="text-tp-muted text-sm">{{ t('server.players.loading') }}</p>
         </div>
         <div v-else-if="playersStore.players.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
           <Users class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No players</p>
-          <p class="text-tp-muted text-xs">Players will appear here when they join.</p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">{{ t('server.players.emptyTitle') }}</p>
+          <p class="text-tp-muted text-xs">{{ t('server.players.emptyHint') }}</p>
         </div>
         <div v-else class="bg-tp-surface rounded-xl overflow-hidden">
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-tp-border">
-                <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Player</th>
-                <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Status</th>
-                <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Actions</th>
+                <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.players.player') }}</th>
+                <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.players.status') }}</th>
+                <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('server.players.actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -2197,12 +2211,12 @@ const sidebarMods = computed(() => {
                   <p class="text-tp-muted text-xs font-mono">{{ p.hytale_uuid.substring(0, 8) }}...</p>
                 </td>
                 <td class="px-4 py-3">
-                  <span v-if="p.is_banned" class="text-xs px-2 py-0.5 rounded-full bg-tp-error/10 text-tp-error">Banned</span>
-                  <span v-if="p.is_whitelisted" class="text-xs px-2 py-0.5 rounded-full bg-tp-success/15 text-tp-success ml-1">Whitelisted</span>
+                  <span v-if="p.is_banned" class="text-xs px-2 py-0.5 rounded-full bg-tp-error/10 text-tp-error">{{ t('server.players.banned') }}</span>
+                  <span v-if="p.is_whitelisted" class="text-xs px-2 py-0.5 rounded-full bg-tp-success/15 text-tp-success ml-1">{{ t('server.players.whitelisted') }}</span>
                 </td>
                 <td class="px-4 py-3 text-right">
-                  <button v-if="!p.is_banned" class="text-xs text-tp-danger hover:text-tp-danger/80 transition-colors" @click="playersStore.banPlayer(serverId, p.id, '').then(() => showToast('Player banned'))">Ban</button>
-                  <button v-else class="text-xs text-tp-success hover:text-tp-success/80 transition-colors" @click="playersStore.unbanPlayer(serverId, p.id).then(() => showToast('Player unbanned'))">Unban</button>
+                  <button v-if="!p.is_banned" class="text-xs text-tp-danger hover:text-tp-danger/80 transition-colors" @click="playersStore.banPlayer(serverId, p.id, '').then(() => showToast(t('server.players.bannedToast')))">{{ t('server.players.ban') }}</button>
+                  <button v-else class="text-xs text-tp-success hover:text-tp-success/80 transition-colors" @click="playersStore.unbanPlayer(serverId, p.id).then(() => showToast(t('server.players.unbannedToast')))">{{ t('server.players.unban') }}</button>
                 </td>
               </tr>
             </tbody>
@@ -2214,31 +2228,32 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'backups'" class="space-y-4">
         <div class="flex items-center justify-end">
           <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-tp-primary text-white text-xs font-medium hover:bg-tp-primary/90 transition-colors"
-            @click="backupsStore.createBackup({ server_id: serverId }).then(() => showToast('Backup created')).catch(() => showToast('Failed', 'error'))">
-            <Plus class="w-3.5 h-3.5" /> Create Backup
+            @click="backupsStore.createBackup({ server_id: serverId }).then(() => showToast(t('server.backups.created'))).catch(() => showToast(t('server.shared.failed'), 'error'))">
+            <Plus class="w-3.5 h-3.5" /> {{ t('server.backups.create') }}
           </button>
         </div>
         <div v-if="backupsStore.loading" class="bg-tp-surface rounded-xl p-8 text-center">
           <Loader2 class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-          <p class="text-tp-muted text-sm">Loading backups...</p>
+          <p class="text-tp-muted text-sm">{{ t('server.backups.loading') }}</p>
         </div>
         <div v-else-if="backupsStore.backups.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
           <DatabaseBackup class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No backups</p>
-          <p class="text-tp-muted text-xs">Create a backup to protect your server data.</p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">{{ t('server.backups.emptyTitle') }}</p>
+          <p class="text-tp-muted text-xs">{{ t('server.backups.emptyHint') }}</p>
         </div>
         <div v-else class="space-y-2">
           <div v-for="b in backupsStore.backups" :key="b.id" class="bg-tp-surface rounded-xl p-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
               <DatabaseBackup class="w-5 h-5 text-tp-muted" />
               <div>
-                <p class="text-tp-text text-sm font-medium capitalize">{{ b.type }} backup</p>
-                <p class="text-tp-muted text-xs">{{ new Date(b.created_at).toLocaleString() }} — {{ b.status }}<template v-if="b.upload_status"> · {{ b.destination_name ?? 'off-site' }}: {{ b.upload_status }}</template></p>
+                <p class="text-tp-text text-sm font-medium capitalize">{{ t('server.backups.typeBackup', { type: b.type }) }}</p>
+                <p class="text-tp-muted text-xs">{{ new Date(b.created_at).toLocaleString() }} — {{ b.status }}<template v-if="b.upload_status"> · {{ b.destination_name ?? t('server.backups.offSite') }}: {{ b.upload_status }}</template></p>
               </div>
             </div>
             <div class="flex items-center gap-1">
-              <button v-if="b.status === 'completed'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast('Restore initiated'))">Restore</button>
-              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="confirmAction('Delete backup?') && backupsStore.deleteBackup(b.id).then(() => showToast('Deleted'))">
+              <button v-if="b.status === 'completed'" class="text-xs text-tp-accent hover:text-tp-primary transition-colors" @click="backupsStore.restoreBackup(b.id).then(() => showToast(t('server.backups.restoreInitiated')))">{{ t('server.backups.restore') }}</button>
+              <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors" :title="t('server.backups.deleteTitle')" :aria-label="t('server.backups.deleteTitle')"
+                @click="confirmAction(t('server.backups.deleteConfirm')) && backupsStore.deleteBackup(b.id).then(() => showToast(t('server.backups.deleted')))">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -2255,22 +2270,22 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'databases'" class="space-y-4">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-tp-text font-display font-semibold text-lg">Database</h3>
-            <p class="text-tp-muted text-sm">A dedicated MariaDB database for this server's plugins and mods</p>
+            <h3 class="text-tp-text font-display font-semibold text-lg">{{ t('server.databases.title') }}</h3>
+            <p class="text-tp-muted text-sm">{{ t('server.databases.subtitle') }}</p>
           </div>
         </div>
 
         <div v-if="dbLoading" class="bg-tp-surface rounded-xl p-8 text-center">
           <Loader2 class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-          <p class="text-tp-muted text-sm">Loading database...</p>
+          <p class="text-tp-muted text-sm">{{ t('server.databases.loading') }}</p>
         </div>
         <div v-else-if="!database" class="bg-tp-surface rounded-xl p-12 text-center">
           <Database class="w-8 h-8 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold text-sm mb-1">No database</p>
-          <p class="text-tp-muted text-xs mb-4">Provision a MariaDB database for your server's plugins to use.</p>
+          <p class="text-tp-text font-display font-semibold text-sm mb-1">{{ t('server.databases.emptyTitle') }}</p>
+          <p class="text-tp-muted text-xs mb-4">{{ t('server.databases.emptyHint') }}</p>
           <UiButton variant="primary" size="sm" :disabled="creatingDb" @click="createDatabase">
             <Loader2 v-if="creatingDb" class="w-3.5 h-3.5 animate-spin" />
-            <Plus v-else class="w-3.5 h-3.5" /> Create Database
+            <Plus v-else class="w-3.5 h-3.5" /> {{ t('server.databases.create') }}
           </UiButton>
         </div>
         <div v-else class="bg-tp-surface rounded-xl p-5">
@@ -2287,12 +2302,14 @@ const sidebarMods = computed(() => {
             <div class="flex items-center gap-2">
               <button class="p-1.5 rounded-xl text-tp-warning hover:bg-tp-warning/10 transition-colors"
                 :disabled="rotatingDb"
-                title="Rotate password"
+                :title="t('server.databases.rotateTitle')"
+                :aria-label="t('server.databases.rotateTitle')"
                 @click="rotateDatabasePassword">
                 <RotateCcw class="w-3.5 h-3.5" :class="{ 'animate-spin': rotatingDb }" />
               </button>
               <button class="p-1.5 rounded-xl text-tp-danger hover:bg-tp-danger/10 transition-colors"
-                title="Delete database"
+                :title="t('server.databases.deleteTitle')"
+                :aria-label="t('server.databases.deleteTitle')"
                 @click="deleteDatabase">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>
@@ -2300,46 +2317,46 @@ const sidebarMods = computed(() => {
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
             <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
-              <span class="text-tp-outline w-20 shrink-0">Host</span>
+              <span class="text-tp-outline w-20 shrink-0">{{ t('server.databases.host') }}</span>
               <code class="text-tp-text font-mono flex-1 break-all">{{ database.host }}</code>
             </div>
             <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
-              <span class="text-tp-outline w-20 shrink-0">Port</span>
+              <span class="text-tp-outline w-20 shrink-0">{{ t('server.databases.port') }}</span>
               <code class="text-tp-text font-mono flex-1">{{ database.port }}</code>
             </div>
             <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
-              <span class="text-tp-outline w-20 shrink-0">Database</span>
+              <span class="text-tp-outline w-20 shrink-0">{{ t('server.databases.database') }}</span>
               <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_name }}</code>
             </div>
             <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2">
-              <span class="text-tp-outline w-20 shrink-0">Username</span>
+              <span class="text-tp-outline w-20 shrink-0">{{ t('server.databases.username') }}</span>
               <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_user }}</code>
             </div>
             <div class="bg-tp-surface2 rounded-xl px-3 py-2 text-xs flex items-center gap-2 sm:col-span-2">
-              <span class="text-tp-outline w-20 shrink-0">Password</span>
+              <span class="text-tp-outline w-20 shrink-0">{{ t('server.databases.password') }}</span>
               <code class="text-tp-text font-mono flex-1 break-all">{{ database.db_password }}</code>
             </div>
           </div>
         </div>
 
         <!-- Rotated credentials modal — shown once, caller must copy -->
-        <UiModal :open="!!rotatedCreds" title="New database credentials" @close="rotatedCreds = null">
+        <UiModal :open="!!rotatedCreds" :title="t('server.databases.newCredsTitle')" @close="rotatedCreds = null">
           <div v-if="rotatedCreds" class="space-y-3">
-            <p class="text-tp-muted text-xs">Copy these now — the password will not be shown again.</p>
+            <p class="text-tp-muted text-xs">{{ t('server.databases.copyNow') }}</p>
             <div class="space-y-1.5">
-              <div v-for="(val, label) in {
-                Host: rotatedCreds.host,
-                Port: String(rotatedCreds.port),
-                Database: rotatedCreds.db_name,
-                Username: rotatedCreds.db_user,
-                Password: rotatedCreds.db_password,
-              }" :key="label" class="flex items-center gap-2 bg-tp-surface2 rounded-xl px-3 py-2 text-xs">
+              <div v-for="[label, val] in [
+                [t('server.databases.host'), rotatedCreds.host],
+                [t('server.databases.port'), String(rotatedCreds.port)],
+                [t('server.databases.database'), rotatedCreds.db_name],
+                [t('server.databases.username'), rotatedCreds.db_user],
+                [t('server.databases.password'), rotatedCreds.db_password],
+              ]" :key="label" class="flex items-center gap-2 bg-tp-surface2 rounded-xl px-3 py-2 text-xs">
                 <span class="text-tp-outline w-20 shrink-0">{{ label }}</span>
                 <code class="text-tp-text font-mono flex-1 break-all">{{ val }}</code>
               </div>
             </div>
             <div class="flex justify-end pt-2">
-              <UiButton variant="primary" size="md" @click="rotatedCreds = null">Done</UiButton>
+              <UiButton variant="primary" size="md" @click="rotatedCreds = null">{{ t('server.databases.done') }}</UiButton>
             </div>
           </div>
         </UiModal>
@@ -2349,39 +2366,39 @@ const sidebarMods = computed(() => {
       <div v-else-if="activeTab === 'settings'" class="space-y-4">
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border">
-            <h3 class="text-tp-text font-display font-semibold text-sm">Server Settings</h3>
+            <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('server.settings.title') }}</h3>
           </div>
           <div class="divide-y divide-tp-border">
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Name</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.name') }}</span>
               <span class="text-tp-text text-sm font-medium">{{ server?.name }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Update channel</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.updateChannel') }}</span>
               <span class="text-tp-text text-sm">{{ formatHytaleVersion(server?.hytale_version) }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Port</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.port') }}</span>
               <span class="text-tp-text text-sm font-mono">{{ server?.port }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">RAM Limit</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.ramLimit') }}</span>
               <span class="text-tp-text text-sm">{{ server?.ram_limit_mb ?? '\u2014' }} MB</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">CPU Limit</span>
-              <span class="text-tp-text text-sm">{{ server?.cpu_limit ? `${server.cpu_limit}%` : 'Unlimited' }}</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.cpuLimit') }}</span>
+              <span class="text-tp-text text-sm">{{ server?.cpu_limit ? `${server.cpu_limit}%` : t('server.shared.unlimited') }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Auto-Restart</span>
-              <span :class="['text-sm font-medium', server?.auto_restart ? 'text-tp-success' : 'text-tp-muted']">{{ server?.auto_restart ? 'Enabled' : 'Disabled' }}</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.autoRestart') }}</span>
+              <span :class="['text-sm font-medium', server?.auto_restart ? 'text-tp-success' : 'text-tp-muted']">{{ server?.auto_restart ? t('server.shared.enabled') : t('server.shared.disabled') }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Active World</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.activeWorld') }}</span>
               <span class="text-tp-text text-sm">{{ server?.active_world || '\u2014' }}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-tp-outline text-sm">Created</span>
+              <span class="text-tp-outline text-sm">{{ t('server.settings.created') }}</span>
               <span class="text-tp-muted text-xs">{{ server?.created_at ? new Date(server.created_at).toLocaleString() : '\u2014' }}</span>
             </div>
           </div>
@@ -2389,28 +2406,28 @@ const sidebarMods = computed(() => {
         <!-- Launch settings -->
         <form class="bg-tp-surface rounded-xl overflow-hidden" @submit.prevent="saveLaunchSettings">
           <div class="px-5 py-3 border-b border-tp-border">
-            <h3 class="text-tp-text font-display font-semibold text-sm">Launch Settings</h3>
-            <p class="text-tp-muted text-xs mt-0.5">Applied the next time the server starts.</p>
+            <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('server.settings.launch.title') }}</h3>
+            <p class="text-tp-muted text-xs mt-0.5">{{ t('server.settings.launch.hint') }}</p>
           </div>
           <div class="px-5 py-4 space-y-4">
             <div v-if="authStore.isAdmin" class="max-w-xs">
-              <UiInput v-model="launchForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="4096" />
-              <p class="text-tp-muted text-xs mt-1">Hytale recommends at least 4096 MB.</p>
+              <UiInput v-model="launchForm.ram_limit_mb" type="number" :label="t('server.settings.launch.ramLabel')" placeholder="4096" />
+              <p class="text-tp-muted text-xs mt-1">{{ t('server.settings.launch.ramHint') }}</p>
             </div>
             <div class="max-w-xs space-y-1">
-              <label for="launch-hytale-version" class="block text-tp-text text-sm">Update channel</label>
+              <label for="launch-hytale-version" class="block text-tp-text text-sm">{{ t('server.settings.updateChannel') }}</label>
               <select id="launch-hytale-version" v-model="launchForm.hytale_version"
                 class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-                <option value="latest">Release</option>
-                <option value="pre-release">Pre-release</option>
+                <option value="latest">{{ t('server.update.release') }}</option>
+                <option value="pre-release">{{ t('server.update.preRelease') }}</option>
               </select>
               <p v-if="launchForm.hytale_version === 'pre-release' && normChannel(server?.hytale_version) !== 'pre-release'" class="text-tp-warning text-xs">
-                Updates then install pre-release builds. Worlds opened by a pre-release cannot be opened by release servers again.
+                {{ t('server.settings.launch.preReleaseWarn') }}
               </p>
               <p v-else-if="launchForm.hytale_version === 'latest' && normChannel(server?.hytale_version) === 'pre-release'" class="text-tp-warning text-xs">
-                A server already on a pre-release build is not switched back automatically; reinstall it yourself if its worlds allow it.
+                {{ t('server.settings.launch.releaseWarn') }}
               </p>
-              <p v-else class="text-tp-muted text-xs">Used by the next install, reinstall or update.</p>
+              <p v-else class="text-tp-muted text-xs">{{ t('server.settings.launch.channelHint') }}</p>
             </div>
             <div class="space-y-2">
               <label v-for="opt in LAUNCH_FLAG_OPTIONS" :key="opt.flag" class="flex items-start gap-3"
@@ -2418,9 +2435,9 @@ const sidebarMods = computed(() => {
                 <input v-model="launchForm.launch_flags" type="checkbox" :value="opt.flag" class="mt-1 accent-tp-primary"
                   :disabled="opt.adminOnly && !authStore.isAdmin">
                 <span>
-                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
+                  <span class="text-tp-text text-sm">{{ t(`server.settings.launch.flags.${opt.key}.label`) }}</span>
                   <span class="text-tp-muted text-xs font-mono ml-2">{{ opt.flag }}</span>
-                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                  <span class="block text-tp-muted text-xs">{{ t(`server.settings.launch.flags.${opt.key}.hint`) }}</span>
                 </span>
               </label>
             </div>
@@ -2429,15 +2446,14 @@ const sidebarMods = computed(() => {
               <input v-model="launchForm.use_hytale_account" type="checkbox" class="mt-1 accent-tp-primary"
                 :disabled="!authStore.isAdmin && !launchForm.use_hytale_account">
               <span>
-                <span class="text-tp-text text-sm">Start with the linked Hytale account</span>
+                <span class="text-tp-text text-sm">{{ t('server.settings.launch.hytaleAccount') }}</span>
                 <span class="block text-tp-muted text-xs">
-                  The server boots authenticated with the account from Admin → Integrations.
-                  Every plugin on this server can read that session, so only enable it for servers you trust.
+                  {{ t('server.settings.launch.hytaleAccountHint') }}
                 </span>
               </span>
             </label>
             <div class="flex justify-end">
-              <UiButton type="submit" :loading="launchSaving">Save</UiButton>
+              <UiButton type="submit" :loading="launchSaving">{{ t('actions.save') }}</UiButton>
             </div>
           </div>
         </form>
@@ -2445,34 +2461,34 @@ const sidebarMods = computed(() => {
         <form v-if="isAdmin || server?.network_role" class="bg-tp-surface rounded-xl overflow-hidden"
           @submit.prevent="saveNetworkRole">
           <div class="px-5 py-3 border-b border-tp-border">
-            <h3 class="text-tp-text font-display font-semibold text-sm">Network</h3>
+            <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('server.settings.network.title') }}</h3>
             <p class="text-tp-muted text-xs mt-0.5">
-              Role of this server for the bundled network mod. Changes are sent to every networked server.
+              {{ t('server.settings.network.hint') }}
             </p>
           </div>
           <div class="px-5 py-4 space-y-4">
             <fieldset class="space-y-2" :disabled="!isAdmin">
-              <legend class="sr-only">Network role</legend>
+              <legend class="sr-only">{{ t('server.settings.network.roleLegend') }}</legend>
               <label v-for="opt in NETWORK_ROLE_OPTIONS" :key="opt.value" class="flex items-start gap-3"
                 :class="isAdmin ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'">
                 <input v-model="networkRole" type="radio" name="network-role" :value="opt.value" class="mt-1 accent-tp-primary">
                 <span>
-                  <span class="text-tp-text text-sm">{{ opt.label }}</span>
-                  <span class="block text-tp-muted text-xs">{{ opt.hint }}</span>
+                  <span class="text-tp-text text-sm">{{ t(`server.settings.network.roles.${opt.value}.label`) }}</span>
+                  <span class="block text-tp-muted text-xs">{{ t(`server.settings.network.roles.${opt.value}.hint`) }}</span>
                 </span>
               </label>
             </fieldset>
             <div v-if="server?.network_role" class="flex items-center justify-between text-sm">
-              <span class="text-tp-outline">Joins require a hub referral</span>
+              <span class="text-tp-outline">{{ t('server.settings.network.requireReferral') }}</span>
               <span :class="['font-medium', server.require_referral ? 'text-tp-success' : 'text-tp-muted']">
-                {{ server.require_referral ? 'Yes' : 'No' }}
+                {{ server.require_referral ? t('actions.yes') : t('actions.no') }}
               </span>
             </div>
             <div v-if="isAdmin" class="flex flex-wrap justify-end gap-2">
               <UiButton type="button" variant="secondary" :loading="networkDistributing" @click="redistributeNetworkConfig">
-                Resend config
+                {{ t('server.settings.network.resend') }}
               </UiButton>
-              <UiButton type="submit" :loading="networkSaving" :disabled="!networkRoleChanged">Save</UiButton>
+              <UiButton type="submit" :loading="networkSaving" :disabled="!networkRoleChanged">{{ t('actions.save') }}</UiButton>
             </div>
           </div>
         </form>
@@ -2480,12 +2496,13 @@ const sidebarMods = computed(() => {
         <div class="bg-tp-surface rounded-xl overflow-hidden">
           <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
             <div>
-              <h3 class="text-tp-text font-display font-semibold text-sm">Shared Access</h3>
-              <p class="text-tp-muted text-xs mt-0.5">Invite other accounts to help manage this server.</p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('server.settings.access.title') }}</h3>
+              <p class="text-tp-muted text-xs mt-0.5">{{ t('server.settings.access.hint') }}</p>
             </div>
             <button
               class="p-1.5 rounded-xl text-tp-muted hover:bg-tp-surface2"
-              title="Refresh"
+              :title="t('actions.refresh')"
+              :aria-label="t('actions.refresh')"
               @click="loadServerInvitations()"
             >
               <RotateCcw class="w-3.5 h-3.5" />
@@ -2494,20 +2511,20 @@ const sidebarMods = computed(() => {
           <div class="p-5 space-y-3">
             <div class="flex items-end gap-2">
               <div class="flex-1">
-                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Invitee email</label>
+                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('server.settings.access.inviteeEmail') }}</label>
                 <input
                   v-model="inviteForm.email"
                   type="email"
-                  placeholder="friend@example.com"
+                  :placeholder="t('server.settings.access.emailPlaceholder')"
                   class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
                 />
               </div>
               <div>
-                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Role</label>
+                <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('server.settings.access.role') }}</label>
                 <select v-model="inviteForm.role" class="bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-                  <option value="viewer">Viewer</option>
-                  <option value="moderator">Moderator</option>
-                  <option value="admin">Admin</option>
+                  <option value="viewer">{{ t('server.settings.access.roles.viewer') }}</option>
+                  <option value="moderator">{{ t('server.settings.access.roles.moderator') }}</option>
+                  <option value="admin">{{ t('server.settings.access.roles.admin') }}</option>
                 </select>
               </div>
               <button
@@ -2515,16 +2532,15 @@ const sidebarMods = computed(() => {
                 :disabled="invitingEmail || !inviteForm.email"
                 @click="createServerInvitation"
               >
-                {{ invitingEmail ? 'Sending…' : 'Invite' }}
+                {{ invitingEmail ? t('server.settings.access.sending') : t('server.settings.access.invite') }}
               </button>
             </div>
             <p class="text-tp-muted text-xs">
-              Viewer: read-only. Moderator: start/stop, console, players, mods, backups.
-              Admin: everything except deleting the server. You can only grant what you hold yourself.
+              {{ t('server.settings.access.rolesHint') }}
             </p>
 
             <div v-if="invitationsStore.serverInvitations.length === 0" class="text-tp-muted text-xs py-3 text-center">
-              No pending invitations.
+              {{ t('server.settings.access.noPending') }}
             </div>
             <div v-else class="divide-y divide-tp-border border border-tp-border rounded-xl">
               <div
@@ -2544,7 +2560,7 @@ const sidebarMods = computed(() => {
                   class="text-tp-danger text-xs hover:underline"
                   @click="revokeServerInvitation(inv.id)"
                 >
-                  Revoke
+                  {{ t('server.settings.access.revoke') }}
                 </button>
               </div>
             </div>
@@ -2552,22 +2568,22 @@ const sidebarMods = computed(() => {
         </div>
 
         <div class="bg-tp-surface rounded-xl border border-tp-danger/30 p-5">
-          <h3 class="text-tp-danger font-display font-semibold text-sm mb-2">Danger Zone</h3>
-          <p class="text-tp-muted text-xs mb-3">Permanently delete this server and all associated data.</p>
+          <h3 class="text-tp-danger font-display font-semibold text-sm mb-2">{{ t('server.settings.danger.title') }}</h3>
+          <p class="text-tp-muted text-xs mb-3">{{ t('server.settings.danger.hint') }}</p>
           <button class="px-4 py-2 rounded-xl bg-tp-danger text-white text-xs font-medium hover:bg-tp-danger/90 transition-colors"
             @click="deleteServerAndLeave">
-            Delete Server
+            {{ t('server.settings.danger.delete') }}
           </button>
         </div>
       </div>
     </template>
 
     <!-- Migrate to Node Modal -->
-    <UiModal :open="showMigrateModal" title="Migrate to Node" size="sm" @close="showMigrateModal = false">
+    <UiModal :open="showMigrateModal" :title="t('server.migrate.title')" size="sm" @close="showMigrateModal = false">
       <div class="space-y-4">
-        <p class="text-tp-outline text-sm">Select a target node. The server must stay stopped during migration.</p>
+        <p class="text-tp-outline text-sm">{{ t('server.migrate.intro') }}</p>
         <div v-if="migrateError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">{{ migrateError }}</div>
-        <div v-if="migrateNodes.length === 0 && !migrateError" class="text-tp-muted text-sm">No other online nodes available.</div>
+        <div v-if="migrateNodes.length === 0 && !migrateError" class="text-tp-muted text-sm">{{ t('server.migrate.noNodes') }}</div>
         <div v-else class="space-y-2">
           <label
             v-for="n in migrateNodes"
@@ -2582,34 +2598,33 @@ const sidebarMods = computed(() => {
         </div>
       </div>
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="showMigrateModal = false">Cancel</UiButton>
+        <UiButton variant="ghost" size="md" @click="showMigrateModal = false">{{ t('actions.cancel') }}</UiButton>
         <UiButton
           variant="primary"
           size="md"
           :loading="migrateLoading"
           :disabled="!migrateTargetId"
           @click="submitMigrate"
-        >Migrate</UiButton>
+        >{{ t('server.page.migrate') }}</UiButton>
       </template>
     </UiModal>
 
     <!-- Hytale OAuth device-code prompt -->
-    <UiModal :open="showHytaleAuthModal" :title="hytaleAuthCode ? 'Link your Hytale account' : 'Authenticate with Hytale'" size="md" @close="hytaleAuthDismissed = true">
+    <UiModal :open="showHytaleAuthModal" :title="hytaleAuthCode ? t('server.hytaleAuth.titleLink') : t('server.hytaleAuth.titleAuth')" size="md" @close="hytaleAuthDismissed = true">
       <p class="text-tp-text text-sm mb-4">
-        The server is requesting authorization from your Hytale account.
-        Approve it once and the server keeps its token.
+        {{ t('server.hytaleAuth.intro') }}
       </p>
 
       <template v-if="hytaleAuthCode">
         <div class="bg-tp-surface3 rounded-xl px-4 py-4 mb-4">
-          <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-2">Your code</div>
+          <div class="text-[10px] uppercase tracking-widest text-tp-outline mb-2">{{ t('server.hytaleAuth.yourCode') }}</div>
           <div class="flex items-center justify-between gap-3">
             <code class="font-mono text-tp-text text-2xl tracking-[0.3em]">{{ hytaleAuthCode }}</code>
             <button
               class="inline-flex items-center gap-1.5 text-xs text-tp-muted hover:text-tp-text transition-colors"
               @click="copyHytaleAuthCode"
             >
-              <Copy class="w-3.5 h-3.5" /> Copy
+              <Copy class="w-3.5 h-3.5" /> {{ t('actions.copy') }}
             </button>
           </div>
         </div>
@@ -2619,37 +2634,36 @@ const sidebarMods = computed(() => {
           target="_blank"
           rel="noopener"
           class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-3 hover:bg-tp-primary/90 transition-colors"
-        >Open verification page →</a>
+        >{{ t('server.hytaleAuth.openVerify') }}</a>
 
-        <p class="text-tp-muted text-xs mb-1">
-          The link above pre-fills the code. If it doesn't, go to
-          <span class="text-tp-text">oauth.accounts.hytale.com/oauth2/device/verify</span>
-          and enter <code class="font-mono text-tp-text">{{ hytaleAuthCode }}</code> manually.
-        </p>
+        <i18n-t keypath="server.hytaleAuth.prefillHint" tag="p" scope="global" class="text-tp-muted text-xs mb-1">
+          <template #url><span class="text-tp-text">oauth.accounts.hytale.com/oauth2/device/verify</span></template>
+          <template #code><code class="font-mono text-tp-text">{{ hytaleAuthCode }}</code></template>
+        </i18n-t>
         <p class="text-tp-outline text-xs">
-          Sign in, approve, and the server picks the token up automatically.
+          {{ t('server.hytaleAuth.signInHint') }}
         </p>
       </template>
 
       <template v-else>
         <ol class="list-decimal list-inside text-tp-muted text-sm space-y-2 mb-4">
-          <li>Open the authentication URL below.</li>
-          <li>Sign in with the Hytale account that owns the game.</li>
-          <li>Approve the request — the server picks up the token automatically.</li>
+          <li>{{ t('server.hytaleAuth.step1') }}</li>
+          <li>{{ t('server.hytaleAuth.step2') }}</li>
+          <li>{{ t('server.hytaleAuth.step3') }}</li>
         </ol>
         <a
           :href="hytaleAuthUrl"
           target="_blank"
           rel="noopener"
           class="block w-full text-center bg-tp-primary text-tp-bg font-semibold rounded-xl py-3 mb-4 hover:bg-tp-primary/90 transition-colors break-all"
-        >Open Hytale authentication page →</a>
+        >{{ t('server.hytaleAuth.openAuth') }}</a>
         <p class="text-tp-outline text-xs">
-          URL: <span class="break-all">{{ hytaleAuthUrl }}</span>
+          {{ t('server.hytaleAuth.url') }} <span class="break-all">{{ hytaleAuthUrl }}</span>
         </p>
       </template>
 
       <template #footer>
-        <UiButton variant="ghost" @click="hytaleAuthDismissed = true">Dismiss</UiButton>
+        <UiButton variant="ghost" @click="hytaleAuthDismissed = true">{{ t('server.hytaleAuth.dismiss') }}</UiButton>
       </template>
     </UiModal>
 
