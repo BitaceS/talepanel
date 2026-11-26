@@ -214,7 +214,6 @@
         "passwordSaved": "Saved. Leave empty to keep it",
         "passwordPlaceholder": "SMTP password",
         "sender": "Sender address",
-        "senderPlaceholder": "TalePanel <noreply{'@'}example.com>",
         "senderHint": "Most providers only accept a sender address that belongs to your account.",
         "sendTest": "Send test email",
         "remove": "Remove",

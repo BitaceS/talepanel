@@ -2474,7 +2474,7 @@ const sidebarMods = computed(() => {
                 <input v-model="networkRole" type="radio" name="network-role" :value="opt.value" class="mt-1 accent-tp-primary">
                 <span>
                   <span class="text-tp-text text-sm">{{ t(`server.settings.network.roles.${opt.value}.label`) }}</span>
-                  <span class="block text-tp-muted text-xs">{{ t(`server.settings.network.roles.${opt.value}.hint`) }}</span>
+                  <span class="block text-tp-muted text-xs">{{ t(`server.settings.network.roles.${opt.value}.hint`, { play: '/play <gamemode>' }) }}</span>
                 </span>
               </label>
             </fieldset>

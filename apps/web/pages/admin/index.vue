@@ -1331,7 +1331,7 @@ async function submitCreateUser() {
           </div>
           <div class="flex flex-col gap-2 sm:col-span-2">
             <label for="smtp-from" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.sender') }}</label>
-            <input id="smtp-from" v-model="smtpForm.from" type="text" :placeholder="t('admin.integrations.smtp.senderPlaceholder')"
+            <input id="smtp-from" v-model="smtpForm.from" type="text" placeholder="TalePanel <noreply@example.com>"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
             <p class="text-tp-outline text-xs">{{ t('admin.integrations.smtp.senderHint') }}</p>
           </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle, Info } from '@lucide/vue'
+import { AlertTriangle, Bell, CheckCircle, Info, Plus, RefreshCw, ToggleLeft, ToggleRight, Trash2 } from '@lucide/vue'
 import { useAlertsStore } from '~/stores/alerts'
 import { useServersStore } from '~/stores/servers'
 import { useAuthStore } from '~/stores/auth'

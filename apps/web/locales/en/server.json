@@ -338,7 +338,7 @@
           },
           "hub": {
             "label": "Hub",
-            "hint": "Players land here and use /play <gamemode> to switch. The hub holds every gamemode's ticket key, so only use a server you trust."
+            "hint": "Players land here and use {play} to switch. The hub holds every gamemode's ticket key, so only use a server you trust."
           },
           "gamemode": {
             "label": "Gamemode",
