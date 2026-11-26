@@ -48,6 +48,7 @@ It works as a Hytale hosting panel for communities and small hosters too: multi-
 | **Security** | 2FA with recovery codes (can be required for admins), single sign-on via OpenID Connect, new-device sign-in emails, RBAC per server, audit log, rate limiting, optional admin IP allowlist, no default accounts |
 | **Languages** | English and German (switch in the user menu) |
 | **Alerts** | Discord, webhook and email |
+| **Discord bot** | `/status` for players, `/server start/stop/restart` for linked accounts, live status message |
 | **Stack** | Go API, Rust daemon, Nuxt 3 web panel, PostgreSQL, Redis |
 
 ---
@@ -497,6 +498,7 @@ Coverage is growing but incomplete: Go unit and Postgres integration tests in `s
 | German UI (language switch in the user menu) | Shipped (v0.18) |
 | Single sign-on with OpenID Connect (Keycloak, Authentik, Google, Entra ID …) | Shipped (v0.18) |
 | End-to-end tests (Playwright against the demo) | Shipped (v0.18) |
+| Discord bot: status for players, start/stop/restart for linked accounts | Unreleased |
 | Meaningful test coverage (Go + Rust + web) | Ongoing |
 
 The full roadmap with priorities (Now / Next / Later) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).

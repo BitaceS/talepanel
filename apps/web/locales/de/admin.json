@@ -122,6 +122,7 @@
       "colTarget": "Ziel",
       "colIp": "IP",
       "viaApiKey": "Ausgeführt mit dem API-Key {name}",
+      "viaDiscord": "Aus Discord ausgeführt von {name}",
       "empty": "Noch keine Aktivitäten protokolliert"
     },
     "integrations": {
@@ -353,6 +354,40 @@
       "linkHint": "Konten mit TalePanel-2FA geben nach SSO weiterhin ihren Code ein, außer du hast oben angegeben, dass der Provider einen zweiten Faktor erzwingt. Admins ohne 2FA bleiben eingeschränkt, solange die 2FA-Pflicht für Staff aktiv ist.",
       "saved": "SSO-Einstellungen gespeichert",
       "saveFailed": "SSO-Einstellungen konnten nicht gespeichert werden",
+      "onlyOwner": "Nur der Owner kann das ändern."
+    },
+    "discord": {
+      "title": "Discord-Bot",
+      "desc": "Slash-Befehle auf deinem Discord-Server: /status zeigt, welche Server laufen, /server startet, stoppt und startet sie neu, für verknüpfte Konten. Eine Nachricht in einem Kanal deiner Wahl hält den Status aktuell.",
+      "steps": {
+        "create": "Lege unter discord.com/developers/applications eine Application an. Kopiere die Application ID und den Public Key (General Information) und ein Bot-Token (Bot → Reset Token).",
+        "save": "Trag sie unten mit der Server-ID ein und speichere; lass den Bot dabei noch aus.",
+        "endpoint": "Setze im Developer Portal unter General Information → Interactions Endpoint URL diese Adresse. Discord prüft sie sofort:",
+        "invite": "Lade den Bot auf deinen Discord-Server ein:",
+        "enable": "Schalte den Bot ein und speichere. TalePanel meldet die Befehle auf deinem Server an."
+      },
+      "inviteLink": "Einladungslink öffnen",
+      "inviteNeedsApp": "trag zuerst die Application ID ein",
+      "enabled": "Bot ist an",
+      "applicationId": "Application ID",
+      "publicKey": "Public Key",
+      "botToken": "Bot-Token",
+      "tokenKept": "Gespeichert. Leer lassen, um es zu behalten.",
+      "guildId": "Discord-Server-ID",
+      "idHint": "In Discord: Einstellungen → Erweitert → Entwicklermodus, dann Rechtsklick auf den Server oder Kanal → ID kopieren.",
+      "statusTitle": "Status-Nachricht",
+      "statusDesc": "Spieler sehen diese Server mit /status und in einer Nachricht, die der Bot aktuell hält.",
+      "channelId": "Kanal-ID",
+      "channelHint": "Leer: keine Status-Nachricht, /status funktioniert trotzdem. Der Bot muss den Kanal sehen und dort schreiben dürfen.",
+      "language": "Sprache der Status-Nachricht",
+      "servers": "Angezeigte Server",
+      "noServers": "Noch keine Server.",
+      "serversHint": "Nur die angehakten Server sieht jeder auf dem Discord-Server, mit ihrer Adresse.",
+      "playerNames": "Namen der Spieler zeigen, die online sind",
+      "playerNamesHint": "Aus: nur die Anzahl der Spieler.",
+      "commandsHint": "/server funktioniert nur für Leute, die ihr TalePanel-Konto unter Einstellungen → Sicherheit → Discord verknüpft haben, mit den Rechten, die sie im Panel haben. Jeder Befehl steht im Aktivitätslog.",
+      "saved": "Discord-Einstellungen gespeichert",
+      "saveFailed": "Discord-Einstellungen konnten nicht gespeichert werden",
       "onlyOwner": "Nur der Owner kann das ändern."
     }
   }

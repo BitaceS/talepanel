@@ -3,7 +3,7 @@ import {
   Users, Network, Shield, RefreshCw, Trash2, UserCheck, UserX,
   ChevronDown, Power, PowerOff, Pause, Activity, Clock, Search,
   Plug, Save, ExternalLink, Mail, Send, KeyRound, Lock, Copy, RotateCw, LayoutTemplate,
-  Check, X,
+  Check, X, Bot,
 } from '@lucide/vue'
 import type { NodeIsolation } from '~/types'
 import { useApi } from '~/composables/useApi'
@@ -634,6 +634,13 @@ function viaApiKey(log: ActivityLog): { name: string; prefix: string } | null {
   return { name: k.name, prefix: typeof k.prefix === 'string' ? k.prefix : '' }
 }
 
+// Commands from the Discord bot carry {"via": "discord", "discord_username"}.
+function viaDiscord(log: ActivityLog): string | null {
+  const p = log.payload as { via?: unknown; discord_username?: unknown } | null | undefined
+  if (p?.via !== 'discord') return null
+  return typeof p.discord_username === 'string' ? p.discord_username : ''
+}
+
 function actorEmail(log: ActivityLog): string {
   if (!log.user_id) return ''
   return users.value.find(u => u.id === log.user_id)?.email ?? `${log.user_id.substring(0, 8)}...`
@@ -1054,6 +1061,11 @@ async function submitCreateUser() {
                   <KeyRound class="w-3 h-3" />
                   {{ viaApiKey(log)!.name }}<span v-if="viaApiKey(log)!.prefix" class="font-mono text-tp-muted">&nbsp;{{ viaApiKey(log)!.prefix }}…</span>
                 </span>
+                <span v-if="viaDiscord(log) !== null" class="ml-2 inline-flex items-center gap-1 rounded-md bg-tp-surface3 px-1.5 py-0.5 text-tp-text"
+                  :title="t('admin.logs.viaDiscord', { name: viaDiscord(log) })">
+                  <Bot class="w-3 h-3" />
+                  Discord<span v-if="viaDiscord(log)" class="text-tp-muted">&nbsp;{{ viaDiscord(log) }}</span>
+                </span>
               </td>
               <td class="px-4 py-3 text-tp-muted text-xs">
                 <span v-if="log.target_type">{{ log.target_type }}</span>
@@ -1104,6 +1116,7 @@ async function submitCreateUser() {
         </p>
       </div>
       <AdminSsoSettingsPanel @toast="(msg, type) => showToast(msg, type)" />
+      <AdminDiscordSettingsPanel @toast="(msg, type) => showToast(msg, type)" />
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
         <div class="flex items-start justify-between gap-4">
           <div>

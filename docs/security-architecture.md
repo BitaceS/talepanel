@@ -49,6 +49,13 @@
 
 ---
 
+### Discord bot
+- One Discord application and one guild, configured by an owner in Admin → Integrations → Discord bot (`GET/PUT /admin/discord`, PUT owner only). The settings, including the bot token, are one JSON document in `app_settings` (`discord_config`), encrypted with `TOTP_ENC_KEY`. The token is never returned (`has_bot_token` instead) and `bot_token` is redacted in the request audit log. Enabling checks the token against Discord (`GET /applications/@me` must return the configured application) and registers the guild commands.
+- Discord sends commands to `POST /api/v1/discord/interactions`. Every request must carry a valid Ed25519 signature over timestamp and body (`X-Signature-Ed25519`, `X-Signature-Timestamp`) for the configured public key, and the timestamp must be within 5 minutes; otherwise 401, including for PINGs. The route sits outside the `/api/v1` group: no per-IP rate limit (requests come from Discord's addresses and are authenticated by the signature) and no request audit (the body carries the interaction's reply token); the service writes its own audit entries. Commands from another application or guild, and DMs, are refused.
+- Account link: a signed-in user creates a single-use code (8 characters, 10 minutes, Redis `discord_link:<code>`) and enters it with `/link` in Discord; `user_discord_links` (migration 052) then maps one Discord user to one TalePanel user. The code goes from the panel to Discord on purpose: someone tricked into entering a code links *their* Discord to the code owner's account, which gives the attacker nothing. Five wrong codes per Discord user lock `/link` for 10 minutes. A Discord account linked to another TalePanel account is refused until it is unlinked.
+- `/server start|stop|restart|status` runs only for a linked, active user, checks `server.start` / `server.stop` / `server.view` with the normal per-server rules, and is refused for admins without 2FA while the staff 2FA policy is on. Servers are resolved only among those the user can see. Start/stop/restart share one code path with the panel's routes. `/status` and the status message show only the servers the owner picked, with their public address; player names only when enabled. Replies never mention anyone (`allowed_mentions` empty) and escape Discord formatting in names.
+- Audit: Discord power actions are logged as `post_servers_<action>` with `via: discord` and the Discord user; also `auth.discord.linked`, `auth.discord.unlinked`, `admin.discord.settings_changed`.
+
 ## Authorization Model (RBAC)
 
 Role hierarchy (highest → lowest):

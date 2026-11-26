@@ -448,6 +448,9 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Discord bot: link for /server -->
+    <SettingsDiscordLinkPanel @toast="(msg, kind) => flash(msg, kind)" />
+
     <!-- Active sessions -->
     <section class="bg-tp-surface rounded-xl overflow-hidden">
       <div class="px-5 py-4 border-b border-tp-border">

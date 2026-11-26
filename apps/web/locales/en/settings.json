@@ -113,6 +113,21 @@
         "reconnect": "Connect another account",
         "connectedToast": "Single sign-on connected"
       },
+      "discord": {
+        "title": "Discord",
+        "text": "Link your Discord account to start, stop and restart your servers with /server in the Discord server.",
+        "linked": "Linked to {name}.",
+        "notLinked": "Not linked.",
+        "createCode": "Create link code",
+        "codeIntro": "Type this in the Discord server:",
+        "codeHint": "The code works once and for 10 minutes. Only you see the bot's answer.",
+        "done": "Done, refresh",
+        "codeFailed": "Could not create a code",
+        "unlink": "Unlink",
+        "unlinkConfirm": "Unlink your Discord account? /server stops working for it.",
+        "unlinked": "Discord account unlinked",
+        "unlinkFailed": "Could not unlink the Discord account"
+      },
       "toast": {
         "codesRegenerated": "New recovery codes generated; the old ones no longer work",
         "codesFailed": "Could not generate recovery codes",

@@ -122,6 +122,7 @@
       "colTarget": "Target",
       "colIp": "IP",
       "viaApiKey": "Made with the API key {name}",
+      "viaDiscord": "Run from Discord by {name}",
       "empty": "No activity logs yet"
     },
     "integrations": {
@@ -353,6 +354,40 @@
       "linkHint": "Accounts with TalePanel 2FA still enter their code after SSO, unless you marked the provider above as enforcing multi-factor sign-in. Admins without 2FA stay limited while the staff 2FA policy is on.",
       "saved": "SSO settings saved",
       "saveFailed": "Could not save the SSO settings",
+      "onlyOwner": "Only the owner can change this."
+    },
+    "discord": {
+      "title": "Discord bot",
+      "desc": "Slash commands in your Discord server: /status shows which servers run, /server starts, stops and restarts them for linked accounts. A message in a channel of your choice keeps the status up to date.",
+      "steps": {
+        "create": "Create an application at discord.com/developers/applications. Copy the application ID and the public key (General Information) and a bot token (Bot → Reset Token).",
+        "save": "Enter them below with the server ID and save; leave the bot switched off for now.",
+        "endpoint": "In the Developer Portal, set General Information → Interactions Endpoint URL to this address. Discord checks it right away:",
+        "invite": "Invite the bot to your Discord server:",
+        "enable": "Switch the bot on and save. TalePanel registers the commands in your server."
+      },
+      "inviteLink": "open the invite link",
+      "inviteNeedsApp": "enter the application ID first",
+      "enabled": "Bot is on",
+      "applicationId": "Application ID",
+      "publicKey": "Public key",
+      "botToken": "Bot token",
+      "tokenKept": "Stored. Leave empty to keep it.",
+      "guildId": "Discord server ID",
+      "idHint": "In Discord: Settings → Advanced → Developer Mode, then right-click the server or channel → Copy ID.",
+      "statusTitle": "Status message",
+      "statusDesc": "Players see these servers with /status, and in a message the bot keeps up to date.",
+      "channelId": "Channel ID",
+      "channelHint": "Empty: no status message, /status still works. The bot needs to see the channel and send messages there.",
+      "language": "Language of the status message",
+      "servers": "Servers shown",
+      "noServers": "No servers yet.",
+      "serversHint": "Only the servers you tick are shown to everyone in the Discord server, with their address.",
+      "playerNames": "Show the names of online players",
+      "playerNamesHint": "Off: only the number of players.",
+      "commandsHint": "/server only works for people who linked their TalePanel account under Settings → Security → Discord, with the rights they have in the panel. Every command is in the activity log.",
+      "saved": "Discord settings saved",
+      "saveFailed": "Could not save the Discord settings",
       "onlyOwner": "Only the owner can change this."
     }
   }

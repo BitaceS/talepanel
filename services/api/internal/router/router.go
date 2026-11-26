@@ -191,6 +191,18 @@ func SetupRouter(
 	oidcSvc := services.NewOIDCService(db, rdb, appSettingsSvc, authSvc, log, cfg.IsDevelopment())
 	oidcH := handlers.NewOIDCHandler(oidcSvc, authH, log)
 
+	// Discord bot: slash commands arrive at the interactions endpoint; the
+	// status message is refreshed in the background.
+	discordSvc := services.NewDiscordService(db, rdb, appSettingsSvc, serverSvc, permSvc, securityPolicySvc, log)
+	discordSvc.SetPower(serverH)
+	go discordSvc.Run(ctx)
+	discordH := handlers.NewDiscordHandler(discordSvc, log)
+	// Outside the v1 group on purpose: Discord authenticates every request
+	// with its signature, the body carries the interaction's reply token (so
+	// it must not go into the request audit log; the service writes its own
+	// entries), and a per-IP limit would throttle Discord's own addresses.
+	r.POST("/api/v1/discord/interactions", discordH.Interactions)
+
 	// ── API v1 base group with audit logging ───────────────────────────────────
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.AuditLog(db, log))
@@ -238,6 +250,11 @@ func SetupRouter(
 			// Connect the signed-in account to the SSO provider.
 			authProtected.GET("/oidc/link", oidcH.LinkStatus)
 			authProtected.POST("/oidc/link", oidcH.Link)
+
+			// Link a Discord account for the bot's /server commands.
+			authProtected.GET("/discord", discordH.LinkStatus)
+			authProtected.POST("/discord/code", discordH.CreateLinkCode)
+			authProtected.DELETE("/discord", discordH.Unlink)
 
 			authProtected.POST("/logout", authH.Logout)
 			authProtected.GET("/me", authH.Me)
@@ -512,6 +529,10 @@ func SetupRouter(
 		// OpenID Connect provider for "Sign in with ...". Owners change it.
 		adminGroup.GET("/sso", oidcH.GetSettings)
 		adminGroup.PUT("/sso", middleware.RequireRole(models.RoleOwner), oidcH.UpdateSettings)
+
+		// Discord bot (application, guild, status message). Owners change it.
+		adminGroup.GET("/discord", discordH.GetSettings)
+		adminGroup.PUT("/discord", middleware.RequireRole(models.RoleOwner), discordH.UpdateSettings)
 
 		backupKeyH := handlers.NewBackupKeyHandler(appSettingsSvc)
 		adminGroup.GET("/backup-key", backupKeyH.Status)

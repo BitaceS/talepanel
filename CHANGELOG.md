@@ -4,6 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Discord bot.** Slash commands in one Discord server, set up by the owner in Admin → Integrations → Discord bot (application ID, public key, bot token, server ID). `/status` shows everyone the servers the owner picked, with status, players online and address. `/server start|stop|restart|status` with server-name autocomplete works for people who linked their TalePanel account: Settings → Security → Discord makes a one-time code (10 minutes) that they enter with `/link` in Discord; `/unlink` or the panel removes the link. Commands run with the linked account's normal permissions per server, refuse disabled accounts, and follow the staff 2FA policy. Optionally the bot keeps a status message in a channel up to date (edited only when something changes, player names optional). Replies are in German for German Discord clients. Discord sends commands to `POST /api/v1/discord/interactions`, signed with the application's Ed25519 key; there is no gateway connection or extra process. The bot token is stored encrypted and never shown again. Every command, link and settings change is in the activity log. Migration 052 adds `user_discord_links`.
+
 ## [0.18.1] — 2026-11-26
 
 ### Added
