@@ -129,7 +129,15 @@ Run the installer's **Upgrade** mode on the panel first, **then on every node**.
 
 ---
 
-## v0.18.0 → v1.0.0 (planned)
+## v0.18.0 → v0.18.1
+
+Run the installer's **Upgrade** mode on the panel. No migration, and nodes need no update.
+
+- New optional `API_RATE_LIMIT_PER_MIN` in the panel `.env`: the general API limit per client IP and minute, default 120 as before. Raise it when many people use the panel from one address (office, NAT). A value that is not a positive whole number stops the API at start.
+
+---
+
+## v0.18.1 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 

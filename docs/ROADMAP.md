@@ -27,6 +27,7 @@ Sources: the README roadmap, the "Known limitations" in [`SECURITY.md`](../SECUR
 | Server sandbox (seccomp filter, network guard, memory and task limits, isolation status per node), working DDoS rules on the game ports | v0.16 |
 | Config editor with forms (Config tab: form built from the file, Raw JSON view, JSON validated before saving) | v0.17 |
 | German UI, single sign-on with OpenID Connect, Playwright end-to-end tests in CI, separate rate-limit buckets | v0.18 |
+| Configurable general API rate limit (`API_RATE_LIMIT_PER_MIN`), corrected SSO admin hint | v0.18.1 |
 | Background cleanup of expired sessions (every 6 h) | already in code; `SECURITY.md` was out of date |
 
 ## Implemented in November 2026

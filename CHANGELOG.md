@@ -4,6 +4,8 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-11-26
+
 ### Added
 - `API_RATE_LIMIT_PER_MIN` in the panel `.env` sets the general API limit per client IP and minute (default 120, as before). Raise it when many people use the panel from one address. The sign-in routes keep their limit of 30.
 
