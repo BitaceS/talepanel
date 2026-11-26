@@ -11,7 +11,7 @@ import (
 // -ldflags "-X github.com/BitaceS/talepanel/api/internal/version.Version=…"
 // override it. Installs build from a git checkout, so this constant is how a
 // panel knows its own version.
-var Version = "v0.18.1"
+var Version = "v0.19.0"
 
 // Newer reports whether release a is newer than release b. Both are tags
 // like "v0.13.0" or "v0.12.0-beta"; a release without a suffix is newer than

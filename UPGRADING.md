@@ -137,7 +137,17 @@ Run the installer's **Upgrade** mode on the panel. No migration, and nodes need 
 
 ---
 
-## v0.18.1 → v1.0.0 (planned)
+## v0.18.1 → v0.19.0
+
+Run the installer's **Upgrade** mode on the panel. The API applies migration 052 (`user_discord_links`) on start. Nodes need no update.
+
+- New: a Discord bot, off until an owner sets it up in Admin → Integrations → Discord bot. It needs a Discord application of your own; the card lists the steps.
+- Discord must reach the panel at `https://<panel>/api/v1/discord/interactions`, so the panel needs a public HTTPS address for the bot. Nothing else changes for panels without the bot.
+- The bot token is encrypted with `TOTP_ENC_KEY`, like the SMTP and SSO settings.
+
+---
+
+## v0.19.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 
