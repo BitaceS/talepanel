@@ -332,6 +332,29 @@
       "confirmDelete": "Delete the template \"{name}\"? Servers created from it are not affected.",
       "deleted": "Template deleted",
       "deleteFailed": "Failed to delete template"
+    },
+    "sso": {
+      "title": "Single sign-on (OpenID Connect)",
+      "desc": "Let people sign in with your identity provider (Keycloak, Authentik, Authelia, Google Workspace, Microsoft Entra ID …). The login page then shows a \"Sign in with …\" button.",
+      "enabled": "Show \"Sign in with …\" on the login page",
+      "displayName": "Button name",
+      "issuerUrl": "Issuer URL",
+      "clientId": "Client ID",
+      "clientSecret": "Client secret",
+      "secretKept": "Stored. Leave empty to keep it.",
+      "panelUrl": "Panel URL",
+      "domains": "Allowed email domains",
+      "domainsHint": "Comma-separated. Empty: every domain.",
+      "redirectHint": "Register this redirect URL at your provider:",
+      "autoCreate": "Create accounts for new people",
+      "autoCreateHint": "Without it, only people who already have a TalePanel account with the same verified email can sign in.",
+      "defaultRole": "Role for new accounts",
+      "trustMfa": "The provider enforces multi-factor sign-in",
+      "trustMfaHint": "Users with TalePanel 2FA then skip the code after SSO. Leave it off unless your provider really requires a second factor.",
+      "linkHint": "Existing accounts are linked by verified email on the first SSO sign-in; admin and owner accounts only when they have 2FA. Admins without 2FA stay limited while the staff 2FA policy is on.",
+      "saved": "SSO settings saved",
+      "saveFailed": "Could not save the SSO settings",
+      "onlyOwner": "Only the owner can change this."
     }
   }
 }

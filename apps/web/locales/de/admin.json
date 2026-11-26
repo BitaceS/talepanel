@@ -332,6 +332,29 @@
       "confirmDelete": "Vorlage „{name}“ löschen? Daraus erstellte Server sind nicht betroffen.",
       "deleted": "Vorlage gelöscht",
       "deleteFailed": "Vorlage konnte nicht gelöscht werden"
+    },
+    "sso": {
+      "title": "Single Sign-on (OpenID Connect)",
+      "desc": "Lass Leute sich über deinen Identity-Provider anmelden (Keycloak, Authentik, Authelia, Google Workspace, Microsoft Entra ID …). Die Anmeldeseite zeigt dann einen Button „Anmelden mit …“.",
+      "enabled": "„Anmelden mit …“ auf der Anmeldeseite zeigen",
+      "displayName": "Name auf dem Button",
+      "issuerUrl": "Issuer-URL",
+      "clientId": "Client-ID",
+      "clientSecret": "Client-Secret",
+      "secretKept": "Gespeichert. Leer lassen, um es zu behalten.",
+      "panelUrl": "Panel-URL",
+      "domains": "Erlaubte E-Mail-Domains",
+      "domainsHint": "Mit Komma getrennt. Leer: alle Domains.",
+      "redirectHint": "Trag diese Redirect-URL bei deinem Provider ein:",
+      "autoCreate": "Konten für neue Leute anlegen",
+      "autoCreateHint": "Ohne das können sich nur Leute anmelden, die schon ein TalePanel-Konto mit derselben bestätigten E-Mail haben.",
+      "defaultRole": "Rolle für neue Konten",
+      "trustMfa": "Der Provider erzwingt eine Anmeldung mit zweitem Faktor",
+      "trustMfaHint": "Benutzer mit TalePanel-2FA überspringen dann nach SSO den Code. Lass es aus, wenn dein Provider nicht wirklich einen zweiten Faktor verlangt.",
+      "linkHint": "Bestehende Konten werden bei der ersten SSO-Anmeldung über die bestätigte E-Mail verknüpft, Admin- und Owner-Konten nur mit aktivierter 2FA. Admins ohne 2FA bleiben eingeschränkt, solange die 2FA-Pflicht für Staff aktiv ist.",
+      "saved": "SSO-Einstellungen gespeichert",
+      "saveFailed": "SSO-Einstellungen konnten nicht gespeichert werden",
+      "onlyOwner": "Nur der Owner kann das ändern."
     }
   }
 }

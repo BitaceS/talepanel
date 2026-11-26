@@ -1103,6 +1103,7 @@ async function submitCreateUser() {
           {{ securityPolicy.requireStaff2FA ? t('admin.integrations.staff2fa.stateOn') : t('admin.integrations.staff2fa.stateOff') }}
         </p>
       </div>
+      <AdminSsoSettingsPanel @toast="(msg, type) => showToast(msg, type)" />
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
         <div class="flex items-start justify-between gap-4">
           <div>

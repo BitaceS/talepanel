@@ -12,15 +12,46 @@ const { t } = useI18n()
 // A fresh install has no account to sign in with yet; send the visitor to the
 // setup wizard instead.
 onMounted(async () => {
+  readSsoReturn()
   try {
     const data = await api.get<{ needs_setup: boolean }>('/health/setup')
     if (data.needs_setup) {
       await navigateTo('/setup')
+      return
     }
   } catch {
     // Setup status is best-effort; the sign-in form still works.
   }
+  try {
+    sso.value = await api.get<{ enabled: boolean, display_name?: string }>('/auth/oidc')
+  } catch {
+    // Older API without SSO: no button.
+  }
 })
+
+// ── Single sign-on ───────────────────────────────────────────────────────────
+const sso = ref<{ enabled: boolean, display_name?: string }>({ enabled: false })
+const route = useRoute()
+const SSO_ERRORS = ['denied', 'state', 'unverified', 'domain', 'no_account', 'staff_2fa', 'inactive', 'disabled', 'failed']
+
+function startSso() {
+  window.location.href = `${useRuntimeConfig().public.apiBase}/auth/oidc/start`
+}
+
+// The SSO callback comes back here with ?sso_error=<code>, or with
+// #sso_partial=<token> when the account still needs its 2FA code.
+function readSsoReturn() {
+  const code = route.query.sso_error
+  if (typeof code === 'string') {
+    serverError.value = t(`auth.sso.errors.${SSO_ERRORS.includes(code) ? code : 'failed'}`)
+  }
+  const m = window.location.hash.match(/sso_partial=([^&]+)/)
+  if (m?.[1]) {
+    authStore.partialToken = decodeURIComponent(m[1])
+    totpRequired.value = true
+  }
+  if (code || m) history.replaceState(null, '', window.location.pathname)
+}
 
 const form = reactive({
   email: '',
@@ -311,6 +342,23 @@ function cancelTotp() {
         <span class="material-symbols-outlined text-base">arrow_forward</span>
       </button>
     </form>
+
+    <!-- Single sign-on -->
+    <div v-if="sso.enabled && !totpRequired" class="mt-4">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="flex-1 h-px bg-tp-border/50" />
+        <span class="text-tp-outline text-xs uppercase tracking-wider">{{ t('auth.sso.or') }}</span>
+        <div class="flex-1 h-px bg-tp-border/50" />
+      </div>
+      <button
+        type="button"
+        class="w-full bg-tp-surface2 text-tp-text font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-tp-surface3 transition-colors"
+        @click="startSso"
+      >
+        <span class="material-symbols-outlined text-base">key</span>
+        {{ t('auth.sso.signInWith', { name: sso.display_name ?? 'SSO' }) }}
+      </button>
+    </div>
 
     <!-- Register link -->
     <div class="mt-5 text-center">
