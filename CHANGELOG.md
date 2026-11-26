@@ -4,6 +4,19 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **End-to-end tests.** A Playwright suite (`apps/web/e2e`) runs against the Docker demo: sign in and out, the server list, every tab of a server page, starting and stopping a server, editing and saving a file in the Config tab (invalid JSON is refused), the Files tab, and a 390 px phone width. CI runs it in its own job and uploads the report when it fails. Run it locally with `cd apps/web && npx playwright test` while the demo is up.
+- Unit tests for the web panel's helpers (Vitest, `npm test` in `apps/web`), also run in CI.
+
+### Fixed
+- **Config tab could save one file's content into another.** Switching files while a slow read was still running showed the older file under the newer name, and Save wrote it there. A save finishing after a switch no longer replaces the newly opened file either.
+- The Config tab form no longer opens files with numbers that overflow (like `1e400`, which would have been saved as `null`) or very large integers written with a fraction; they open as raw JSON. Saving no longer picks a deeper indentation when the file has a blank line.
+- **Daemon: a node's own certificate counted as an endorsement for a new panel CA.** During CA rotation a node accepts a new CA only with a cross certificate from a CA it trusts. Any certificate signed by that CA passed, including a node's leaf certificate, so someone holding one node's key could get a rogue CA trusted by another node from a man-in-the-middle position. Endorsements must now be CA certificates.
+- **Daemon: the server sandbox did not filter x32 system calls.** On kernels with the x32 ABI enabled, a native mod could call `unshare`, `mount`, `bpf` and the other blocked calls through it. All x32 calls are now refused.
+- Server list on phones: the name column collapsed to nothing at 390 px and the status filter was cut off. Phones now show name, status and actions; tablets add the icon; the node, port and RAM columns appear on wide screens.
+- Login and registration fields are now linked to their labels (screen readers, and clicking a label focuses the field).
+- `examples/demo/run-demo.sh` failed on a fresh checkout (the root compose file needs the JWT and TOTP secrets even to start Postgres and Redis) and on a second run (it overwrote the running daemon binary and did not wait for the old daemon to free its port).
+
 ## [0.17.0] — 2026-11-25
 
 ### Added

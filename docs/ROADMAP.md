@@ -88,7 +88,7 @@ Plus about 50 bug fixes; see `CHANGELOG.md` → 0.13.0.
 | 19 | **Discord bot / richer notifications** (status, start/stop from Discord, web push) | KyuubiSoft offers Discord/Slack/web push; TalePanel has Discord webhooks for alerts. | M |
 | 20 | **OIDC / SSO login** | Ketbome advertises SSO; interesting for hosters and communities with an existing identity provider. | M–L |
 | 21 | **Billing / reseller hooks** (WHMCS-style API) | Only if hosters ask for it; keeps the AGPL "no paid tier" promise as long as it's open source. | XL |
-| 22 | **Meaningful test coverage + E2E** (Playwright against a real stack) | Ongoing. Integration tests run against Postgres today; the web has none. | ongoing |
+| 22 | **Meaningful test coverage + E2E** (Playwright against a real stack) | Done (unreleased): Playwright suite in `apps/web/e2e` against the Docker demo (login, server list, every server tab, start/stop, Config tab edit and invalid JSON, Files tab, 390 px phone width), its own CI job; Vitest unit tests for `apps/web/utils`. Still ongoing: more API integration tests and E2E for admin pages. | ongoing |
 
 ---
 
