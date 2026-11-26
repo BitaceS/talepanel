@@ -12,6 +12,7 @@ import { useServerTemplatesStore } from '~/stores/serverTemplates'
 
 definePageMeta({ title: 'pages.admin', middleware: 'auth' })
 
+const { t } = useI18n()
 const api = useApi()
 const authStore = useAuthStore()
 const templatesStore = useServerTemplatesStore()
@@ -32,7 +33,7 @@ async function fetchCurseForgeStatus() {
     cfStatus.value = await api.get<CurseForgeStatus>('/admin/integrations/curseforge')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to load CurseForge status', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.curseforge.loadFailed'), 'error')
   } finally {
     cfLoading.value = false
   }
@@ -44,10 +45,10 @@ async function saveCurseForgeKey() {
     await api.put('/admin/integrations/curseforge', { api_key: cfKeyInput.value })
     cfKeyInput.value = ''
     await fetchCurseForgeStatus()
-    showToast('CurseForge API key saved')
+    showToast(t('admin.integrations.curseforge.saved'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to save key', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.curseforge.saveFailed'), 'error')
   } finally {
     cfSaving.value = false
   }
@@ -85,10 +86,10 @@ async function toggleStaff2FA() {
   try {
     const res = await api.put<{ policy: { require_staff_2fa: boolean } }>('/admin/security-policy', { require_staff_2fa: next })
     securityPolicy.requireStaff2FA = res.policy.require_staff_2fa
-    showToast(next ? '2FA is now required for admins and owners' : '2FA is no longer required')
+    showToast(next ? t('admin.integrations.staff2fa.toastOn') : t('admin.integrations.staff2fa.toastOff'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to save the security policy', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.staff2fa.saveFailed'), 'error')
   } finally {
     securityPolicy.saving = false
   }
@@ -113,7 +114,7 @@ async function fetchBackupKey() {
     backupKey.activeKeyId = s.active_key_id
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to load backup key status', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.backupKey.loadFailed'), 'error')
   } finally {
     backupKey.loading = false
   }
@@ -126,7 +127,7 @@ async function revealBackupKey() {
     backupKey.activeKeyId = s.active_key_id
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to reveal backup key', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.backupKey.revealFailed'), 'error')
   } finally {
     backupKey.revealing = false
   }
@@ -134,22 +135,22 @@ async function revealBackupKey() {
 async function copyBackupKey() {
   try {
     await navigator.clipboard.writeText(backupKey.revealed)
-    showToast('Backup key copied')
+    showToast(t('admin.integrations.backupKey.copied'))
   } catch {
-    showToast('Copy failed', 'error')
+    showToast(t('admin.integrations.backupKey.copyFailed'), 'error')
   }
 }
 async function rotateBackupKey() {
-  if (!confirm('Generate a new backup encryption key? New backups use the new key; existing backups keep restoring with their old key. Export and store the new key somewhere safe afterwards.')) return
+  if (!confirm(t('admin.integrations.backupKey.confirmRotate'))) return
   backupKey.rotating = true
   try {
     const s = await api.post<{ active_key_id: number }>('/admin/backup-key/rotate', {})
     backupKey.activeKeyId = s.active_key_id
     backupKey.revealed = ''
-    showToast(`Backup key rotated to #${s.active_key_id}`)
+    showToast(t('admin.integrations.backupKey.rotated', { id: s.active_key_id }))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to rotate backup key', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.backupKey.rotateFailed'), 'error')
   } finally {
     backupKey.rotating = false
   }
@@ -182,7 +183,7 @@ async function fetchHytaleAuth() {
     hyAuth.value = await api.get<HytaleAuthStatus>('/admin/hytale-auth')
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to load Hytale account status', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.hytale.loadFailed'), 'error')
   }
 }
 
@@ -193,7 +194,7 @@ async function startHytaleLogin() {
     scheduleHytalePoll()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Could not start the Hytale login', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.hytale.startFailed'), 'error')
   } finally {
     hyBusy.value = false
   }
@@ -210,36 +211,36 @@ async function pollHytaleLogin() {
     const { state } = await api.post<{ state: string }>('/admin/hytale-auth/device/poll')
     if (state === 'pending') return scheduleHytalePoll()
     hyLogin.value = null
-    if (state === 'linked') showToast('Hytale account linked')
-    else showToast(state === 'denied' ? 'Hytale login was denied' : 'Hytale login expired, start again', 'error')
+    if (state === 'linked') showToast(t('admin.integrations.hytale.linkedToast'))
+    else showToast(state === 'denied' ? t('admin.integrations.hytale.denied') : t('admin.integrations.hytale.expired'), 'error')
     await fetchHytaleAuth()
   } catch (err: unknown) {
     hyLogin.value = null
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Hytale login failed', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.hytale.loginFailed'), 'error')
   }
 }
 
 async function selectHytaleProfile(uuid: string) {
   try {
     hyAuth.value = await api.put<HytaleAuthStatus>('/admin/hytale-auth/profile', { profile_uuid: uuid })
-    showToast('Profile saved. Applies to the next server start.')
+    showToast(t('admin.integrations.hytale.profileSaved'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Could not select profile', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.hytale.profileFailed'), 'error')
   }
 }
 
 async function unlinkHytale() {
-  if (!confirm('Unlink the Hytale account? Servers will start unauthenticated from their next start on.')) return
+  if (!confirm(t('admin.integrations.hytale.confirmUnlink'))) return
   hyBusy.value = true
   try {
     await api.delete('/admin/hytale-auth')
     await fetchHytaleAuth()
-    showToast('Hytale account unlinked')
+    showToast(t('admin.integrations.hytale.unlinked'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Could not unlink', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.hytale.unlinkFailed'), 'error')
   } finally {
     hyBusy.value = false
   }
@@ -248,15 +249,15 @@ async function unlinkHytale() {
 onBeforeUnmount(() => clearTimeout(hyPollTimer))
 
 async function clearCurseForgeKey() {
-  if (!confirm('Clear the stored CurseForge API key? Mod browsing will stop working until a new key is provided.')) return
+  if (!confirm(t('admin.integrations.curseforge.confirmClear'))) return
   cfSaving.value = true
   try {
     await api.put('/admin/integrations/curseforge', { api_key: '' })
     await fetchCurseForgeStatus()
-    showToast('CurseForge API key cleared')
+    showToast(t('admin.integrations.curseforge.cleared'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to clear key', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.curseforge.clearFailed'), 'error')
   } finally {
     cfSaving.value = false
   }
@@ -304,7 +305,7 @@ async function fetchSmtp() {
     fillSmtpForm(await api.get<SmtpStatus>('/admin/integrations/smtp'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to load email settings', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.smtp.loadFailed'), 'error')
   } finally {
     smtpLoading.value = false
   }
@@ -329,25 +330,25 @@ async function saveSmtp() {
     }
     if (smtpForm.password) body.password = smtpForm.password
     fillSmtpForm(await api.put<SmtpStatus>('/admin/integrations/smtp', body))
-    showToast('Email settings saved')
+    showToast(t('admin.integrations.smtp.saved'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to save email settings', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.smtp.saveFailed'), 'error')
   } finally {
     smtpSaving.value = false
   }
 }
 
 async function clearSmtp() {
-  if (!confirm('Remove the email settings stored in the panel? Email alerts stop unless SMTP_* environment variables are set.')) return
+  if (!confirm(t('admin.integrations.smtp.confirmClear'))) return
   smtpSaving.value = true
   smtpResult.value = null
   try {
     fillSmtpForm(await api.put<SmtpStatus>('/admin/integrations/smtp', { host: '' }))
-    showToast('Email settings removed')
+    showToast(t('admin.integrations.smtp.removed'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to remove email settings', 'error')
+    showToast(e.data?.error ?? t('admin.integrations.smtp.removeFailed'), 'error')
   } finally {
     smtpSaving.value = false
   }
@@ -358,10 +359,10 @@ async function testSmtp() {
   smtpResult.value = null
   try {
     const res = await api.post<{ sent_to: string }>('/admin/integrations/smtp/test')
-    smtpResult.value = { ok: true, text: `Test email sent to ${res.sent_to}. Check your inbox and spam folder.` }
+    smtpResult.value = { ok: true, text: t('admin.integrations.smtp.testSent', { email: res.sent_to }) }
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    smtpResult.value = { ok: false, text: e.data?.error ?? e.message ?? 'Sending the test email failed' }
+    smtpResult.value = { ok: false, text: e.data?.error ?? e.message ?? t('admin.integrations.smtp.testFailed') }
   } finally {
     smtpTesting.value = false
   }
@@ -413,7 +414,7 @@ async function fetchUsers() {
     users.value = data.users ?? []
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    usersError.value = e.data?.error ?? e.message ?? 'Failed to fetch users'
+    usersError.value = e.data?.error ?? e.message ?? t('admin.users.fetchFailed')
   } finally {
     usersLoading.value = false
   }
@@ -425,10 +426,10 @@ async function changeRole(user: User, newRole: string) {
   try {
     await api.patch(`/admin/users/${user.id}/role`, { role: newRole })
     user.role = newRole
-    showToast(`Role updated to ${newRole}`)
+    showToast(t('admin.users.roleUpdated', { role: t(`roles.${newRole}`) }))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to update role', 'error')
+    showToast(e.data?.error ?? t('admin.users.roleUpdateFailed'), 'error')
   }
 }
 
@@ -437,22 +438,22 @@ async function toggleActive(user: User) {
   try {
     await api.patch(`/admin/users/${user.id}/active`, { is_active: newActive })
     user.is_active = newActive
-    showToast(newActive ? 'User activated' : 'User deactivated')
+    showToast(newActive ? t('admin.users.activated') : t('admin.users.deactivated'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to toggle user', 'error')
+    showToast(e.data?.error ?? t('admin.users.toggleFailed'), 'error')
   }
 }
 
 async function deleteUser(user: User) {
-  if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return
+  if (!confirm(t('admin.users.confirmDelete', { name: user.username }))) return
   try {
     await api.delete(`/admin/users/${user.id}`)
     users.value = users.value.filter(u => u.id !== user.id)
-    showToast('User deleted')
+    showToast(t('admin.users.deleted'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to delete user', 'error')
+    showToast(e.data?.error ?? t('admin.users.deleteFailed'), 'error')
   }
 }
 
@@ -462,22 +463,23 @@ async function deleteUser(user: User) {
 // individual per-user overrides are layered on top via GET/PUT on
 // /admin/users/:id/permissions.
 const ALL_PERMISSIONS: { key: string; group: string; label: string }[] = [
-  { key: 'admin.nodes',       group: 'Admin',    label: 'Manage nodes' },
-  { key: 'admin.users',       group: 'Admin',    label: 'Manage users' },
-  { key: 'server.create',     group: 'Servers',  label: 'Create servers' },
-  { key: 'server.delete',     group: 'Servers',  label: 'Delete servers' },
-  { key: 'server.start',      group: 'Servers',  label: 'Start servers' },
-  { key: 'server.stop',       group: 'Servers',  label: 'Stop servers' },
-  { key: 'server.console',    group: 'Servers',  label: 'Send console commands' },
-  { key: 'server.files',      group: 'Servers',  label: 'Access file browser' },
-  { key: 'backup.create',     group: 'Backups',  label: 'Create backups' },
-  { key: 'backup.restore',    group: 'Backups',  label: 'Restore backups' },
-  { key: 'database.view',     group: 'Database', label: 'View server databases' },
-  { key: 'database.reset',    group: 'Database', label: 'Rotate database password' },
-  { key: 'mod.install',       group: 'Mods',     label: 'Install mods' },
-  { key: 'mod.remove',        group: 'Mods',     label: 'Remove mods' },
-  { key: 'player.ban',        group: 'Players',  label: 'Ban / unban players' },
-  { key: 'player.whitelist',  group: 'Players',  label: 'Manage whitelist' },
+// `group` and `label` are i18n keys under admin.permissions.
+  { key: 'admin.nodes',       group: 'admin',    label: 'manageNodes' },
+  { key: 'admin.users',       group: 'admin',    label: 'manageUsers' },
+  { key: 'server.create',     group: 'servers',  label: 'createServers' },
+  { key: 'server.delete',     group: 'servers',  label: 'deleteServers' },
+  { key: 'server.start',      group: 'servers',  label: 'startServers' },
+  { key: 'server.stop',       group: 'servers',  label: 'stopServers' },
+  { key: 'server.console',    group: 'servers',  label: 'console' },
+  { key: 'server.files',      group: 'servers',  label: 'files' },
+  { key: 'backup.create',     group: 'backups',  label: 'createBackups' },
+  { key: 'backup.restore',    group: 'backups',  label: 'restoreBackups' },
+  { key: 'database.view',     group: 'database', label: 'viewDatabases' },
+  { key: 'database.reset',    group: 'database', label: 'rotateDbPassword' },
+  { key: 'mod.install',       group: 'mods',     label: 'installMods' },
+  { key: 'mod.remove',        group: 'mods',     label: 'removeMods' },
+  { key: 'player.ban',        group: 'players',  label: 'banPlayers' },
+  { key: 'player.whitelist',  group: 'players',  label: 'manageWhitelist' },
 ]
 
 interface UserPermission { perm_key: string; granted: boolean }
@@ -498,7 +500,7 @@ async function openPermissions(user: User) {
     }
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to load permissions', 'error')
+    showToast(e.data?.error ?? t('admin.permissions.loadFailed'), 'error')
   } finally {
     permLoading.value = false
   }
@@ -533,11 +535,11 @@ async function savePermissions() {
   try {
     const permissions = Object.entries(permOverrides.value).map(([perm_key, granted]) => ({ perm_key, granted }))
     await api.put(`/admin/users/${permUser.value.id}/permissions`, { permissions })
-    showToast('Permissions saved')
+    showToast(t('admin.permissions.saved'))
     closePermissions()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to save permissions', 'error')
+    showToast(e.data?.error ?? t('admin.permissions.saveFailed'), 'error')
   } finally {
     permSaving.value = false
   }
@@ -576,9 +578,9 @@ function isolationLayers(node: Node) {
   const iso = node.metadata?.isolation
   if (!iso) return []
   return [
-    { label: 'Own user', on: iso.uid, hint: "Every game server runs under its own Linux user and cannot read the node's keys or other servers' files" },
-    { label: 'Syscall filter', on: iso.seccomp, hint: 'seccomp: no ptrace, mount, namespaces, bpf, io_uring or kernel modules' },
-    { label: 'Network guard', on: iso.network, hint: "Servers cannot reach the daemon's port, other servers or other services on the node (needs NET_ADMIN)" },
+    { id: 'uid', label: t('admin.nodes.layers.ownUser'), on: iso.uid, hint: t('admin.nodes.layers.ownUserHint') },
+    { id: 'seccomp', label: t('admin.nodes.layers.syscallFilter'), on: iso.seccomp, hint: t('admin.nodes.layers.syscallFilterHint') },
+    { id: 'network', label: t('admin.nodes.layers.networkGuard'), on: iso.network, hint: t('admin.nodes.layers.networkGuardHint') },
   ]
 }
 const nodesLoading = ref(false)
@@ -592,7 +594,7 @@ async function fetchNodes() {
     nodes.value = data.nodes ?? []
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    nodesError.value = e.data?.error ?? e.message ?? 'Failed to fetch nodes'
+    nodesError.value = e.data?.error ?? e.message ?? t('admin.nodes.fetchFailed')
   } finally {
     nodesLoading.value = false
   }
@@ -602,10 +604,10 @@ async function setNodeStatus(node: Node, status: string) {
   try {
     await api.patch(`/admin/nodes/${node.id}/status`, { status })
     node.status = status
-    showToast(`Node set to ${status}`)
+    showToast(t('admin.nodes.statusSet', { status: nodeStatusLabel(status) }))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to update node', 'error')
+    showToast(e.data?.error ?? t('admin.nodes.updateFailed'), 'error')
   }
 }
 
@@ -667,6 +669,15 @@ function statusColor(status: string) {
   }
 }
 
+function nodeStatusLabel(status: string): string {
+  switch (status) {
+    case 'online': return t('status.online')
+    case 'offline': return t('status.offline')
+    case 'draining': return t('admin.nodes.draining')
+    default: return status
+  }
+}
+
 function roleColor(role: string) {
   switch (role) {
     case 'owner': return 'text-amber-400 bg-amber-400/10 border-amber-400/20'
@@ -682,13 +693,13 @@ function formatMB(mb: number): string {
 }
 
 function timeAgo(iso?: string): string {
-  if (!iso) return 'Never'
+  if (!iso) return t('common.never')
   const diff = Date.now() - new Date(iso).getTime()
   const s = Math.floor(diff / 1000)
-  if (s < 60) return `${s}s ago`
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
-  return `${Math.floor(s / 86400)}d ago`
+  if (s < 60) return t('admin.time.secondsAgo', { n: s })
+  if (s < 3600) return t('time.minutesAgo', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('time.hoursAgo', { n: Math.floor(s / 3600) })
+  return t('time.daysAgo', { n: Math.floor(s / 86400) })
 }
 
 function formatDate(iso: string): string {
@@ -734,10 +745,10 @@ async function submitCreateUser() {
       users.value.push(data.user)
     }
     showCreateUser.value = false
-    showToast('User created')
+    showToast(t('admin.createUser.created'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    createUserError.value = e.data?.error ?? e.message ?? 'Failed to create user'
+    createUserError.value = e.data?.error ?? e.message ?? t('admin.createUser.failed')
   } finally {
     createUserLoading.value = false
   }
@@ -749,18 +760,18 @@ async function submitCreateUser() {
     <!-- Header -->
     <div class="flex items-center gap-3">
       <Shield class="w-6 h-6 text-tp-primary" />
-      <h2 class="text-tp-text font-display font-bold text-2xl">Admin Panel</h2>
+      <h2 class="text-tp-text font-display font-bold text-2xl">{{ t('pages.admin') }}</h2>
     </div>
 
     <!-- Tabs -->
     <div class="flex gap-1 bg-tp-surface rounded-xl p-1 w-fit">
       <button
         v-for="tab in [
-          { key: 'users', label: 'Users', icon: Users, count: users.length },
-          { key: 'nodes', label: 'Nodes', icon: Network, count: nodes.length },
-          { key: 'templates', label: 'Templates', icon: LayoutTemplate, count: templatesStore.templates.length },
-          { key: 'logs', label: 'Activity Logs', icon: Activity, count: activityLogs.length },
-          { key: 'integrations', label: 'Integrations', icon: Plug, count: 0 },
+          { key: 'users', label: t('admin.tabs.users'), icon: Users, count: users.length },
+          { key: 'nodes', label: t('admin.tabs.nodes'), icon: Network, count: nodes.length },
+          { key: 'templates', label: t('admin.tabs.templates'), icon: LayoutTemplate, count: templatesStore.templates.length },
+          { key: 'logs', label: t('admin.tabs.logs'), icon: Activity, count: activityLogs.length },
+          { key: 'integrations', label: t('admin.tabs.integrations'), icon: Plug, count: 0 },
         ]"
         :key="tab.key"
         :class="[
@@ -790,17 +801,17 @@ async function submitCreateUser() {
           <input
             v-model="userSearch"
             type="text"
-            placeholder="Search users..."
+            :placeholder="t('admin.users.searchPlaceholder')"
             class="w-full bg-tp-surface rounded-xl pl-9 pr-4 py-2 text-sm text-tp-text placeholder-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50"
           />
         </div>
         <UiButton variant="secondary" size="sm" :loading="usersLoading" @click="fetchUsers">
           <RefreshCw class="w-3.5 h-3.5" />
-          Refresh
+          {{ t('actions.refresh') }}
         </UiButton>
         <UiButton variant="primary" size="sm" @click="openCreateUser">
           <span class="material-symbols-outlined text-base">person_add</span>
-          Create User
+          {{ t('admin.users.createUser') }}
         </UiButton>
       </div>
 
@@ -813,12 +824,12 @@ async function submitCreateUser() {
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-tp-border">
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">User</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Role</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Status</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Last Login</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Created</th>
-              <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Actions</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colUser') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colRole') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colStatus') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colLastLogin') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colCreated') }}</th>
+              <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.users.colActions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -847,7 +858,7 @@ async function submitCreateUser() {
                     ]"
                   >
                     <option v-for="r in roles" :key="r" :value="r" :disabled="r === 'owner' && !isOwner">
-                      {{ r }}
+                      {{ t(`roles.${r}`) }}
                     </option>
                   </select>
                   <ChevronDown class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none" />
@@ -858,7 +869,7 @@ async function submitCreateUser() {
                   'text-xs font-medium px-2 py-0.5 rounded-full',
                   user.is_active ? 'text-tp-success bg-tp-success/15' : 'text-tp-error bg-tp-error/10',
                 ]">
-                  {{ user.is_active ? 'Active' : 'Disabled' }}
+                  {{ user.is_active ? t('admin.users.active') : t('admin.users.disabled') }}
                 </span>
               </td>
               <td class="px-4 py-3 text-tp-muted text-xs">{{ timeAgo(user.last_login_at) }}</td>
@@ -866,7 +877,7 @@ async function submitCreateUser() {
               <td class="px-4 py-3">
                 <div class="flex items-center justify-end gap-1">
                   <button
-                    title="Edit permissions"
+                    :title="t('admin.users.editPermissions')"
                     class="p-1.5 rounded-lg text-tp-primary hover:bg-tp-primary/10 transition-colors"
                     @click="openPermissions(user)"
                   >
@@ -874,7 +885,7 @@ async function submitCreateUser() {
                   </button>
                   <button
                     v-if="!isSelf(user.id)"
-                    :title="user.is_active ? 'Deactivate' : 'Activate'"
+                    :title="user.is_active ? t('admin.users.deactivate') : t('admin.users.activate')"
                     class="p-1.5 rounded-lg hover:bg-tp-surface2 transition-colors"
                     :class="user.is_active ? 'text-tp-warning' : 'text-tp-success'"
                     @click="toggleActive(user)"
@@ -884,7 +895,7 @@ async function submitCreateUser() {
                   </button>
                   <button
                     v-if="!isSelf(user.id)"
-                    title="Delete user"
+                    :title="t('admin.users.deleteUser')"
                     class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors"
                     @click="deleteUser(user)"
                   >
@@ -896,7 +907,7 @@ async function submitCreateUser() {
           </tbody>
         </table>
         <div v-if="filteredUsers.length === 0 && !usersLoading" class="p-8 text-center text-tp-muted text-sm">
-          No users found
+          {{ t('admin.users.empty') }}
         </div>
       </div>
     </div>
@@ -908,7 +919,7 @@ async function submitCreateUser() {
       <div class="flex items-center justify-end">
         <UiButton variant="secondary" size="sm" :loading="nodesLoading" @click="fetchNodes">
           <RefreshCw class="w-3.5 h-3.5" />
-          Refresh
+          {{ t('actions.refresh') }}
         </UiButton>
       </div>
 
@@ -926,7 +937,7 @@ async function submitCreateUser() {
               <p class="text-tp-muted text-xs font-mono mt-0.5 truncate">{{ node.fqdn }}:{{ node.port }}</p>
             </div>
             <span :class="['text-xs font-medium px-2 py-0.5 rounded-full shrink-0', statusColor(node.status)]">
-              {{ node.status }}
+              {{ nodeStatusLabel(node.status) }}
             </span>
           </div>
 
@@ -942,23 +953,23 @@ async function submitCreateUser() {
             </div>
             <div class="bg-tp-surface2 rounded-xl p-2 text-center">
               <p class="text-tp-text font-semibold text-sm">{{ node.total_disk_mb ? formatMB(node.total_disk_mb) : '-' }}</p>
-              <p class="text-tp-outline text-xs">Disk</p>
+              <p class="text-tp-outline text-xs">{{ t('admin.nodes.disk') }}</p>
             </div>
           </div>
 
           <!-- Server isolation (daemon v0.16+) -->
           <div class="flex flex-wrap items-center gap-1.5 text-xs">
-            <span class="text-tp-muted mr-0.5">Isolation</span>
+            <span class="text-tp-muted mr-0.5">{{ t('admin.nodes.isolation') }}</span>
             <template v-if="node.metadata?.isolation">
-              <span v-for="layer in isolationLayers(node)" :key="layer.label"
+              <span v-for="layer in isolationLayers(node)" :key="layer.id"
                 :title="layer.hint"
                 :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full',
                   layer.on ? 'bg-tp-success/15 text-tp-success' : 'bg-tp-surface2 text-tp-muted line-through']">
                 <component :is="layer.on ? Check : X" class="w-3 h-3" aria-hidden="true" />
-                {{ layer.label }}<span class="sr-only">{{ layer.on ? ' active' : ' not active' }}</span>
+                {{ layer.label }}<span class="sr-only">{{ ' ' + (layer.on ? t('admin.nodes.layerActive') : t('admin.nodes.layerInactive')) }}</span>
               </span>
             </template>
-            <span v-else class="text-tp-outline">not reported (daemon older than v0.16)</span>
+            <span v-else class="text-tp-outline">{{ t('admin.nodes.notReported') }}</span>
           </div>
 
           <!-- Last heartbeat + location -->
@@ -967,7 +978,7 @@ async function submitCreateUser() {
               <Clock class="w-3 h-3" />
               {{ timeAgo(node.last_heartbeat) }}
             </span>
-            <span>{{ node.location || 'No location' }}</span>
+            <span>{{ node.location || t('admin.nodes.noLocation') }}</span>
           </div>
 
           <!-- Status controls -->
@@ -978,7 +989,7 @@ async function submitCreateUser() {
               @click="setNodeStatus(node, 'online')"
             >
               <Power class="w-3.5 h-3.5" />
-              Activate
+              {{ t('admin.nodes.activate') }}
             </button>
             <button
               class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-colors"
@@ -986,7 +997,7 @@ async function submitCreateUser() {
               @click="setNodeStatus(node, 'draining')"
             >
               <Pause class="w-3.5 h-3.5" />
-              Drain
+              {{ t('admin.nodes.drain') }}
             </button>
             <button
               class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-colors"
@@ -994,7 +1005,7 @@ async function submitCreateUser() {
               @click="setNodeStatus(node, 'offline')"
             >
               <PowerOff class="w-3.5 h-3.5" />
-              Deactivate
+              {{ t('admin.nodes.deactivate') }}
             </button>
           </div>
         </div>
@@ -1002,7 +1013,7 @@ async function submitCreateUser() {
 
       <div v-if="nodes.length === 0 && !nodesLoading" class="bg-tp-surface rounded-xl p-12 text-center">
         <Network class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-        <p class="text-tp-muted text-sm">No nodes registered</p>
+        <p class="text-tp-muted text-sm">{{ t('admin.nodes.empty') }}</p>
       </div>
 
       <AdminNodeCertificatesPanel @toast="showToast" />
@@ -1015,7 +1026,7 @@ async function submitCreateUser() {
       <div class="flex items-center justify-end">
         <UiButton variant="secondary" size="sm" :loading="logsLoading" @click="fetchLogs">
           <RefreshCw class="w-3.5 h-3.5" />
-          Refresh
+          {{ t('actions.refresh') }}
         </UiButton>
       </div>
 
@@ -1023,11 +1034,11 @@ async function submitCreateUser() {
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-tp-border">
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Time</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Action</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">By</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Target</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">IP</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.logs.colTime') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.logs.colAction') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.logs.colBy') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.logs.colTarget') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('admin.logs.colIp') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -1039,7 +1050,7 @@ async function submitCreateUser() {
               <td class="px-4 py-3 text-tp-muted text-xs">
                 <span>{{ actorEmail(log) || '-' }}</span>
                 <span v-if="viaApiKey(log)" class="ml-2 inline-flex items-center gap-1 rounded-md bg-tp-surface3 px-1.5 py-0.5 text-tp-text"
-                  :title="`Made with the API key ${viaApiKey(log)!.name}`">
+                  :title="t('admin.logs.viaApiKey', { name: viaApiKey(log)!.name })">
                   <KeyRound class="w-3 h-3" />
                   {{ viaApiKey(log)!.name }}<span v-if="viaApiKey(log)!.prefix" class="font-mono text-tp-muted">&nbsp;{{ viaApiKey(log)!.prefix }}…</span>
                 </span>
@@ -1053,7 +1064,7 @@ async function submitCreateUser() {
           </tbody>
         </table>
         <div v-if="activityLogs.length === 0 && !logsLoading" class="p-8 text-center text-tp-muted text-sm">
-          No activity logs yet
+          {{ t('admin.logs.empty') }}
         </div>
       </div>
     </div>
@@ -1072,25 +1083,24 @@ async function submitCreateUser() {
           <div>
             <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
               <Shield class="w-4 h-4 text-tp-primary" />
-              Require 2FA for admins
+              {{ t('admin.integrations.staff2fa.title') }}
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Admins and owners without two-factor authentication can only open their own security settings
-              until they set it up. API keys of those accounts stop working too. Only an owner with 2FA can turn this on.
+              {{ t('admin.integrations.staff2fa.desc') }}
             </p>
             <p v-if="staffWithout2FA.length" class="text-tp-warning text-xs mt-2">
-              Without 2FA: {{ staffWithout2FA.map(u => u.email).join(', ') }}
+              {{ t('admin.integrations.staff2fa.without', { list: staffWithout2FA.map(u => u.email).join(', ') }) }}
             </p>
           </div>
           <UiButton :variant="securityPolicy.requireStaff2FA ? 'secondary' : 'primary'" size="sm"
             :loading="securityPolicy.saving" :disabled="!authStore.isOwner || securityPolicy.loading"
-            :title="authStore.isOwner ? '' : 'Only an owner can change this'"
+            :title="authStore.isOwner ? '' : t('admin.integrations.staff2fa.onlyOwner')"
             @click="toggleStaff2FA">
-            {{ securityPolicy.requireStaff2FA ? 'Turn off' : 'Turn on' }}
+            {{ securityPolicy.requireStaff2FA ? t('admin.integrations.staff2fa.turnOff') : t('admin.integrations.staff2fa.turnOn') }}
           </UiButton>
         </div>
         <p class="text-xs" :class="securityPolicy.requireStaff2FA ? 'text-tp-success' : 'text-tp-muted'">
-          {{ securityPolicy.requireStaff2FA ? 'On: admins and owners must use 2FA.' : 'Off.' }}
+          {{ securityPolicy.requireStaff2FA ? t('admin.integrations.staff2fa.stateOn') : t('admin.integrations.staff2fa.stateOff') }}
         </p>
       </div>
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
@@ -1098,38 +1108,35 @@ async function submitCreateUser() {
           <div>
             <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
               <KeyRound class="w-4 h-4 text-tp-primary" />
-              Backup encryption
+              {{ t('admin.integrations.backupKey.title') }}
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Backups are encrypted with a panel-managed key before they are written or
-              copied off-site, so a leaked storage credential never exposes world data.
-              Keep an exported copy of the key somewhere safe — without it, a lost panel
-              database means unrecoverable backups.
+              {{ t('admin.integrations.backupKey.desc') }}
             </p>
           </div>
           <span class="text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap bg-tp-success/15 text-tp-success">
-            Active · key #{{ backupKey.activeKeyId ?? '—' }}
+            {{ t('admin.integrations.backupKey.activeBadge', { id: backupKey.activeKeyId ?? '—' }) }}
           </span>
         </div>
 
         <div v-if="backupKey.revealed" class="bg-tp-surface2 rounded-xl p-4 space-y-2">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Active key (base64)</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.backupKey.activeKey') }}</label>
           <div class="flex items-center gap-2">
             <code class="font-mono text-tp-text text-sm break-all flex-1">{{ backupKey.revealed }}</code>
-            <UiButton variant="secondary" size="sm" @click="copyBackupKey"><Copy class="w-3.5 h-3.5" /> Copy</UiButton>
+            <UiButton variant="secondary" size="sm" @click="copyBackupKey"><Copy class="w-3.5 h-3.5" /> {{ t('actions.copy') }}</UiButton>
           </div>
-          <p class="text-tp-outline text-xs">Store this offline. Anyone with this key can decrypt your backup archives.</p>
+          <p class="text-tp-outline text-xs">{{ t('admin.integrations.backupKey.storeOffline') }}</p>
         </div>
 
         <div v-if="authStore.isOwner" class="flex items-center gap-2">
           <UiButton variant="secondary" size="sm" :loading="backupKey.revealing" @click="revealBackupKey">
-            <Lock class="w-3.5 h-3.5" /> {{ backupKey.revealed ? 'Reveal again' : 'Reveal & export key' }}
+            <Lock class="w-3.5 h-3.5" /> {{ backupKey.revealed ? t('admin.integrations.backupKey.revealAgain') : t('admin.integrations.backupKey.reveal') }}
           </UiButton>
           <UiButton variant="danger" size="sm" :loading="backupKey.rotating" @click="rotateBackupKey">
-            <RotateCw class="w-3.5 h-3.5" /> Rotate key
+            <RotateCw class="w-3.5 h-3.5" /> {{ t('admin.integrations.backupKey.rotate') }}
           </UiButton>
         </div>
-        <p v-else class="text-tp-outline text-xs">Only the owner can reveal or rotate the backup key.</p>
+        <p v-else class="text-tp-outline text-xs">{{ t('admin.integrations.backupKey.onlyOwner') }}</p>
       </div>
 
       <div class="bg-tp-surface rounded-2xl p-6 space-y-4">
@@ -1137,12 +1144,12 @@ async function submitCreateUser() {
           <div>
             <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
               <Plug class="w-4 h-4 text-tp-primary" />
-              Hytale Account
+              {{ t('admin.integrations.hytale.title') }}
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Link a Hytale account once and servers start authenticated, with no
-              <code class="font-mono">/auth login</code> in the console. Players can only join authenticated servers.
-              Enable it per server under Settings → Launch Settings; plugins on those servers can read the session.
+              <i18n-t keypath="admin.integrations.hytale.desc" tag="span" scope="global">
+                <template #cmd><code class="font-mono">/auth login</code></template>
+              </i18n-t>
             </p>
           </div>
           <span
@@ -1150,48 +1157,50 @@ async function submitCreateUser() {
               'text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap',
               hyAuth.linked ? 'bg-tp-success/15 text-tp-success' : 'bg-tp-warning/15 text-tp-warning',
             ]">
-            {{ hyAuth.linked ? 'Linked' : 'Not linked' }}
+            {{ hyAuth.linked ? t('admin.integrations.hytale.linked') : t('admin.integrations.hytale.notLinked') }}
           </span>
         </div>
 
         <div v-if="hyLogin" class="bg-tp-surface2 rounded-xl p-4 space-y-2">
-          <p class="text-tp-text text-sm">
-            Open
-            <a :href="hyLoginHref" target="_blank" rel="noopener noreferrer"
-              class="text-tp-primary hover:underline inline-flex items-center gap-1">
-              {{ hyLogin.verification_uri }} <ExternalLink class="w-3 h-3" />
-            </a>
-            and sign in with the Hytale account the servers should run as.
-          </p>
-          <p class="text-tp-muted text-sm">Code: <code class="font-mono text-tp-text text-base">{{ hyLogin.user_code }}</code></p>
-          <p class="text-tp-outline text-xs">Waiting for approval…</p>
+          <i18n-t keypath="admin.integrations.hytale.openLink" tag="p" scope="global" class="text-tp-text text-sm">
+            <template #link>
+              <a :href="hyLoginHref" target="_blank" rel="noopener noreferrer"
+                class="text-tp-primary hover:underline inline-flex items-center gap-1">
+                {{ hyLogin.verification_uri }} <ExternalLink class="w-3 h-3" />
+              </a>
+            </template>
+          </i18n-t>
+          <i18n-t keypath="admin.integrations.hytale.code" tag="p" scope="global" class="text-tp-muted text-sm">
+            <template #code><code class="font-mono text-tp-text text-base">{{ hyLogin.user_code }}</code></template>
+          </i18n-t>
+          <p class="text-tp-outline text-xs">{{ t('admin.integrations.hytale.waiting') }}</p>
         </div>
 
         <div v-else-if="hyAuth.linked" class="space-y-3">
           <div class="flex flex-col gap-2 max-w-sm">
-            <label for="hytale-profile" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Servers run as</label>
+            <label for="hytale-profile" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.hytale.serversRunAs') }}</label>
             <select id="hytale-profile" :value="hyAuth.profile_uuid"
               class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text"
               @change="selectHytaleProfile(($event.target as HTMLSelectElement).value)">
               <option v-for="p in hyAuth.profiles ?? []" :key="p.uuid" :value="p.uuid">{{ p.username }}</option>
             </select>
           </div>
-          <p v-if="hyAuth.linked_at" class="text-tp-outline text-xs">Linked {{ new Date(hyAuth.linked_at).toLocaleString() }}</p>
+          <p v-if="hyAuth.linked_at" class="text-tp-outline text-xs">{{ t('admin.integrations.hytale.linkedAt', { date: new Date(hyAuth.linked_at).toLocaleString() }) }}</p>
         </div>
 
         <div class="flex items-center gap-2">
           <UiButton v-if="!hyLogin" variant="primary" size="sm" :loading="hyBusy" @click="startHytaleLogin">
-            {{ hyAuth.linked ? 'Link a different account' : 'Link Hytale account' }}
+            {{ hyAuth.linked ? t('admin.integrations.hytale.linkDifferent') : t('admin.integrations.hytale.link') }}
           </UiButton>
           <UiButton v-if="hyAuth.linked && !hyLogin" variant="danger" size="sm" :loading="hyBusy" @click="unlinkHytale">
-            <Trash2 class="w-3.5 h-3.5" /> Unlink
+            <Trash2 class="w-3.5 h-3.5" /> {{ t('admin.integrations.hytale.unlink') }}
           </UiButton>
         </div>
 
         <p class="text-tp-outline text-xs">
-          The refresh token is stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code>; each server
-          start gets its own one-hour game session, which the server renews while running. Up to 500 servers per account.
-          If the panel is offline for more than 30 days, link the account again.
+          <i18n-t keypath="admin.integrations.hytale.footnote" tag="span" scope="global">
+            <template #table><code class="font-mono">app_settings</code></template>
+          </i18n-t>
         </p>
       </div>
 
@@ -1203,11 +1212,14 @@ async function submitCreateUser() {
               CurseForge
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Required for the in-panel mod browser. Get a key at
-              <a href="https://console.curseforge.com/" target="_blank" rel="noopener"
-                class="text-tp-primary hover:underline inline-flex items-center gap-1">
-                console.curseforge.com <ExternalLink class="w-3 h-3" />
-              </a>.
+              <i18n-t keypath="admin.integrations.curseforge.desc" tag="span" scope="global">
+                <template #link>
+                  <a href="https://console.curseforge.com/" target="_blank" rel="noopener"
+                    class="text-tp-primary hover:underline inline-flex items-center gap-1">
+                    console.curseforge.com <ExternalLink class="w-3 h-3" />
+                  </a>
+                </template>
+              </i18n-t>
             </p>
           </div>
           <span
@@ -1217,16 +1229,16 @@ async function submitCreateUser() {
                 ? 'bg-tp-success/15 text-tp-success'
                 : 'bg-tp-warning/15 text-tp-warning',
             ]">
-            {{ cfStatus.configured ? 'Configured' : 'Not configured' }}
+            {{ cfStatus.configured ? t('admin.integrations.configured') : t('admin.integrations.notConfigured') }}
           </span>
         </div>
 
-        <div v-if="cfStatus.configured" class="text-tp-muted text-sm">
-          Current key: <code class="font-mono text-tp-text">{{ cfStatus.preview || '••••' }}</code>
-        </div>
+        <i18n-t v-if="cfStatus.configured" keypath="admin.integrations.curseforge.currentKey" tag="div" scope="global" class="text-tp-muted text-sm">
+          <template #key><code class="font-mono text-tp-text">{{ cfStatus.preview || '••••' }}</code></template>
+        </i18n-t>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">API key</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.curseforge.apiKey') }}</label>
           <input
             v-model="cfKeyInput"
             type="password"
@@ -1238,10 +1250,10 @@ async function submitCreateUser() {
 
         <div class="flex items-center gap-2">
           <UiButton variant="primary" size="sm" :loading="cfSaving" :disabled="!cfKeyInput.trim()" @click="saveCurseForgeKey">
-            <Save class="w-3.5 h-3.5" /> Save
+            <Save class="w-3.5 h-3.5" /> {{ t('actions.save') }}
           </UiButton>
           <UiButton v-if="cfStatus.configured" variant="danger" size="sm" :loading="cfSaving" @click="clearCurseForgeKey">
-            <Trash2 class="w-3.5 h-3.5" /> Clear
+            <Trash2 class="w-3.5 h-3.5" /> {{ t('admin.integrations.curseforge.clear') }}
           </UiButton>
           <UiButton variant="secondary" size="sm" :loading="cfLoading" @click="fetchCurseForgeStatus">
             <RefreshCw class="w-3.5 h-3.5" />
@@ -1249,9 +1261,10 @@ async function submitCreateUser() {
         </div>
 
         <p class="text-tp-outline text-xs">
-          Stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code>. Takes effect immediately —
-          no API restart required. Clearing falls back to the <code class="font-mono">CURSEFORGE_API_KEY</code>
-          env value (if set) on the next API restart.
+          <i18n-t keypath="admin.integrations.curseforge.footnote" tag="span" scope="global">
+            <template #table><code class="font-mono">app_settings</code></template>
+            <template #env><code class="font-mono">CURSEFORGE_API_KEY</code></template>
+          </i18n-t>
         </p>
       </div>
 
@@ -1260,11 +1273,10 @@ async function submitCreateUser() {
           <div>
             <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
               <Mail class="w-4 h-4 text-tp-primary" />
-              Email (SMTP)
+              {{ t('admin.integrations.smtp.title') }}
             </h3>
             <p class="text-tp-muted text-sm mt-1">
-              Needed for email alerts. Enter the SMTP details from your mail provider, for example your web
-              hosting package, Gmail with an app password, or a sending service like Brevo or Mailgun.
+              {{ t('admin.integrations.smtp.desc') }}
             </p>
           </div>
           <span
@@ -1274,65 +1286,64 @@ async function submitCreateUser() {
                 ? 'bg-tp-success/15 text-tp-success'
                 : 'bg-tp-warning/15 text-tp-warning',
             ]">
-            {{ smtpStatus?.configured ? (smtpStatus.source === 'env' ? 'Configured (env)' : 'Configured') : 'Not configured' }}
+            {{ smtpStatus?.configured ? (smtpStatus.source === 'env' ? t('admin.integrations.configuredEnv') : t('admin.integrations.configured')) : t('admin.integrations.notConfigured') }}
           </span>
         </div>
 
-        <p v-if="smtpStatus?.source === 'env'" class="text-tp-muted text-sm">
-          These values come from the <code class="font-mono">SMTP_*</code> environment variables.
-          Once you save here, the panel's values are used instead.
-        </p>
+        <i18n-t v-if="smtpStatus?.source === 'env'" keypath="admin.integrations.smtp.envNote" tag="p" scope="global" class="text-tp-muted text-sm">
+          <template #env><code class="font-mono">SMTP_*</code></template>
+        </i18n-t>
 
         <form class="grid grid-cols-1 sm:grid-cols-2 gap-4" autocomplete="off" @submit.prevent="saveSmtp">
           <div class="flex flex-col gap-2">
-            <label for="smtp-host" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">SMTP server</label>
+            <label for="smtp-host" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.server') }}</label>
             <input id="smtp-host" v-model="smtpForm.host" type="text" placeholder="smtp.example.com"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-2">
-              <label for="smtp-port" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Port</label>
+              <label for="smtp-port" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.port') }}</label>
               <input id="smtp-port" v-model.number="smtpForm.port" type="number" min="1" max="65535"
                 class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all"
                 @change="onSmtpPortChange" />
             </div>
             <div class="flex flex-col gap-2">
-              <label for="smtp-tls" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Encryption</label>
+              <label for="smtp-tls" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.encryption') }}</label>
               <select id="smtp-tls" v-model="smtpForm.tls_mode"
                 class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2.5 text-sm text-tp-text">
-                <option value="starttls">STARTTLS (port 587)</option>
-                <option value="tls">SSL/TLS (port 465)</option>
-                <option value="none">None (local relay only)</option>
+                <option value="starttls">{{ t('admin.integrations.smtp.optStarttls') }}</option>
+                <option value="tls">{{ t('admin.integrations.smtp.optTls') }}</option>
+                <option value="none">{{ t('admin.integrations.smtp.optNone') }}</option>
               </select>
             </div>
           </div>
           <div class="flex flex-col gap-2">
-            <label for="smtp-user" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
-            <input id="smtp-user" v-model="smtpForm.username" type="text" autocomplete="off" placeholder="Usually your email address"
+            <label for="smtp-user" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.username') }}</label>
+            <input id="smtp-user" v-model="smtpForm.username" type="text" autocomplete="off" :placeholder="t('admin.integrations.smtp.usernamePlaceholder')"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
           </div>
           <div class="flex flex-col gap-2">
-            <label for="smtp-pass" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+            <label for="smtp-pass" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.password') }}</label>
             <input id="smtp-pass" v-model="smtpForm.password" type="password" autocomplete="new-password"
-              :placeholder="smtpStatus?.password_set ? 'Saved. Leave empty to keep it' : 'SMTP password'"
+              :placeholder="smtpStatus?.password_set ? t('admin.integrations.smtp.passwordSaved') : t('admin.integrations.smtp.passwordPlaceholder')"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
           </div>
           <div class="flex flex-col gap-2 sm:col-span-2">
-            <label for="smtp-from" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Sender address</label>
-            <input id="smtp-from" v-model="smtpForm.from" type="text" placeholder="TalePanel <noreply@example.com>"
+            <label for="smtp-from" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.integrations.smtp.sender') }}</label>
+            <input id="smtp-from" v-model="smtpForm.from" type="text" :placeholder="t('admin.integrations.smtp.senderPlaceholder')"
               class="w-full bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all" />
-            <p class="text-tp-outline text-xs">Most providers only accept a sender address that belongs to your account.</p>
+            <p class="text-tp-outline text-xs">{{ t('admin.integrations.smtp.senderHint') }}</p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
             <UiButton type="submit" variant="primary" size="sm" :loading="smtpSaving" :disabled="!smtpForm.host.trim() || !smtpForm.from.trim()">
-              <Save class="w-3.5 h-3.5" /> Save
+              <Save class="w-3.5 h-3.5" /> {{ t('actions.save') }}
             </UiButton>
             <UiButton variant="secondary" size="sm" :loading="smtpTesting" :disabled="!smtpStatus?.configured" @click="testSmtp">
-              <Send class="w-3.5 h-3.5" /> Send test email
+              <Send class="w-3.5 h-3.5" /> {{ t('admin.integrations.smtp.sendTest') }}
             </UiButton>
             <UiButton v-if="smtpStatus?.source === 'panel'" variant="danger" size="sm" :loading="smtpSaving" @click="clearSmtp">
-              <Trash2 class="w-3.5 h-3.5" /> Remove
+              <Trash2 class="w-3.5 h-3.5" /> {{ t('admin.integrations.smtp.remove') }}
             </UiButton>
             <UiButton variant="secondary" size="sm" :loading="smtpLoading" @click="fetchSmtp">
               <RefreshCw class="w-3.5 h-3.5" />
@@ -1349,28 +1360,28 @@ async function submitCreateUser() {
         </div>
 
         <p class="text-tp-outline text-xs">
-          The test email goes to your own account's address and uses the saved settings, so save first.
-          The password is stored AES-256-GCM encrypted in <code class="font-mono">app_settings</code> and is never shown again.
-          Changes take effect immediately, no API restart required.
+          <i18n-t keypath="admin.integrations.smtp.footnote" tag="span" scope="global">
+            <template #table><code class="font-mono">app_settings</code></template>
+          </i18n-t>
         </p>
       </div>
     </div>
 
     <!-- Create User Modal -->
-    <UiModal :open="showCreateUser" title="Create User" size="md" @close="showCreateUser = false">
+    <UiModal :open="showCreateUser" :title="t('admin.createUser.title')" size="md" @close="showCreateUser = false">
       <form class="space-y-4" @submit.prevent="submitCreateUser">
         <div v-if="createUserError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
           {{ createUserError }}
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.createUser.username') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">person</span>
             <input
               v-model="createUserForm.username"
               type="text"
-              placeholder="newuser"
+              :placeholder="t('admin.createUser.usernamePlaceholder')"
               required
               class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all"
             />
@@ -1378,13 +1389,13 @@ async function submitCreateUser() {
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.createUser.email') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
             <input
               v-model="createUserForm.email"
               type="email"
-              placeholder="user@example.com"
+              :placeholder="t('admin.createUser.emailPlaceholder')"
               required
               class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all"
             />
@@ -1392,13 +1403,13 @@ async function submitCreateUser() {
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.createUser.password') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
               v-model="createUserForm.password"
               type="password"
-              placeholder="Min. 8 characters"
+              :placeholder="t('admin.createUser.passwordPlaceholder')"
               required
               class="w-full bg-tp-surface text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:bg-tp-surface-lowest focus:ring-2 focus:ring-tp-primary/50 transition-all"
             />
@@ -1406,24 +1417,24 @@ async function submitCreateUser() {
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Role</label>
+          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('admin.createUser.role') }}</label>
           <select
             v-model="createUserForm.role"
             class="bg-tp-surface text-tp-text rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all"
           >
-            <option value="user">User</option>
-            <option value="moderator">Moderator</option>
-            <option value="admin">Admin</option>
-            <option v-if="isOwner" value="owner">Owner</option>
+            <option value="user">{{ t('admin.createUser.roles.user') }}</option>
+            <option value="moderator">{{ t('admin.createUser.roles.moderator') }}</option>
+            <option value="admin">{{ t('admin.createUser.roles.admin') }}</option>
+            <option v-if="isOwner" value="owner">{{ t('admin.createUser.roles.owner') }}</option>
           </select>
         </div>
       </form>
 
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="showCreateUser = false">Cancel</UiButton>
+        <UiButton variant="ghost" size="md" @click="showCreateUser = false">{{ t('actions.cancel') }}</UiButton>
         <UiButton variant="primary" size="md" :loading="createUserLoading" @click="submitCreateUser">
           <span class="material-symbols-outlined text-base">person_add</span>
-          Create User
+          {{ t('admin.users.createUser') }}
         </UiButton>
       </template>
     </UiModal>
@@ -1449,35 +1460,35 @@ async function submitCreateUser() {
         <div class="px-5 py-4 border-b border-tp-border flex items-center justify-between">
           <div>
             <h3 class="text-tp-text font-display font-semibold text-base">
-              Permissions — {{ permUser.username }}
+              {{ t('admin.permissions.title', { name: permUser.username }) }}
             </h3>
-            <p class="text-tp-muted text-xs mt-0.5">
-              Role-default: <span class="capitalize">{{ permUser.role }}</span>.  Any override here wins over the role.
-            </p>
+            <i18n-t keypath="admin.permissions.roleDefault" tag="p" scope="global" class="text-tp-muted text-xs mt-0.5">
+              <template #role><span class="capitalize">{{ t(`roles.${permUser.role}`) }}</span></template>
+            </i18n-t>
           </div>
-          <button class="text-tp-muted hover:text-tp-text" @click="closePermissions">✕</button>
+          <button class="text-tp-muted hover:text-tp-text" :aria-label="t('actions.close')" @click="closePermissions">✕</button>
         </div>
 
-        <div v-if="permLoading" class="p-8 text-center text-tp-muted text-sm">Loading…</div>
+        <div v-if="permLoading" class="p-8 text-center text-tp-muted text-sm">{{ t('common.loading') }}</div>
 
         <div v-else class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           <div v-for="(items, group) in permGroups" :key="group">
-            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ group }}</p>
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ t(`admin.permissions.groups.${group}`) }}</p>
             <div class="space-y-1">
               <div
                 v-for="p in items" :key="p.key"
                 class="flex items-center justify-between gap-3 rounded-xl bg-tp-surface2 px-3 py-2"
               >
                 <div>
-                  <p class="text-tp-text text-sm font-medium">{{ p.label }}</p>
+                  <p class="text-tp-text text-sm font-medium">{{ t(`admin.permissions.perms.${p.label}`) }}</p>
                   <p class="text-tp-outline text-[10px] font-mono">{{ p.key }}</p>
                 </div>
                 <div class="flex items-center gap-1">
                   <button
                     v-for="opt in [
-                      { state: 'inherit' as const, label: 'Inherit', cls: 'bg-tp-surface border border-tp-border text-tp-muted' },
-                      { state: 'grant'   as const, label: 'Grant',   cls: 'bg-tp-success/15 text-tp-success border border-tp-success/30' },
-                      { state: 'deny'    as const, label: 'Deny',    cls: 'bg-tp-danger/10 text-tp-danger border border-tp-danger/30' },
+                      { state: 'inherit' as const, label: t('admin.permissions.inherit'), cls: 'bg-tp-surface border border-tp-border text-tp-muted' },
+                      { state: 'grant'   as const, label: t('admin.permissions.grant'), cls: 'bg-tp-success/15 text-tp-success border border-tp-success/30' },
+                      { state: 'deny'    as const, label: t('admin.permissions.deny'), cls: 'bg-tp-danger/10 text-tp-danger border border-tp-danger/30' },
                     ]" :key="opt.state"
                     :class="[
                       'text-[10px] font-semibold uppercase px-2 py-1 rounded-md transition-opacity',
@@ -1498,14 +1509,14 @@ async function submitCreateUser() {
             class="px-3 py-2 rounded-xl text-tp-muted text-sm hover:bg-tp-surface2"
             @click="closePermissions"
           >
-            Cancel
+            {{ t('actions.cancel') }}
           </button>
           <button
             class="px-4 py-2 rounded-xl bg-tp-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
             :disabled="permSaving || permLoading"
             @click="savePermissions"
           >
-            {{ permSaving ? 'Saving…' : 'Save permissions' }}
+            {{ permSaving ? t('common.saving') : t('admin.permissions.save') }}
           </button>
         </div>
       </div>

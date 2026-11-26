@@ -9,6 +9,7 @@ import type { MTLSStatus, MTLSNodeState } from '~/types'
 
 const emit = defineEmits<{ toast: [msg: string, type: 'success' | 'error'] }>()
 
+const { t } = useI18n()
 const api = useApi()
 const authStore = useAuthStore()
 const status = ref<MTLSStatus | null>(null)
@@ -27,7 +28,7 @@ async function load() {
   try {
     status.value = await api.get<MTLSStatus>('/admin/mtls')
   } catch (err: unknown) {
-    loadError.value = errMsg(err, 'Failed to load certificate status')
+    loadError.value = errMsg(err, t('admin.certificates.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -70,22 +71,22 @@ function daysLeft(iso?: string | null): number | null {
 
 type NodeBadge = { label: string; cls: string; icon: typeof CheckCircle2 }
 function nodeBadge(n: MTLSNodeState): NodeBadge {
-  if (!n.mtls_enabled) return { label: 'No mTLS', cls: 'bg-tp-surface2 text-tp-muted', icon: XCircle }
+  if (!n.mtls_enabled) return { label: t('admin.certificates.badges.noMtls'), cls: 'bg-tp-surface2 text-tp-muted', icon: XCircle }
   if (isRenewed(n)) {
     return status.value?.rotating
-      ? { label: 'New CA', cls: 'bg-tp-success/15 text-tp-success', icon: CheckCircle2 }
-      : { label: 'OK', cls: 'bg-tp-success/15 text-tp-success', icon: CheckCircle2 }
+      ? { label: t('admin.certificates.badges.newCa'), cls: 'bg-tp-success/15 text-tp-success', icon: CheckCircle2 }
+      : { label: t('admin.certificates.badges.ok'), cls: 'bg-tp-success/15 text-tp-success', icon: CheckCircle2 }
   }
-  if (!n.renewal_supported) return { label: 'Needs daemon update', cls: 'bg-tp-error/15 text-tp-error', icon: AlertTriangle }
-  return { label: 'Renewing…', cls: 'bg-tp-warning/15 text-tp-warning', icon: RotateCw }
+  if (!n.renewal_supported) return { label: t('admin.certificates.badges.needsUpdate'), cls: 'bg-tp-error/15 text-tp-error', icon: AlertTriangle }
+  return { label: t('admin.certificates.badges.renewing'), cls: 'bg-tp-warning/15 text-tp-warning', icon: RotateCw }
 }
 
 async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
   const prompts: Record<typeof kind, string> = {
-    start: 'Start a CA rotation? The panel creates a new CA. Nodes on TaleDaemon v0.15+ fetch a certificate from it on their next heartbeat, without a restart. The old CA stays trusted until you finish the rotation.',
-    finish: 'Finish the rotation? The old CA is no longer trusted and the panel switches its own client certificate to the new CA.',
-    force: 'Finish although some nodes have no certificate from the new CA? Those nodes become unreachable for the panel until they are re-enrolled (delete the daemon\'s PKI directory and restart it).',
-    cancel: 'Cancel the rotation? The old CA becomes active again. Nodes that already renewed switch back on their next heartbeat (a few seconds without panel access).',
+    start: t('admin.certificates.confirm.start'),
+    finish: t('admin.certificates.confirm.finish'),
+    force: t('admin.certificates.confirm.force'),
+    cancel: t('admin.certificates.confirm.cancel'),
   }
   if (!confirm(prompts[kind])) return
   busy.value = kind
@@ -95,14 +96,14 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
         : '/admin/mtls/rotation/finish'
     status.value = await api.post<MTLSStatus>(path, kind === 'force' ? { force: true } : {})
     const done: Record<typeof kind, string> = {
-      start: 'CA rotation started',
-      finish: 'CA rotation finished',
-      force: 'CA rotation finished',
-      cancel: 'CA rotation cancelled',
+      start: t('admin.certificates.done.start'),
+      finish: t('admin.certificates.done.finish'),
+      force: t('admin.certificates.done.finish'),
+      cancel: t('admin.certificates.done.cancel'),
     }
     emit('toast', done[kind], 'success')
   } catch (err: unknown) {
-    emit('toast', errMsg(err, 'CA rotation step failed'), 'error')
+    emit('toast', errMsg(err, t('admin.certificates.stepFailed')), 'error')
     await load()
   } finally {
     busy.value = ''
@@ -116,17 +117,15 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
       <div class="min-w-0">
         <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
           <ShieldCheck class="w-4 h-4 text-tp-primary" />
-          Node certificates
+          {{ t('admin.certificates.title') }}
         </h3>
         <p class="text-tp-muted text-sm mt-1 max-w-2xl">
-          The panel and its nodes authenticate each other with certificates from the panel's own CA (mTLS).
-          Nodes renew their certificate by themselves 30 days before it expires. Rotate the CA if its key
-          may have leaked, or as routine hygiene.
+          {{ t('admin.certificates.desc') }}
         </p>
       </div>
       <UiButton variant="secondary" size="sm" :loading="loading" @click="load">
         <RefreshCw class="w-3.5 h-3.5" />
-        Refresh
+        {{ t('actions.refresh') }}
       </UiButton>
     </div>
 
@@ -135,15 +134,15 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
     <template v-if="status">
       <dl class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div class="bg-tp-surface2 rounded-xl px-4 py-3 min-w-0">
-          <dt class="text-xs text-tp-muted">{{ status.rotating ? 'New CA' : 'Panel CA' }}</dt>
+          <dt class="text-xs text-tp-muted">{{ status.rotating ? t('admin.certificates.newCa') : t('admin.certificates.panelCa') }}</dt>
           <dd class="font-mono text-sm text-tp-text mt-0.5 truncate" :title="status.ca_fingerprint">{{ shortFP(status.ca_fingerprint) }}</dd>
         </div>
         <div class="bg-tp-surface2 rounded-xl px-4 py-3">
-          <dt class="text-xs text-tp-muted">CA valid until</dt>
+          <dt class="text-xs text-tp-muted">{{ t('admin.certificates.caValidUntil') }}</dt>
           <dd class="text-sm text-tp-text mt-0.5">{{ fmtDate(status.ca_not_after) }}</dd>
         </div>
         <div class="bg-tp-surface2 rounded-xl px-4 py-3">
-          <dt class="text-xs text-tp-muted">Panel client certificate until</dt>
+          <dt class="text-xs text-tp-muted">{{ t('admin.certificates.panelCertUntil') }}</dt>
           <dd class="text-sm text-tp-text mt-0.5">{{ fmtDate(status.panel_cert_not_after) }}</dd>
         </div>
       </dl>
@@ -151,19 +150,19 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
       <div v-if="status.rotating" class="bg-tp-warning/10 rounded-xl px-4 py-3 text-sm space-y-1">
         <p class="text-tp-text font-medium flex items-center gap-2">
           <RotateCw class="w-4 h-4 text-tp-warning" />
-          Rotation in progress · {{ renewedCount }} of {{ mtlsNodes.length }} nodes on the new CA
+          {{ t('admin.certificates.rotationProgress', { done: renewedCount, total: mtlsNodes.length }) }}
         </p>
         <p class="text-tp-muted">
-          Old CA <span class="font-mono">{{ shortFP(status.previous_ca_fingerprint) }}</span> stays trusted until you finish.
-          Nodes renew on their next heartbeat.
+          <i18n-t keypath="admin.certificates.oldCaTrusted" tag="span" scope="global">
+            <template #fp><span class="font-mono">{{ shortFP(status.previous_ca_fingerprint) }}</span></template>
+          </i18n-t>
+          {{ t('admin.certificates.renewOnHeartbeat') }}
         </p>
       </div>
       <div v-else-if="status.nodes_without_renewal > 0" class="bg-tp-error/10 rounded-xl px-4 py-3 text-sm text-tp-text flex gap-2">
         <AlertTriangle class="w-4 h-4 text-tp-error shrink-0 mt-0.5" />
         <span>
-          {{ status.nodes_without_renewal }} node{{ status.nodes_without_renewal === 1 ? '' : 's' }}
-          {{ status.nodes_without_renewal === 1 ? 'runs' : 'run' }} a daemon older than v0.15, which cannot follow a CA rotation.
-          Update {{ status.nodes_without_renewal === 1 ? 'it' : 'them' }} before rotating.
+          {{ t('admin.certificates.oldDaemons', status.nodes_without_renewal) }}
         </span>
       </div>
 
@@ -172,10 +171,10 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
           <span class="text-tp-text text-sm font-medium truncate min-w-0 flex-1 basis-40">{{ n.name }}</span>
           <span class="text-xs text-tp-muted whitespace-nowrap">
             <template v-if="n.mtls_enabled && n.cert_not_after">
-              Expires {{ fmtDate(n.cert_not_after) }}
-              <span v-if="(daysLeft(n.cert_not_after) ?? 999) < 30" class="text-tp-warning">({{ daysLeft(n.cert_not_after) }} days)</span>
+              {{ t('admin.certificates.expires', { date: fmtDate(n.cert_not_after) }) }}
+              <span v-if="(daysLeft(n.cert_not_after) ?? 999) < 30" class="text-tp-warning">{{ t('admin.certificates.daysLeft', { n: daysLeft(n.cert_not_after) }) }}</span>
             </template>
-            <template v-else-if="!n.mtls_enabled">Bearer token only</template>
+            <template v-else-if="!n.mtls_enabled">{{ t('admin.certificates.bearerOnly') }}</template>
           </span>
           <span class="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap inline-flex items-center gap-1" :class="nodeBadge(n).cls">
             <component :is="nodeBadge(n).icon" class="w-3 h-3" />
@@ -183,25 +182,25 @@ async function run(kind: 'start' | 'finish' | 'force' | 'cancel') {
           </span>
         </li>
       </ul>
-      <p v-else class="text-tp-muted text-sm">No nodes registered.</p>
+      <p v-else class="text-tp-muted text-sm">{{ t('admin.certificates.noNodes') }}</p>
 
       <div v-if="authStore.isOwner" class="flex flex-wrap items-center gap-2">
         <UiButton v-if="!status.rotating" variant="danger" size="sm" :loading="busy === 'start'" :disabled="!!busy" @click="run('start')">
-          <RotateCw class="w-3.5 h-3.5" /> Rotate CA
+          <RotateCw class="w-3.5 h-3.5" /> {{ t('admin.certificates.rotateCa') }}
         </UiButton>
         <template v-else>
           <UiButton variant="primary" size="sm" :loading="busy === 'finish'" :disabled="!!busy || status.nodes_pending_renewal > 0" @click="run('finish')">
-            <CheckCircle2 class="w-3.5 h-3.5" /> Finish rotation
+            <CheckCircle2 class="w-3.5 h-3.5" /> {{ t('admin.certificates.finishRotation') }}
           </UiButton>
           <UiButton v-if="status.nodes_pending_renewal > 0" variant="danger" size="sm" :loading="busy === 'force'" :disabled="!!busy" @click="run('force')">
-            Finish anyway
+            {{ t('admin.certificates.finishAnyway') }}
           </UiButton>
           <UiButton variant="secondary" size="sm" :loading="busy === 'cancel'" :disabled="!!busy" @click="run('cancel')">
-            Cancel rotation
+            {{ t('admin.certificates.cancelRotation') }}
           </UiButton>
         </template>
       </div>
-      <p v-else class="text-tp-outline text-xs">Only the owner can rotate the CA.</p>
+      <p v-else class="text-tp-outline text-xs">{{ t('admin.certificates.onlyOwner') }}</p>
     </template>
   </div>
 </template>
