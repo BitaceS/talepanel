@@ -350,7 +350,7 @@
       "defaultRole": "Role for new accounts",
       "trustMfa": "The provider enforces multi-factor sign-in",
       "trustMfaHint": "Users with TalePanel 2FA then skip the code after SSO. Leave it off unless your provider really requires a second factor.",
-      "linkHint": "Existing accounts are linked by verified email on the first SSO sign-in; admin and owner accounts only when they have 2FA. Admins without 2FA stay limited while the staff 2FA policy is on.",
+      "linkHint": "Accounts with TalePanel 2FA still enter their code after SSO, unless you marked the provider above as enforcing multi-factor sign-in. Admins without 2FA stay limited while the staff 2FA policy is on.",
       "saved": "SSO settings saved",
       "saveFailed": "Could not save the SSO settings",
       "onlyOwner": "Only the owner can change this."

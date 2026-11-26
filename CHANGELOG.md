@@ -4,6 +4,9 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+- Admin → Integrations → Single sign-on still said that existing accounts are linked by verified email on the first SSO sign-in. That was changed before v0.18.0 (accounts connect under Settings → Security); the hint now describes the 2FA step after SSO instead.
+
 ## [0.18.0] — 2026-11-26
 
 ### Added
