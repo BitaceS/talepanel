@@ -32,7 +32,7 @@ onMounted(async () => {
 // ── Single sign-on ───────────────────────────────────────────────────────────
 const sso = ref<{ enabled: boolean, display_name?: string }>({ enabled: false })
 const route = useRoute()
-const SSO_ERRORS = ['denied', 'state', 'unverified', 'domain', 'no_account', 'staff_2fa', 'inactive', 'disabled', 'failed']
+const SSO_ERRORS = ['denied', 'state', 'unverified', 'domain', 'no_account', 'link_required', 'inactive', 'disabled', 'failed']
 
 function startSso() {
   window.location.href = `${useRuntimeConfig().public.apiBase}/auth/oidc/start`
@@ -50,7 +50,8 @@ function readSsoReturn() {
     authStore.partialToken = decodeURIComponent(m[1])
     totpRequired.value = true
   }
-  if (code || m) history.replaceState(null, '', window.location.pathname)
+  // Keep Vue Router's entry state; only the query and hash go.
+  if (code || m) history.replaceState(history.state, '', window.location.pathname)
 }
 
 const form = reactive({

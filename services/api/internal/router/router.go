@@ -235,6 +235,9 @@ func SetupRouter(
 		authProtected := authGroup.Group("")
 		authProtected.Use(generalLimiter, authRequired)
 		{
+			// Connect the signed-in account to the SSO provider.
+			authProtected.GET("/oidc/link", oidcH.LinkStatus)
+			authProtected.POST("/oidc/link", oidcH.Link)
 
 			authProtected.POST("/logout", authH.Logout)
 			authProtected.GET("/me", authH.Me)

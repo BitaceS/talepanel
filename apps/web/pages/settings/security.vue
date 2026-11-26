@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, RefreshCw, Shield, ShieldCheck } from '@lucide/vue'
+import { KeyRound, Link2, RefreshCw, Shield, ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '~/stores/auth'
 
 definePageMeta({ title: 'pages.security', middleware: 'auth' })
@@ -174,6 +174,51 @@ async function revokeSession(id: string) {
 }
 
 onMounted(() => loadSessions())
+
+// ── Single sign-on ────────────────────────────────────────────────────────
+// Connecting is the only way an existing account gets SSO: the API never
+// links by a matching email, since registration does not prove the address.
+const sso = ref<{ enabled: boolean, display_name?: string }>({ enabled: false })
+const ssoLinked = ref(false)
+const SSO_LINK_ERRORS = ['denied', 'state', 'domain', 'taken', 'inactive', 'disabled', 'failed']
+
+async function loadSso() {
+  try {
+    sso.value = await api.get<{ enabled: boolean, display_name?: string }>('/auth/oidc')
+    if (sso.value.enabled) {
+      ssoLinked.value = (await api.get<{ linked: boolean }>('/auth/oidc/link')).linked
+    }
+  } catch {
+    sso.value = { enabled: false }
+  }
+}
+
+async function connectSso() {
+  busy.value = true
+  try {
+    const { url } = await api.post<{ url: string }>('/auth/oidc/link')
+    window.location.href = url
+  } catch (err) {
+    flash(errorMessage(err, t('auth.sso.errors.failed')), 'error')
+    busy.value = false
+  }
+}
+
+// The connect flow returns with ?sso=linked or ?sso_error=<code>.
+function readSsoReturn() {
+  const ok = route.query.sso === 'linked'
+  const code = route.query.sso_error
+  if (ok) flash(t('settings.security.sso.connectedToast'))
+  if (typeof code === 'string') {
+    flash(t(`auth.sso.errors.${SSO_LINK_ERRORS.includes(code) ? code : 'failed'}`), 'error')
+  }
+  if (ok || code) history.replaceState(history.state, '', window.location.pathname)
+}
+
+onMounted(() => {
+  readSsoReturn()
+  loadSso()
+})
 </script>
 
 <template>
@@ -383,6 +428,25 @@ onMounted(() => loadSessions())
         </UiButton>
       </template>
     </UiModal>
+
+    <!-- Single sign-on -->
+    <section v-if="sso.enabled" class="bg-tp-surface rounded-xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-tp-border">
+        <h2 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.security.sso.title') }}</h2>
+        <p class="text-tp-muted text-xs mt-0.5">
+          {{ t('settings.security.sso.text', { name: sso.display_name ?? 'SSO' }) }}
+        </p>
+      </div>
+      <div class="p-5 flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm" :class="ssoLinked ? 'text-tp-success' : 'text-tp-muted'">
+          {{ ssoLinked ? t('settings.security.sso.connected', { name: sso.display_name ?? 'SSO' }) : t('settings.security.sso.notConnected') }}
+        </p>
+        <UiButton variant="secondary" size="sm" :loading="busy" @click="connectSso">
+          <Link2 class="w-3.5 h-3.5" />
+          {{ ssoLinked ? t('settings.security.sso.reconnect') : t('settings.security.sso.connect', { name: sso.display_name ?? 'SSO' }) }}
+        </UiButton>
+      </div>
+    </section>
 
     <!-- Active sessions -->
     <section class="bg-tp-surface rounded-xl overflow-hidden">

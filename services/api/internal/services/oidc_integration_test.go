@@ -48,21 +48,44 @@ func newOIDCTestEnv(t *testing.T, mutate func(*OIDCConfig)) *oidcTestEnv {
 	return &oidcTestEnv{svc: svc, idp: idp}
 }
 
-// signIn runs Start and Callback with an ID token for subject/email.
-func (e *oidcTestEnv) signIn(t *testing.T, subject, email string) (*LoginResult, error) {
+// run does Start (as linkUser when set) and Callback with an ID token for
+// subject/email.
+func (e *oidcTestEnv) run(t *testing.T, linkUser *uuid.UUID, subject, email string) (*OIDCResult, error) {
 	t.Helper()
 	ctx := context.Background()
-	authURL, state, err := e.svc.Start(ctx)
+	authURL, state, err := e.svc.Start(ctx, linkUser)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	u, _ := url.Parse(authURL)
-	nonce := u.Query().Get("nonce")
-	claims := e.idp.claims(nonce)
+	claims := e.idp.claims(u.Query().Get("nonce"))
 	claims["sub"] = subject
 	claims["email"] = email
 	e.idp.idToken = sign(t, e.idp.key, claims)
 	return e.svc.Callback(ctx, state, "good-code", "127.0.0.1", "test")
+}
+
+// signIn runs a sign-in flow.
+func (e *oidcTestEnv) signIn(t *testing.T, subject, email string) (*LoginResult, error) {
+	t.Helper()
+	res, err := e.run(t, nil, subject, email)
+	if err != nil {
+		return nil, err
+	}
+	if res.Link || res.Login == nil {
+		t.Fatalf("sign-in flow returned %+v", res)
+	}
+	return res.Login, nil
+}
+
+// connect runs the flow a signed-in user starts from the security settings.
+func (e *oidcTestEnv) connect(t *testing.T, userID uuid.UUID, subject, email string) error {
+	t.Helper()
+	res, err := e.run(t, &userID, subject, email)
+	if res == nil || !res.Link || res.Login != nil {
+		t.Fatalf("connect flow returned %+v", res)
+	}
+	return err
 }
 
 func userEmail(t *testing.T, e *oidcTestEnv, id uuid.UUID) string {
@@ -73,20 +96,54 @@ func userEmail(t *testing.T, e *oidcTestEnv, id uuid.UUID) string {
 	return email
 }
 
-func TestOIDCLinksAnExistingUserByVerifiedEmail(t *testing.T) {
+// A matching email alone never links: registration does not prove the
+// address, so a pre-registered account would take over the SSO user.
+func TestOIDCExistingEmailIsNotLinkedBySignIn(t *testing.T) {
+	for _, autoCreate := range []bool{false, true} {
+		e := newOIDCTestEnv(t, func(c *OIDCConfig) { c.AutoCreate = autoCreate })
+		id := seedTestUser(t, e.svc.db, models.RoleUser)
+		if _, err := e.signIn(t, "sub-"+id.String(), userEmail(t, e, id)); !errors.Is(err, ErrOIDCLinkNeeded) {
+			t.Fatalf("autoCreate=%v: err = %v, want ErrOIDCLinkNeeded", autoCreate, err)
+		}
+		linked, err := e.svc.Linked(context.Background(), id)
+		if err != nil || linked {
+			t.Fatalf("autoCreate=%v: linked = %v, %v", autoCreate, linked, err)
+		}
+	}
+}
+
+func TestOIDCSignedInUserConnectsAndSignsIn(t *testing.T) {
 	e := newOIDCTestEnv(t, nil)
-	id := seedTestUser(t, e.svc.db, models.RoleUser)
-	res, err := e.signIn(t, "sub-"+id.String(), userEmail(t, e, id))
-	if err != nil {
-		t.Fatalf("Callback: %v", err)
+	id := seedTestUser(t, e.svc.db, models.RoleAdmin)
+	// The provider's email may differ from the TalePanel one.
+	if err := e.connect(t, id, "sub-"+id.String(), "someone@elsewhere.example"); err != nil {
+		t.Fatalf("connect: %v", err)
 	}
-	if res.User == nil || res.User.ID != id || res.RefreshToken == "" {
-		t.Fatalf("result = %+v", res)
+	if linked, err := e.svc.Linked(context.Background(), id); err != nil || !linked {
+		t.Fatalf("linked = %v, %v", linked, err)
 	}
-	// The second sign-in finds the link by subject, even with another email.
-	res, err = e.signIn(t, "sub-"+id.String(), "changed@elsewhere.example")
-	if err != nil || res.User.ID != id {
-		t.Fatalf("second sign-in: %+v, %v", res, err)
+	res, err := e.signIn(t, "sub-"+id.String(), "changed@elsewhere.example")
+	if err != nil || res.User == nil || res.User.ID != id || res.RefreshToken == "" {
+		t.Fatalf("sign-in: %+v, %v", res, err)
+	}
+	// Connecting another identity of the same provider replaces the old one.
+	if err := e.connect(t, id, "sub2-"+id.String(), ""); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if _, err := e.signIn(t, "sub-"+id.String(), "changed@elsewhere.example"); !errors.Is(err, ErrOIDCNoAccount) {
+		t.Fatalf("old identity: err = %v, want ErrOIDCNoAccount", err)
+	}
+}
+
+func TestOIDCIdentityOfAnotherAccountIsNotTaken(t *testing.T) {
+	e := newOIDCTestEnv(t, nil)
+	a := seedTestUser(t, e.svc.db, models.RoleUser)
+	b := seedTestUser(t, e.svc.db, models.RoleUser)
+	if err := e.connect(t, a, "sub-"+a.String(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.connect(t, b, "sub-"+a.String(), ""); !errors.Is(err, ErrOIDCTaken) {
+		t.Fatalf("err = %v, want ErrOIDCTaken", err)
 	}
 }
 
@@ -94,13 +151,13 @@ func TestOIDCStateIsSingleUse(t *testing.T) {
 	e := newOIDCTestEnv(t, nil)
 	ctx := context.Background()
 	id := seedTestUser(t, e.svc.db, models.RoleUser)
-	authURL, state, err := e.svc.Start(ctx)
+	authURL, state, err := e.svc.Start(ctx, &id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u, _ := url.Parse(authURL)
 	claims := e.idp.claims(u.Query().Get("nonce"))
-	claims["email"] = userEmail(t, e, id)
+	claims["sub"] = "sub-" + id.String()
 	e.idp.idToken = sign(t, e.idp.key, claims)
 	if _, err := e.svc.Callback(ctx, state, "good-code", "127.0.0.1", "test"); err != nil {
 		t.Fatalf("first callback: %v", err)
@@ -134,14 +191,13 @@ func TestOIDCAutoCreateUsesTheDefaultRole(t *testing.T) {
 	}
 }
 
-func TestOIDCUnverifiedEmailDoesNotLink(t *testing.T) {
+func TestOIDCUnverifiedEmailCreatesNoAccount(t *testing.T) {
 	e := newOIDCTestEnv(t, func(c *OIDCConfig) { c.AutoCreate = true })
-	id := seedTestUser(t, e.svc.db, models.RoleUser)
 	ctx := context.Background()
-	authURL, state, _ := e.svc.Start(ctx)
+	authURL, state, _ := e.svc.Start(ctx, nil)
 	u, _ := url.Parse(authURL)
 	claims := e.idp.claims(u.Query().Get("nonce"))
-	claims["email"] = userEmail(t, e, id)
+	claims["email"] = "unverified-" + uuid.NewString()[:8] + "@example.com"
 	claims["email_verified"] = false
 	e.idp.idToken = sign(t, e.idp.key, claims)
 	if _, err := e.svc.Callback(ctx, state, "good-code", "127.0.0.1", "test"); !errors.Is(err, ErrOIDCUnverified) {
@@ -153,15 +209,10 @@ func TestOIDCDomainListIsEnforced(t *testing.T) {
 	e := newOIDCTestEnv(t, func(c *OIDCConfig) { c.AllowedDomains = []string{"corp.example"} })
 	id := seedTestUser(t, e.svc.db, models.RoleUser) // email @test.local
 	if _, err := e.signIn(t, "sub-"+id.String(), userEmail(t, e, id)); !errors.Is(err, ErrOIDCDomain) {
-		t.Fatalf("err = %v, want ErrOIDCDomain", err)
+		t.Fatalf("sign-in: err = %v, want ErrOIDCDomain", err)
 	}
-}
-
-func TestOIDCStaffWithout2FAIsNotLinked(t *testing.T) {
-	e := newOIDCTestEnv(t, nil)
-	id := seedTestUser(t, e.svc.db, models.RoleAdmin)
-	if _, err := e.signIn(t, "sub-"+id.String(), userEmail(t, e, id)); !errors.Is(err, ErrOIDCStaffLink) {
-		t.Fatalf("err = %v, want ErrOIDCStaffLink", err)
+	if err := e.connect(t, id, "sub-"+id.String(), userEmail(t, e, id)); !errors.Is(err, ErrOIDCDomain) {
+		t.Fatalf("connect: err = %v, want ErrOIDCDomain", err)
 	}
 }
 
@@ -170,6 +221,9 @@ func TestOIDCUsersWith2FAGetTheTOTPStep(t *testing.T) {
 		e := newOIDCTestEnv(t, func(c *OIDCConfig) { c.TrustMFA = trust })
 		id := seedTestUser(t, e.svc.db, models.RoleAdmin)
 		if _, err := e.svc.db.Exec(context.Background(), `UPDATE users SET totp_enabled = true WHERE id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.connect(t, id, "sub-"+id.String(), ""); err != nil {
 			t.Fatal(err)
 		}
 		res, err := e.signIn(t, "sub-"+id.String(), userEmail(t, e, id))
@@ -189,6 +243,9 @@ func TestOIDCUsersWith2FAGetTheTOTPStep(t *testing.T) {
 func TestOIDCDisabledUserIsRefused(t *testing.T) {
 	e := newOIDCTestEnv(t, nil)
 	id := seedTestUser(t, e.svc.db, models.RoleUser)
+	if err := e.connect(t, id, "sub-"+id.String(), ""); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := e.svc.db.Exec(context.Background(), `UPDATE users SET is_active = false WHERE id = $1`, id); err != nil {
 		t.Fatal(err)
 	}

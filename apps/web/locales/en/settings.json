@@ -104,6 +104,15 @@
     },
     "security": {
       "subtitle": "Two-factor authentication and active sessions.",
+      "sso": {
+        "title": "Single sign-on",
+        "text": "Connect your account to {name} to sign in with it. Your password keeps working.",
+        "connected": "Connected to {name}.",
+        "notConnected": "Not connected.",
+        "connect": "Connect {name}",
+        "reconnect": "Connect another account",
+        "connectedToast": "Single sign-on connected"
+      },
       "toast": {
         "codesRegenerated": "New recovery codes generated; the old ones no longer work",
         "codesFailed": "Could not generate recovery codes",

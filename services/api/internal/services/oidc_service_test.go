@@ -236,14 +236,26 @@ func TestOIDCDomainAllowed(t *testing.T) {
 	}
 }
 
+// go-oidc compares the issuer with the discovery document exactly, so a
+// trailing slash (Auth0: "https://tenant.auth0.com/") must survive.
+func TestOIDCNormalizeKeepsTheIssuerAsEntered(t *testing.T) {
+	c := OIDCConfig{IssuerURL: "  https://tenant.auth0.com/ ", PanelURL: "https://panel.example.com/"}.Normalize()
+	if c.IssuerURL != "https://tenant.auth0.com/" {
+		t.Fatalf("issuer = %q", c.IssuerURL)
+	}
+	if c.PanelURL != "https://panel.example.com" {
+		t.Fatalf("panel URL = %q", c.PanelURL)
+	}
+}
+
 func TestOIDCConfigValidate(t *testing.T) {
 	good := OIDCConfig{Enabled: true, IssuerURL: "https://id.example.com/realms/x/", ClientID: "tp",
 		PanelURL: "https://panel.example.com/", DefaultRole: "user"}.Normalize()
 	if err := good.Validate(false); err != nil {
 		t.Fatalf("valid config refused: %v", err)
 	}
-	if good.IssuerURL != "https://id.example.com/realms/x" || good.PanelURL != "https://panel.example.com" {
-		t.Fatalf("trailing slashes not trimmed: %+v", good)
+	if good.PanelURL != "https://panel.example.com" {
+		t.Fatalf("panel URL slash not trimmed: %+v", good)
 	}
 	bad := map[string]func(*OIDCConfig){
 		"http issuer":   func(c *OIDCConfig) { c.IssuerURL = "http://id.example.com" },

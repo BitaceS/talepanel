@@ -104,6 +104,15 @@
     },
     "security": {
       "subtitle": "Zwei-Faktor-Authentifizierung und aktive Sitzungen.",
+      "sso": {
+        "title": "Single Sign-on",
+        "text": "Verbinde dein Konto mit {name}, um dich damit anzumelden. Dein Passwort funktioniert weiter.",
+        "connected": "Mit {name} verbunden.",
+        "notConnected": "Nicht verbunden.",
+        "connect": "{name} verbinden",
+        "reconnect": "Anderes Konto verbinden",
+        "connectedToast": "Single Sign-on verbunden"
+      },
       "toast": {
         "codesRegenerated": "Neue Wiederherstellungscodes erstellt; die alten funktionieren nicht mehr",
         "codesFailed": "Wiederherstellungscodes konnten nicht erstellt werden",

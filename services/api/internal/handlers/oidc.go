@@ -18,6 +18,8 @@ import (
 const (
 	oidcStateCookie = "tp_oidc_state"
 	oidcCookiePath  = "/api/v1/auth/oidc"
+	// oidcSecurityPage is where a connect flow returns to.
+	oidcSecurityPage = "/settings/security"
 )
 
 // OIDCHandler serves "Sign in with <provider>" and its admin settings.
@@ -43,16 +45,47 @@ func (h *OIDCHandler) Public(c *gin.Context) {
 
 // Start handles GET /auth/oidc/start: redirects to the provider.
 func (h *OIDCHandler) Start(c *gin.Context) {
-	authURL, state, err := h.svc.Start(c.Request.Context())
+	authURL, state, err := h.svc.Start(c.Request.Context(), nil)
 	if err != nil {
 		if !errors.Is(err, services.ErrOIDCDisabled) {
 			h.log.Warn("sso start failed", zap.Error(err))
 		}
-		h.toLogin(c, "", oidcErrorCode(err))
+		cfg, _ := h.svc.Config(c.Request.Context())
+		h.toLogin(c, cfg.PanelURL, oidcErrorCode(err))
 		return
 	}
 	h.setStateCookie(c, state, 600)
 	c.Redirect(http.StatusFound, authURL)
+}
+
+// LinkStatus handles GET /auth/oidc/link: whether the signed-in user has
+// connected the provider.
+func (h *OIDCHandler) LinkStatus(c *gin.Context) {
+	linked, err := h.svc.Linked(c.Request.Context(), mustUser(c).ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load the sso status"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"linked": linked})
+}
+
+// Link handles POST /auth/oidc/link: starts connecting the provider identity
+// to the signed-in user. It answers with the provider URL; the panel sends
+// the browser there. The state cookie binds the flow to this browser.
+func (h *OIDCHandler) Link(c *gin.Context) {
+	userID := mustUser(c).ID
+	authURL, state, err := h.svc.Start(c.Request.Context(), &userID)
+	if errors.Is(err, services.ErrOIDCDisabled) {
+		c.JSON(http.StatusConflict, gin.H{"error": "sso is not enabled"})
+		return
+	}
+	if err != nil {
+		h.log.Warn("sso link start failed", zap.Error(err))
+		c.JSON(http.StatusBadGateway, gin.H{"error": "could not reach the identity provider"})
+		return
+	}
+	h.setStateCookie(c, state, 600)
+	c.JSON(http.StatusOK, gin.H{"url": authURL})
 }
 
 // Callback handles GET /auth/oidc/callback from the provider.
@@ -78,16 +111,24 @@ func (h *OIDCHandler) Callback(c *gin.Context) {
 		if code == "failed" {
 			h.log.Warn("sso callback failed", zap.Error(err))
 		}
+		if res != nil && res.Link {
+			c.Redirect(http.StatusFound, panelPath(cfg.PanelURL, oidcSecurityPage)+"?sso_error="+url.QueryEscape(code))
+			return
+		}
 		h.toLogin(c, cfg.PanelURL, code)
 		return
 	}
-	if res.RequiresTOTP {
-		// The fragment never reaches a server; the login page reads it and
-		// continues with the TOTP step.
-		c.Redirect(http.StatusFound, panelPath(cfg.PanelURL, "/auth/login")+"#sso_partial="+url.QueryEscape(res.PartialToken))
+	if res.Link {
+		c.Redirect(http.StatusFound, panelPath(cfg.PanelURL, oidcSecurityPage)+"?sso=linked")
 		return
 	}
-	h.auth.setRefreshCookie(c, res.RefreshToken)
+	if res.Login.RequiresTOTP {
+		// The fragment never reaches a server; the login page reads it and
+		// continues with the TOTP step.
+		c.Redirect(http.StatusFound, panelPath(cfg.PanelURL, "/auth/login")+"#sso_partial="+url.QueryEscape(res.Login.PartialToken))
+		return
+	}
+	h.auth.setRefreshCookie(c, res.Login.RefreshToken)
 	// The panel restores the session from the refresh cookie.
 	c.Redirect(http.StatusFound, panelPath(cfg.PanelURL, "/"))
 }
@@ -131,8 +172,10 @@ func oidcErrorCode(err error) string {
 		return "domain"
 	case errors.Is(err, services.ErrOIDCNoAccount):
 		return "no_account"
-	case errors.Is(err, services.ErrOIDCStaffLink):
-		return "staff_2fa"
+	case errors.Is(err, services.ErrOIDCLinkNeeded):
+		return "link_required"
+	case errors.Is(err, services.ErrOIDCTaken):
+		return "taken"
 	case errors.Is(err, services.ErrUserInactive):
 		return "inactive"
 	default:

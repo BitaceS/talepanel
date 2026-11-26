@@ -81,7 +81,8 @@ var (
 	ErrOIDCDomain     = errors.New("this email domain may not sign in")
 	ErrOIDCNoAccount  = errors.New("no TalePanel account for this identity")
 	ErrOIDCConfig     = errors.New("invalid sso settings")
-	ErrOIDCStaffLink  = errors.New("admin accounts need 2FA before they can be linked to sso")
+	ErrOIDCLinkNeeded = errors.New("an account with this email exists; sign in with the password and connect sso in the security settings")
+	ErrOIDCTaken      = errors.New("this sso identity is connected to another account")
 )
 
 var oidcDomainRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
@@ -92,7 +93,9 @@ func (c OIDCConfig) Normalize() OIDCConfig {
 	if c.DisplayName == "" {
 		c.DisplayName = "SSO"
 	}
-	c.IssuerURL = strings.TrimRight(strings.TrimSpace(c.IssuerURL), "/")
+	// The issuer stays as entered: go-oidc compares it with the discovery
+	// document's issuer exactly, and some providers (Auth0) end it in "/".
+	c.IssuerURL = strings.TrimSpace(c.IssuerURL)
 	c.ClientID = strings.TrimSpace(c.ClientID)
 	c.PanelURL = strings.TrimRight(strings.TrimSpace(c.PanelURL), "/")
 	domains := make([]string, 0, len(c.AllowedDomains))
@@ -228,18 +231,23 @@ func (s *OIDCService) SetConfig(ctx context.Context, c OIDCConfig, updatedBy uui
 	return c, nil
 }
 
-// discover loads (and caches per issuer) the provider metadata.
+// discover loads (and caches per issuer) the provider metadata. The fetch
+// runs outside the lock, so a slow provider does not queue every sign-in.
 func (s *OIDCService) discover(ctx context.Context, issuer string) (*oidc.Provider, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.provider != nil && s.issuer == issuer {
-		return s.provider, nil
+		p := s.provider
+		s.mu.Unlock()
+		return p, nil
 	}
+	s.mu.Unlock()
 	p, err := oidc.NewProvider(oidc.ClientContext(ctx, s.client), issuer)
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
 	s.provider, s.issuer = p, issuer
+	s.mu.Unlock()
 	return p, nil
 }
 
@@ -256,6 +264,17 @@ func oauthConfig(c OIDCConfig, p *oidc.Provider) *oauth2.Config {
 type oidcFlow struct {
 	Nonce    string `json:"nonce"`
 	Verifier string `json:"verifier"`
+	// LinkUser is set when a signed-in user connects the identity to their
+	// own account instead of signing in.
+	LinkUser string `json:"link_user,omitempty"`
+}
+
+// OIDCResult is the outcome of a callback. Link is true when the flow was
+// started to connect a signed-in account; it is set on errors too, so the
+// handler sends the browser back to the right page. Login is the sign-in.
+type OIDCResult struct {
+	Login *LoginResult
+	Link  bool
 }
 
 func randomToken() (string, error) {
@@ -266,9 +285,10 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// Start begins a sign-in. It returns the provider URL to send the browser to
-// and the state, which the handler also binds to the browser.
-func (s *OIDCService) Start(ctx context.Context) (authURL, state string, err error) {
+// Start begins a sign-in, or with linkUser set, connecting the provider
+// identity to that (signed-in) user. It returns the provider URL to send the
+// browser to and the state, which the handler also binds to the browser.
+func (s *OIDCService) Start(ctx context.Context, linkUser *uuid.UUID) (authURL, state string, err error) {
 	c, err := s.Config(ctx)
 	if err != nil {
 		return "", "", err
@@ -288,6 +308,9 @@ func (s *OIDCService) Start(ctx context.Context) (authURL, state string, err err
 		return "", "", err
 	}
 	flow := oidcFlow{Nonce: nonce, Verifier: oauth2.GenerateVerifier()}
+	if linkUser != nil {
+		flow.LinkUser = linkUser.String()
+	}
 	raw, _ := json.Marshal(flow)
 	if err := s.rdb.Set(ctx, oidcFlowPrefix+state, raw, oidcFlowTTL).Err(); err != nil {
 		return "", "", fmt.Errorf("storing sso state: %w", err)
@@ -384,8 +407,9 @@ func domainAllowed(c OIDCConfig, id *oidcIdentity) bool {
 }
 
 // Callback finishes a sign-in: checks the state, verifies the tokens, finds
-// or creates the user and issues the session (or the TOTP step).
-func (s *OIDCService) Callback(ctx context.Context, state, code, ip, userAgent string) (*LoginResult, error) {
+// or creates the user and issues the session (or the TOTP step). For a flow
+// started by Start with a user, it connects the identity to that user.
+func (s *OIDCService) Callback(ctx context.Context, state, code, ip, userAgent string) (*OIDCResult, error) {
 	if state == "" || code == "" {
 		return nil, ErrOIDCState
 	}
@@ -400,6 +424,14 @@ func (s *OIDCService) Callback(ctx context.Context, state, code, ip, userAgent s
 	if err := json.Unmarshal([]byte(raw), &flow); err != nil {
 		return nil, ErrOIDCState
 	}
+	res, err := s.finish(ctx, flow, code, ip, userAgent)
+	if flow.LinkUser != "" {
+		res = &OIDCResult{Link: true}
+	}
+	return res, err
+}
+
+func (s *OIDCService) finish(ctx context.Context, flow oidcFlow, code, ip, userAgent string) (*OIDCResult, error) {
 	c, err := s.Config(ctx)
 	if err != nil {
 		return nil, err
@@ -415,6 +447,22 @@ func (s *OIDCService) Callback(ctx context.Context, state, code, ip, userAgent s
 	if err != nil {
 		s.audit(ctx, nil, "auth.sso.failed", ip, map[string]any{"reason": err.Error()})
 		return nil, err
+	}
+	if flow.LinkUser != "" {
+		userID, err := uuid.Parse(flow.LinkUser)
+		if err != nil {
+			return nil, ErrOIDCState
+		}
+		if err := s.link(ctx, c, id, userID); err != nil {
+			s.audit(ctx, &userID, "auth.sso.link_failed", ip, map[string]any{
+				"reason": err.Error(), "issuer": id.Issuer, "subject": id.Subject,
+			})
+			return nil, err
+		}
+		s.audit(ctx, &userID, "auth.sso.linked", ip, map[string]any{
+			"issuer": id.Issuer, "subject": id.Subject, "email": id.Email,
+		})
+		return &OIDCResult{Link: true}, nil
 	}
 
 	user, how, err := s.resolveUser(ctx, c, id)
@@ -439,18 +487,76 @@ func (s *OIDCService) Callback(ctx context.Context, state, code, ip, userAgent s
 		}
 		payload["totp_step"] = true
 		s.audit(ctx, &user.ID, "auth.sso.login", ip, payload)
-		return &LoginResult{RequiresTOTP: true, PartialToken: partial}, nil
+		return &OIDCResult{Login: &LoginResult{RequiresTOTP: true, PartialToken: partial}}, nil
 	}
 	res, err := s.auth.issueInteractiveLogin(ctx, user, ip, userAgent, "sso")
 	if err != nil {
 		return nil, err
 	}
 	s.audit(ctx, &user.ID, "auth.sso.login", ip, payload)
-	return res, nil
+	return &OIDCResult{Login: res}, nil
 }
 
-// resolveUser finds the linked user, links an existing user by verified
-// email, or creates one. how is "linked", "link_created" or "user_created".
+// link connects the identity to a signed-in user. An identity connected to
+// someone else is refused; an older identity of the same provider on this
+// user is replaced.
+func (s *OIDCService) link(ctx context.Context, c OIDCConfig, id *oidcIdentity, userID uuid.UUID) error {
+	if !domainAllowed(c, id) {
+		return ErrOIDCDomain
+	}
+	u, err := s.auth.findUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("loading user: %w", err)
+	}
+	if !u.IsActive {
+		return ErrUserInactive
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var owner uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT user_id FROM user_oidc_links WHERE issuer = $1 AND subject = $2`,
+		id.Issuer, id.Subject).Scan(&owner)
+	switch {
+	case err == nil && owner != userID:
+		return ErrOIDCTaken
+	case err == nil:
+		return nil // already connected
+	case !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("loading sso link: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM user_oidc_links WHERE issuer = $1 AND user_id = $2`, id.Issuer, userID); err != nil {
+		return fmt.Errorf("replacing sso link: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_oidc_links (issuer, subject, user_id, email, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, id.Issuer, id.Subject, userID, nullIfEmpty(id.Email)); err != nil {
+		return fmt.Errorf("storing sso link: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// Linked reports whether the user has an identity of the configured
+// provider. go-oidc makes ID tokens carry exactly the configured issuer.
+func (s *OIDCService) Linked(ctx context.Context, userID uuid.UUID) (bool, error) {
+	c, err := s.Config(ctx)
+	if err != nil || c.IssuerURL == "" {
+		return false, err
+	}
+	var n int
+	err = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM user_oidc_links WHERE user_id = $1 AND issuer = $2`,
+		userID, c.IssuerURL).Scan(&n)
+	return n > 0, err
+}
+
+// resolveUser finds the linked user or creates one. An existing account is
+// never linked by email alone: /auth/register does not prove that the
+// registrant owns the address, so anyone could pre-register a future SSO
+// user's email. Existing accounts connect from their security settings.
+// how is "linked" or "user_created".
 func (s *OIDCService) resolveUser(ctx context.Context, c OIDCConfig, id *oidcIdentity) (*models.User, string, error) {
 	if !domainAllowed(c, id) {
 		return nil, "", ErrOIDCDomain
@@ -466,29 +572,23 @@ func (s *OIDCService) resolveUser(ctx context.Context, c OIDCConfig, id *oidcIde
 		return nil, "", fmt.Errorf("loading sso link: %w", err)
 	}
 
-	// No link yet: only a verified email may connect it to an account.
+	// No link yet: creating an account needs a verified email.
 	if id.Email == "" || !id.EmailVerified {
 		return nil, "", ErrOIDCUnverified
 	}
-	u, err := s.auth.findUserByEmail(ctx, id.Email)
-	how := "link_created"
+	_, err = s.auth.findUserByEmail(ctx, id.Email)
 	switch {
 	case err == nil:
-		// A staff account is only linked when it has 2FA, so the TOTP step
-		// (or the provider's MFA, when trusted) still guards it.
-		if models.RoleWeight(u.Role) >= models.RoleWeight(models.RoleAdmin) && !u.TOTPEnabled {
-			return nil, "", ErrOIDCStaffLink
-		}
-	case errors.Is(err, pgx.ErrNoRows):
-		if !c.AutoCreate {
-			return nil, "", ErrOIDCNoAccount
-		}
-		if u, err = s.createUser(ctx, c, id); err != nil {
-			return nil, "", err
-		}
-		how = "user_created"
-	default:
+		return nil, "", ErrOIDCLinkNeeded
+	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, "", fmt.Errorf("finding user: %w", err)
+	}
+	if !c.AutoCreate {
+		return nil, "", ErrOIDCNoAccount
+	}
+	u, err := s.createUser(ctx, c, id)
+	if err != nil {
+		return nil, "", err
 	}
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO user_oidc_links (issuer, subject, user_id, email, created_at)
@@ -497,7 +597,7 @@ func (s *OIDCService) resolveUser(ctx context.Context, c OIDCConfig, id *oidcIde
 	`, id.Issuer, id.Subject, u.ID, id.Email); err != nil {
 		return nil, "", fmt.Errorf("storing sso link: %w", err)
 	}
-	return u, how, nil
+	return u, "user_created", nil
 }
 
 var usernameUnsafe = regexp.MustCompile(`[^A-Za-z0-9_]+`)

@@ -57,8 +57,9 @@ func GinLogger(logger *zap.Logger) gin.HandlerFunc {
 
 // sensitiveQueryParams are query parameters whose values never reach the
 // request log. "ticket" is the single-use event-stream ticket: dead once
-// used, but a log is no place for a credential either way.
-var sensitiveQueryParams = []string{"ticket", "token", "access_token"}
+// used, but a log is no place for a credential either way. "code" and
+// "state" are the SSO callback's authorization code and flow state.
+var sensitiveQueryParams = []string{"ticket", "token", "access_token", "code", "state"}
 
 // redactQuery replaces the values of sensitive query parameters with
 // "REDACTED". A query that cannot be parsed is dropped rather than logged
