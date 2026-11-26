@@ -1,0 +1,56 @@
+{
+  "alerts": {
+    "page": {
+      "types": {
+        "server_crashed": "Server Crash",
+        "cpu_high": "High CPU Usage",
+        "ram_high": "High RAM Usage",
+        "disk_high": "High Disk Usage",
+        "node_offline": "Node Offline",
+        "ddos": "DDoS Detected"
+      },
+      "channels": {
+        "email": "Email",
+        "discord": "Discord",
+        "webhook": "Webhook"
+      },
+      "ruleCreated": "Alert rule created",
+      "ruleCreateFailed": "Failed to create rule",
+      "ruleEnabled": "Rule enabled",
+      "ruleDisabled": "Rule disabled",
+      "ruleToggleFailed": "Failed to toggle rule",
+      "ruleDeleteConfirm": "Delete this alert rule?",
+      "ruleDeleted": "Rule deleted",
+      "ruleDeleteFailed": "Failed to delete rule",
+      "eventResolved": "Event resolved",
+      "resolveFailed": "Failed to resolve",
+      "secondsAgo": "{n}s ago",
+      "tabEvents": "Events",
+      "tabRules": "Rules",
+      "noEvents": "No alert events",
+      "noEventsText": "Create alert rules to start receiving notifications.",
+      "severity": {
+        "critical": "critical",
+        "warning": "warning",
+        "info": "info"
+      },
+      "resolve": "Resolve",
+      "newRule": "New Rule",
+      "noRules": "No alert rules",
+      "noRulesText": "Create a rule to get notified about server events.",
+      "threshold": "Threshold: {value}",
+      "thresholdDefault": "default",
+      "serverSpecific": "Server-specific",
+      "global": "Global",
+      "createRule": "Create Alert Rule",
+      "serverLabel": "Server (optional — leave empty for global)",
+      "globalAll": "Global (all servers)",
+      "alertType": "Alert Type",
+      "thresholdLabel": "Threshold (%)",
+      "notifyVia": "Notify via",
+      "selectChannel": "Select at least one channel or the alert won't be delivered.",
+      "discordWebhookUrl": "Discord webhook URL",
+      "webhookUrl": "Webhook URL"
+    }
+  }
+}

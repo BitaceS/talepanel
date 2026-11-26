@@ -9,26 +9,26 @@ const props = defineProps<{
   error: NuxtError
 }>()
 
+const { t } = useI18n()
+
 const errorMessages: Record<number, string> = {
-  404: 'The page you are looking for does not exist.',
-  403: 'You do not have permission to access this page.',
-  500: 'Something went wrong on our end. Please try again later.',
-  503: 'The service is temporarily unavailable. Please try again later.',
+  404: 'settings.error.messages.notFound',
+  403: 'settings.error.messages.forbidden',
+  500: 'settings.error.messages.server',
+  503: 'settings.error.messages.unavailable',
 }
 
-const message = computed(
-  () =>
-    errorMessages[props.error.statusCode] ??
-    props.error.statusMessage ??
-    props.error.message ??
-    'An unexpected error occurred.'
-)
+const message = computed(() => {
+  const key = errorMessages[props.error.statusCode]
+  if (key) return t(key)
+  return props.error.statusMessage ?? props.error.message ?? t('settings.error.messages.unexpected')
+})
 
 const errorTitle = computed(() => {
-  if (props.error.statusCode === 404) return 'Page Not Found'
-  if (props.error.statusCode === 403) return 'Access Denied'
-  if (props.error.statusCode === 500) return 'Server Error'
-  return 'Something Went Wrong'
+  if (props.error.statusCode === 404) return t('settings.error.titles.notFound')
+  if (props.error.statusCode === 403) return t('settings.error.titles.forbidden')
+  if (props.error.statusCode === 500) return t('settings.error.titles.server')
+  return t('settings.error.titles.generic')
 })
 
 function handleError() {
@@ -65,7 +65,7 @@ function handleError() {
         @click="handleError"
       >
         <span class="material-symbols-outlined text-base">arrow_back</span>
-        Back to Dashboard
+        {{ t('settings.error.backToDashboard') }}
       </button>
 
       <!-- Branding -->
@@ -73,7 +73,7 @@ function handleError() {
         <div class="w-6 h-6 bg-tp-primary rounded-lg flex items-center justify-center">
           <span class="material-symbols-outlined text-tp-on-primary text-sm">cloud_queue</span>
         </div>
-        <span class="text-tp-outline text-sm">TalePanel &middot; by Tyraxo</span>
+        <span class="text-tp-outline text-sm">{{ t('auth.layout.footer') }}</span>
       </div>
     </div>
   </div>

@@ -1,0 +1,47 @@
+{
+  "dashboard": {
+    "title": "Fleet Overview",
+    "subtitle": "Your servers, nodes and players at a glance.",
+    "stats": {
+      "running": "{n} running",
+      "nodesOnline": "{n} online",
+      "nodesOffline": "{n} offline",
+      "notRunning": "Servers not running",
+      "playersOnline": "Players online",
+      "acrossServers": "Across your servers"
+    },
+    "resources": {
+      "title": "Node Resources",
+      "subtitle": "Last reported usage, summed over all nodes",
+      "cpu": "CPU (avg)",
+      "disk": "Disk",
+      "noNodes": "No nodes registered yet."
+    },
+    "activity": {
+      "title": "Player Activity",
+      "subtitle": "Players per hour, last 24 hours",
+      "empty": "No players in the last 24 hours.",
+      "players": "{n} player | {n} players",
+      "nowLower": "now",
+      "now": "Now",
+      "peak": "Peak",
+      "peakAt": "{n} at {time}",
+      "hourlyAvg": "Hourly avg"
+    },
+    "servers": {
+      "title": "Your Servers",
+      "new": "New Server",
+      "emptyTitle": "No servers yet",
+      "emptyText": "Create your first server to get started.",
+      "createFirst": "Create your first server",
+      "viewAll": "View all {n} servers",
+      "noNodesTitle": "Add a node first",
+      "noNodesText": "Game servers run on nodes: machines with the TalePanel daemon. On a quick install the panel host is already one; otherwise open Nodes, create an enrollment token and run the install command it shows on the machine.",
+      "addNode": "Add a node"
+    },
+    "recent": {
+      "title": "Recent Activity",
+      "empty": "No recent activity"
+    }
+  }
+}

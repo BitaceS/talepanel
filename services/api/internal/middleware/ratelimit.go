@@ -17,10 +17,12 @@ var localWhitelist = map[string]struct{}{
 	"::1":       {},
 }
 
-// RateLimit returns a middleware that enforces a sliding-window rate limit of
-// requestsPerMin per client IP using Redis.
+// RateLimit returns a middleware that enforces a fixed-window rate limit of
+// requestsPerMin per client IP using Redis. name separates the buckets of
+// different limiters: with a shared key, every general API call counted
+// against the strict auth limit too.
 //
-// Key schema: "ratelimit:{ip}:{window_minute_unix}"
+// Key schema: "ratelimit:{name}:{ip}:{window_minute_unix}"
 //
 // When devMode is true, the localhost IPs in localWhitelist are exempt.
 // Never pass devMode=true in production — localhost rate-limit exemption is
@@ -28,7 +30,7 @@ var localWhitelist = map[string]struct{}{
 //
 // When the limit is exceeded the handler is aborted with HTTP 429 and a
 // Retry-After header indicating the seconds until the current window expires.
-func RateLimit(rdb *redis.Client, requestsPerMin int, devMode bool) gin.HandlerFunc {
+func RateLimit(rdb *redis.Client, name string, requestsPerMin int, devMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 
@@ -44,7 +46,7 @@ func RateLimit(rdb *redis.Client, requestsPerMin int, devMode bool) gin.HandlerF
 		windowMinute := now.Unix() / 60                              // current 1-minute bucket
 		windowExpiry := time.Duration(60-now.Second()) * time.Second // seconds until next minute
 
-		key := fmt.Sprintf("ratelimit:%s:%d", ip, windowMinute)
+		key := fmt.Sprintf("ratelimit:%s:%s:%d", name, ip, windowMinute)
 
 		count, err := incrementRateLimit(c.Request.Context(), rdb, key, windowExpiry)
 		if err != nil {

@@ -4,6 +4,7 @@ import { useApi } from '~/composables/useApi'
 definePageMeta({ layout: 'auth' })
 
 const api = useApi()
+const { t } = useI18n()
 
 const form = reactive({
   username: '',
@@ -35,25 +36,25 @@ function validate(): boolean {
   errors.confirm = ''
 
   if (!form.username) {
-    errors.username = 'Username is required'
+    errors.username = t('auth.validation.usernameRequired')
   } else if (form.username.length < 3) {
-    errors.username = 'Username must be at least 3 characters'
+    errors.username = t('auth.validation.usernameMin')
   }
 
   if (!form.email) {
-    errors.email = 'Email is required'
+    errors.email = t('auth.validation.emailRequired')
   } else if (!validateEmail(form.email)) {
-    errors.email = 'Please enter a valid email address'
+    errors.email = t('auth.validation.emailInvalid')
   }
 
   if (!form.password) {
-    errors.password = 'Password is required'
+    errors.password = t('auth.validation.passwordRequired')
   } else if (form.password.length < 8) {
-    errors.password = 'Password must be at least 8 characters'
+    errors.password = t('auth.validation.passwordMin')
   }
 
   if (form.password !== form.confirm) {
-    errors.confirm = 'Passwords do not match'
+    errors.confirm = t('auth.validation.passwordMismatch')
   }
 
   return !errors.username && !errors.email && !errors.password && !errors.confirm
@@ -73,7 +74,7 @@ async function onSubmit() {
     success.value = true
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serverError.value = e.data?.error ?? e.message ?? 'Registration failed.'
+    serverError.value = e.data?.error ?? e.message ?? t('auth.register.failed')
   } finally {
     loading.value = false
   }
@@ -83,8 +84,8 @@ async function onSubmit() {
 <template>
   <div>
     <div class="mb-6">
-      <h2 class="text-tp-text font-display font-bold text-xl">Create account</h2>
-      <p class="text-tp-muted text-sm mt-1">Join this TalePanel instance</p>
+      <h2 class="text-tp-text font-display font-bold text-xl">{{ t('auth.register.title') }}</h2>
+      <p class="text-tp-muted text-sm mt-1">{{ t('auth.register.subtitle') }}</p>
     </div>
 
     <!-- Success -->
@@ -93,12 +94,12 @@ async function onSubmit() {
         <span class="material-symbols-outlined text-tp-success text-3xl">check_circle</span>
       </div>
       <div>
-        <p class="text-tp-text font-display font-semibold text-lg">Account created!</p>
-        <p class="text-tp-muted text-sm mt-1">You can now sign in with your credentials.</p>
+        <p class="text-tp-text font-display font-semibold text-lg">{{ t('auth.register.successTitle') }}</p>
+        <p class="text-tp-muted text-sm mt-1">{{ t('auth.register.successText') }}</p>
       </div>
       <NuxtLink to="/auth/login">
         <button class="w-full cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all mt-2">
-          <span>PROCEED TO LOGIN</span>
+          <span>{{ t('auth.register.proceed') }}</span>
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </button>
       </NuxtLink>
@@ -114,13 +115,14 @@ async function onSubmit() {
       <form class="space-y-4" @submit.prevent="onSubmit">
         <!-- Username -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
+          <label for="register-username" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.username') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">person</span>
             <input
+              id="register-username"
               v-model="form.username"
               type="text"
-              placeholder="Choose a username"
+              :placeholder="t('auth.register.usernamePlaceholder')"
               autocomplete="username"
               required
               :class="[
@@ -137,10 +139,11 @@ async function onSubmit() {
 
         <!-- Email -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
+          <label for="register-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.emailAddress') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
             <input
+              id="register-email"
               v-model="form.email"
               type="email"
               placeholder="you@example.com"
@@ -160,13 +163,14 @@ async function onSubmit() {
 
         <!-- Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label for="register-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.password') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
+              id="register-password"
               v-model="form.password"
               :type="showPassword ? 'text' : 'password'"
-              placeholder="Min. 8 characters"
+              :placeholder="t('auth.register.passwordPlaceholder')"
               autocomplete="new-password"
               required
               :class="[
@@ -180,6 +184,7 @@ async function onSubmit() {
             <button
               type="button"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-tp-outline hover:text-tp-muted transition-colors"
+              :aria-label="showPassword ? t('auth.fields.hidePassword') : t('auth.fields.showPassword')"
               @click="showPassword = !showPassword"
             >
               <span class="material-symbols-outlined text-lg">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
@@ -190,13 +195,14 @@ async function onSubmit() {
 
         <!-- Confirm Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Confirm password</label>
+          <label for="register-confirm" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.register.confirmPassword') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
+              id="register-confirm"
               v-model="form.confirm"
               :type="showPassword ? 'text' : 'password'"
-              placeholder="Repeat your password"
+              :placeholder="t('auth.register.confirmPlaceholder')"
               autocomplete="new-password"
               required
               :class="[
@@ -226,16 +232,16 @@ async function onSubmit() {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span>CREATE ACCOUNT</span>
+          <span>{{ t('auth.register.submit') }}</span>
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </button>
       </form>
 
       <div class="mt-5 text-center">
         <p class="text-tp-muted text-sm">
-          Already have an account?
+          {{ t('auth.register.haveAccount') }}
           <NuxtLink to="/auth/login" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors ml-1">
-            Sign in
+            {{ t('auth.login.signIn') }}
           </NuxtLink>
         </p>
       </div>
@@ -244,7 +250,7 @@ async function onSubmit() {
       <div class="flex items-center justify-center gap-4 mt-5 pt-4">
         <a href="https://talepanel.com/docs/" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
           <span class="material-symbols-outlined text-sm">menu_book</span>
-          Docs
+          {{ t('auth.docs') }}
         </a>
         <a href="https://discord.gg/6N8WNrW5WJ" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
           <span class="material-symbols-outlined text-sm">forum</span>

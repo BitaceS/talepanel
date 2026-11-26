@@ -6,7 +6,7 @@ import { useAuthStore } from '~/stores/auth'
 import type { Server as ServerType } from '~/types'
 
 definePageMeta({
-  title: 'Dashboard',
+  title: 'pages.dashboard',
   middleware: 'auth',
 })
 
@@ -14,6 +14,7 @@ const serversStore = useServersStore()
 const api = useApi()
 const modulesStore = useModulesStore()
 const authStore = useAuthStore()
+const { t, locale } = useI18n()
 
 // Live clock
 const now = ref(new Date())
@@ -24,7 +25,7 @@ onUnmounted(() => {
 })
 
 const dateDisplay = computed(() =>
-  now.value.toLocaleDateString('en-US', {
+  now.value.toLocaleDateString(locale.value, {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -33,7 +34,7 @@ const dateDisplay = computed(() =>
 )
 
 const timeDisplay = computed(() =>
-  now.value.toLocaleTimeString('en-US', {
+  now.value.toLocaleTimeString(locale.value, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -106,9 +107,9 @@ const resourceBars = computed(() => {
   const c = cluster.value
   if (!c) return []
   return [
-    { label: 'CPU (avg)', value: Math.min(100, Math.round(c.avg_cpu_pct)), detail: `${Math.round(c.avg_cpu_pct)}%` },
+    { label: t('dashboard.resources.cpu'), value: Math.min(100, Math.round(c.avg_cpu_pct)), detail: `${Math.round(c.avg_cpu_pct)}%` },
     { label: 'RAM', value: pct(c.used_ram_mb, c.total_ram_mb), detail: `${formatMB(c.used_ram_mb)} / ${formatMB(c.total_ram_mb)}` },
-    { label: 'Disk', value: pct(c.used_disk_mb, c.total_disk_mb), detail: `${formatMB(c.used_disk_mb)} / ${formatMB(c.total_disk_mb)}` },
+    { label: t('dashboard.resources.disk'), value: pct(c.used_disk_mb, c.total_disk_mb), detail: `${formatMB(c.used_disk_mb)} / ${formatMB(c.total_disk_mb)}` },
   ]
 })
 
@@ -122,7 +123,7 @@ const avgPlayers = computed(() => {
 })
 
 function hourLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return new Date(iso).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 // Audit actions are stored as snake_case route names ("post_auth_login").
@@ -137,8 +138,8 @@ function actionLabel(action: string): string {
     <!-- Page header -->
     <div class="flex items-start justify-between">
       <div>
-        <h2 class="text-tp-text font-display font-bold text-3xl">Fleet Overview</h2>
-        <p class="text-tp-muted text-sm mt-1">Your servers, nodes and players at a glance.</p>
+        <h2 class="text-tp-text font-display font-bold text-3xl">{{ t('dashboard.title') }}</h2>
+        <p class="text-tp-muted text-sm mt-1">{{ t('dashboard.subtitle') }}</p>
       </div>
       <div class="text-right">
         <p class="text-tp-text font-mono text-2xl font-semibold tabular-nums">{{ timeDisplay }}</p>
@@ -150,43 +151,43 @@ function actionLabel(action: string): string {
     <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
       <!-- Servers -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Servers</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">{{ t('nav.servers') }}</p>
         <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ totalServers }}</p>
         <div class="flex items-center gap-1.5 mt-2">
           <span :class="['material-symbols-outlined text-sm', onlineServers > 0 ? 'text-tp-success' : 'text-tp-muted']">play_circle</span>
-          <p class="text-tp-muted text-xs">{{ onlineServers }} running</p>
+          <p class="text-tp-muted text-xs">{{ t('dashboard.stats.running', { n: onlineServers }) }}</p>
         </div>
       </div>
 
       <!-- Nodes (admins) -->
       <div v-if="cluster" class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Nodes</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">{{ t('nav.nodes') }}</p>
         <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ cluster.total_nodes }}</p>
         <div class="flex items-center gap-1.5 mt-2">
           <span :class="['material-symbols-outlined text-sm', offlineNodes > 0 ? 'text-tp-warning' : 'text-tp-success']">
             {{ offlineNodes > 0 ? 'warning' : 'check_circle' }}
           </span>
           <p :class="['text-xs', offlineNodes > 0 ? 'text-tp-warning' : 'text-tp-success']">
-            {{ cluster.online_nodes }} online<template v-if="offlineNodes > 0">, {{ offlineNodes }} offline</template>
+            {{ t('dashboard.stats.nodesOnline', { n: cluster.online_nodes }) }}<template v-if="offlineNodes > 0">, {{ t('dashboard.stats.nodesOffline', { n: offlineNodes }) }}</template>
           </p>
         </div>
       </div>
       <div v-else class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Stopped</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">{{ t('status.stopped') }}</p>
         <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ totalServers - onlineServers }}</p>
         <div class="flex items-center gap-1.5 mt-2">
           <span class="material-symbols-outlined text-tp-muted text-sm">stop_circle</span>
-          <p class="text-tp-muted text-xs">Servers not running</p>
+          <p class="text-tp-muted text-xs">{{ t('dashboard.stats.notRunning') }}</p>
         </div>
       </div>
 
       <!-- Players -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">Players online</p>
+        <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold mb-2">{{ t('dashboard.stats.playersOnline') }}</p>
         <p class="text-tp-text font-display font-bold text-4xl tabular-nums">{{ activity ? activity.online_players : '—' }}</p>
         <div class="flex items-center gap-1.5 mt-2">
           <span class="material-symbols-outlined text-tp-accent text-sm">group</span>
-          <p class="text-tp-muted text-xs">Across your servers</p>
+          <p class="text-tp-muted text-xs">{{ t('dashboard.stats.acrossServers') }}</p>
         </div>
       </div>
     </div>
@@ -195,8 +196,8 @@ function actionLabel(action: string): string {
     <div :class="['grid grid-cols-1 gap-5', cluster ? 'lg:grid-cols-2' : '']">
       <!-- Node resources (admins) -->
       <div v-if="cluster" class="bg-tp-surface2 rounded-xl p-6">
-        <h3 class="text-tp-text font-display font-semibold text-lg">Node Resources</h3>
-        <p class="text-tp-muted text-xs mt-0.5">Last reported usage, summed over all nodes</p>
+        <h3 class="text-tp-text font-display font-semibold text-lg">{{ t('dashboard.resources.title') }}</h3>
+        <p class="text-tp-muted text-xs mt-0.5">{{ t('dashboard.resources.subtitle') }}</p>
         <div class="space-y-5 mt-6">
           <div v-for="bar in resourceBars" :key="bar.label">
             <div class="flex items-center justify-between text-xs mb-1.5">
@@ -211,18 +212,18 @@ function actionLabel(action: string): string {
             </div>
           </div>
         </div>
-        <p v-if="cluster.total_nodes === 0" class="text-tp-muted text-xs mt-5">No nodes registered yet.</p>
+        <p v-if="cluster.total_nodes === 0" class="text-tp-muted text-xs mt-5">{{ t('dashboard.resources.noNodes') }}</p>
       </div>
 
       <!-- Player activity -->
       <div class="bg-tp-surface2 rounded-xl p-6">
-        <h3 class="text-tp-text font-display font-semibold text-lg">Player Activity</h3>
-        <p class="text-tp-muted text-xs mt-0.5">Players per hour, last 24 hours</p>
+        <h3 class="text-tp-text font-display font-semibold text-lg">{{ t('dashboard.activity.title') }}</h3>
+        <p class="text-tp-muted text-xs mt-0.5">{{ t('dashboard.activity.subtitle') }}</p>
 
         <div v-if="!activity" class="h-40 mt-6 mb-4 flex items-center justify-center text-tp-muted text-sm">—</div>
         <div v-else-if="!hadPlayers" class="h-40 mt-6 mb-4 flex flex-col items-center justify-center text-center">
           <span class="material-symbols-outlined text-3xl text-tp-muted mb-2">bedtime</span>
-          <p class="text-tp-muted text-sm">No players in the last 24 hours.</p>
+          <p class="text-tp-muted text-sm">{{ t('dashboard.activity.empty') }}</p>
         </div>
         <template v-else>
           <div class="flex items-end gap-[3px] h-40 mt-6 mb-2">
@@ -231,28 +232,28 @@ function actionLabel(action: string): string {
               :key="h.hour"
               class="flex-1 bg-tp-primary/80 rounded-t-sm min-h-[2px]"
               :style="{ height: (h.players / peak.players) * 100 + '%' }"
-              :title="`${hourLabel(h.hour)}: ${h.players} ${h.players === 1 ? 'player' : 'players'}`"
+              :title="`${hourLabel(h.hour)}: ${t('dashboard.activity.players', h.players)}`"
             />
           </div>
           <div class="flex justify-between text-[11px] text-tp-outline font-mono">
             <span>{{ hourly[0] ? hourLabel(hourly[0].hour) : '' }}</span>
-            <span>now</span>
+            <span>{{ t('dashboard.activity.nowLower') }}</span>
           </div>
         </template>
 
         <div class="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-tp-border/30">
           <div>
-            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Now</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('dashboard.activity.now') }}</p>
             <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">{{ activity ? activity.online_players : '—' }}</p>
           </div>
           <div>
-            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Peak</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('dashboard.activity.peak') }}</p>
             <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">
-              {{ hadPlayers ? `${peak.players} at ${hourLabel(peak.hour)}` : '—' }}
+              {{ hadPlayers ? t('dashboard.activity.peakAt', { n: peak.players, time: hourLabel(peak.hour) }) : '—' }}
             </p>
           </div>
           <div>
-            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">Hourly avg</p>
+            <p class="text-[11px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('dashboard.activity.hourlyAvg') }}</p>
             <p class="text-tp-text font-display font-bold text-sm mt-1 tabular-nums">{{ activity ? avgPlayers : '—' }}</p>
           </div>
         </div>
@@ -262,11 +263,11 @@ function actionLabel(action: string): string {
     <!-- Servers section -->
     <div>
       <div class="flex items-center justify-between mb-5">
-        <h3 class="text-tp-text font-display font-semibold text-xl">Your Servers</h3>
+        <h3 class="text-tp-text font-display font-semibold text-xl">{{ t('dashboard.servers.title') }}</h3>
         <NuxtLink to="/servers">
           <UiButton variant="primary" size="sm">
             <span class="material-symbols-outlined text-base">add</span>
-            New Server
+            {{ t('dashboard.servers.new') }}
           </UiButton>
         </NuxtLink>
       </div>
@@ -298,14 +299,26 @@ function actionLabel(action: string): string {
         <div class="w-16 h-16 bg-tp-surface3 rounded-2xl flex items-center justify-center mx-auto mb-4">
           <span class="material-symbols-outlined text-3xl text-tp-muted">dns</span>
         </div>
-        <h4 class="text-tp-text font-display font-semibold text-lg mb-2">No servers yet</h4>
-        <p class="text-tp-muted text-sm mb-6">Create your first server to get started.</p>
+        <template v-if="cluster && cluster.total_nodes === 0">
+          <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('dashboard.servers.noNodesTitle') }}</h4>
+          <p class="text-tp-muted text-sm mb-6 max-w-md mx-auto">{{ t('dashboard.servers.noNodesText') }}</p>
+          <NuxtLink to="/nodes">
+            <UiButton variant="primary" size="md">
+              <span class="material-symbols-outlined text-base">lan</span>
+              {{ t('dashboard.servers.addNode') }}
+            </UiButton>
+          </NuxtLink>
+        </template>
+        <template v-else>
+        <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('dashboard.servers.emptyTitle') }}</h4>
+        <p class="text-tp-muted text-sm mb-6">{{ t('dashboard.servers.emptyText') }}</p>
         <NuxtLink to="/servers">
           <UiButton variant="primary" size="md">
             <span class="material-symbols-outlined text-base">add</span>
-            Create your first server
+            {{ t('dashboard.servers.createFirst') }}
           </UiButton>
         </NuxtLink>
+        </template>
       </div>
 
       <!-- Server grid -->
@@ -321,19 +334,19 @@ function actionLabel(action: string): string {
           to="/servers"
           class="bg-tp-surface2 rounded-xl p-5 flex items-center justify-center text-tp-muted hover:text-tp-accent hover:bg-tp-surface3 transition-all duration-200"
         >
-          <span class="text-sm font-medium">View all {{ serversStore.servers.length }} servers</span>
+          <span class="text-sm font-medium">{{ t('dashboard.servers.viewAll', { n: serversStore.servers.length }) }}</span>
         </NuxtLink>
       </div>
     </div>
 
     <!-- Recent activity -->
     <div>
-      <h3 class="text-tp-text font-display font-semibold text-xl mb-5">Recent Activity</h3>
+      <h3 class="text-tp-text font-display font-semibold text-xl mb-5">{{ t('dashboard.recent.title') }}</h3>
       <div v-if="activityLogs.length === 0" class="bg-tp-surface2 rounded-xl p-10 text-center">
         <div class="w-12 h-12 bg-tp-surface3 rounded-xl flex items-center justify-center mx-auto mb-3">
           <span class="material-symbols-outlined text-2xl text-tp-muted">history</span>
         </div>
-        <p class="text-tp-muted text-sm font-medium">No recent activity</p>
+        <p class="text-tp-muted text-sm font-medium">{{ t('dashboard.recent.empty') }}</p>
       </div>
       <div v-else class="bg-tp-surface2 rounded-xl overflow-hidden">
         <div v-for="log in activityLogs" :key="log.id" class="flex items-center gap-4 px-5 py-3.5">
@@ -342,7 +355,7 @@ function actionLabel(action: string): string {
             <p class="text-tp-text text-sm font-medium">{{ actionLabel(log.action) }}</p>
             <p class="text-tp-muted text-xs">{{ log.target_type }}</p>
           </div>
-          <span class="text-tp-outline text-xs shrink-0">{{ new Date(log.created_at).toLocaleString() }}</span>
+          <span class="text-tp-outline text-xs shrink-0">{{ new Date(log.created_at).toLocaleString(locale) }}</span>
         </div>
       </div>
     </div>

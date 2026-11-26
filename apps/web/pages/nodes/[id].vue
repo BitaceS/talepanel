@@ -3,6 +3,7 @@ definePageMeta({ middleware: ['auth', 'module'], moduleId: 'nodes' })
 
 const route = useRoute()
 const api = useApi()
+const { t, te } = useI18n()
 const nodeId = computed(() => route.params.id as string)
 
 interface Node {
@@ -42,7 +43,7 @@ const servers = ref<Server[]>([])
 const loading = ref(true)
 const error = ref('')
 
-useHead({ title: computed(() => node.value ? `${node.value.name} · Nodes · TalePanel` : 'Node · TalePanel') })
+useHead({ title: computed(() => node.value ? `${node.value.name} · ${t('pages.nodes')} · TalePanel` : `${t('nodes.detail.node')} · TalePanel`) })
 
 const latestMetric = computed(() => metrics.value.length > 0 ? metrics.value[metrics.value.length - 1] : null)
 const nodeServers = computed(() => servers.value.filter(s => s.node_id === nodeId.value))
@@ -60,7 +61,7 @@ async function fetchAll() {
     servers.value = serversData.servers ?? []
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    error.value = e.data?.error ?? e.message ?? 'Failed to load node'
+    error.value = e.data?.error ?? e.message ?? t('nodes.detail.loadFailed')
   } finally {
     loading.value = false
   }
@@ -89,13 +90,13 @@ function formatMB(mb: number): string {
 }
 
 function timeAgo(iso?: string): string {
-  if (!iso) return 'Never'
+  if (!iso) return t('common.never')
   const diff = Date.now() - new Date(iso).getTime()
   const s = Math.floor(diff / 1000)
-  if (s < 60) return `${s}s ago`
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
-  return `${Math.floor(s / 86400)}d ago`
+  if (s < 60) return t('nodes.detail.secondsAgo', { n: s })
+  if (s < 3600) return t('time.minutesAgo', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('time.hoursAgo', { n: Math.floor(s / 3600) })
+  return t('time.daysAgo', { n: Math.floor(s / 86400) })
 }
 
 function statusColor(status: string) {
@@ -124,13 +125,13 @@ function nodeStatusColor(status: string) {
       class="inline-flex items-center gap-1.5 text-sm text-tp-muted hover:text-tp-text transition-colors"
     >
       <span class="material-symbols-outlined text-base">arrow_back</span>
-      Back to Nodes
+      {{ t('nodes.detail.back') }}
     </NuxtLink>
 
     <!-- Loading state -->
     <div v-if="loading" class="flex items-center justify-center py-24 text-tp-muted">
       <span class="material-symbols-outlined animate-spin mr-2">progress_activity</span>
-      Loading node…
+      {{ t('nodes.detail.loading') }}
     </div>
 
     <!-- Error state -->
@@ -153,7 +154,7 @@ function nodeStatusColor(status: string) {
               :class="nodeStatusColor(node.status)"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
-              {{ node.status }}
+              {{ te(`status.${node.status}`) ? t(`status.${node.status}`) : node.status }}
             </span>
           </div>
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-tp-muted">
@@ -167,13 +168,13 @@ function nodeStatusColor(status: string) {
             </span>
             <span class="flex items-center gap-1">
               <span class="material-symbols-outlined text-base">schedule</span>
-              Last heartbeat: {{ timeAgo(node.last_heartbeat) }}
+              {{ t('nodes.detail.lastHeartbeat', { time: timeAgo(node.last_heartbeat) }) }}
             </span>
           </div>
         </div>
         <div class="flex items-center gap-2 text-sm text-tp-muted shrink-0">
           <span class="material-symbols-outlined text-base">memory</span>
-          {{ node.max_servers }} max servers
+          {{ t('nodes.detail.maxServers', { n: node.max_servers }) }}
         </div>
       </div>
 
@@ -182,43 +183,43 @@ function nodeStatusColor(status: string) {
         <!-- CPU -->
         <div class="bg-tp-surface2 rounded-xl p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-sm text-tp-muted font-medium">CPU Usage</span>
+            <span class="text-sm text-tp-muted font-medium">{{ t('nodes.detail.cpuUsage') }}</span>
             <span class="material-symbols-outlined text-tp-primary text-xl">memory</span>
           </div>
           <div class="text-3xl font-bold text-tp-text">
             {{ latestMetric ? `${latestMetric.cpu_pct.toFixed(1)}%` : '—' }}
           </div>
-          <div class="text-xs text-tp-muted">{{ node.total_cpu }} vCPU{{ node.total_cpu !== 1 ? 's' : '' }}</div>
+          <div class="text-xs text-tp-muted">{{ t('nodes.detail.vcpus', node.total_cpu) }}</div>
         </div>
 
         <!-- RAM -->
         <div class="bg-tp-surface2 rounded-xl p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-sm text-tp-muted font-medium">RAM Used</span>
+            <span class="text-sm text-tp-muted font-medium">{{ t('nodes.detail.ramUsed') }}</span>
             <span class="material-symbols-outlined text-tp-secondary text-xl">storage</span>
           </div>
           <div class="text-3xl font-bold text-tp-text">
             {{ latestMetric ? formatMB(latestMetric.ram_used_mb) : '—' }}
           </div>
-          <div class="text-xs text-tp-muted">of {{ formatMB(node.total_ram_mb) }} total</div>
+          <div class="text-xs text-tp-muted">{{ t('nodes.detail.ofTotal', { total: formatMB(node.total_ram_mb) }) }}</div>
         </div>
 
         <!-- Disk -->
         <div class="bg-tp-surface2 rounded-xl p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-sm text-tp-muted font-medium">Disk Used</span>
+            <span class="text-sm text-tp-muted font-medium">{{ t('nodes.detail.diskUsed') }}</span>
             <span class="material-symbols-outlined text-tp-accent text-xl">hard_drive</span>
           </div>
           <div class="text-3xl font-bold text-tp-text">
             {{ latestMetric ? formatMB(latestMetric.disk_used_mb) : '—' }}
           </div>
-          <div class="text-xs text-tp-muted">of {{ formatMB(node.total_disk_mb) }} total</div>
+          <div class="text-xs text-tp-muted">{{ t('nodes.detail.ofTotal', { total: formatMB(node.total_disk_mb) }) }}</div>
         </div>
       </div>
 
       <!-- 24h CPU chart -->
       <div class="bg-tp-surface2 rounded-xl p-5 space-y-4">
-        <h3 class="text-base font-semibold text-tp-text">CPU Load (24h)</h3>
+        <h3 class="text-base font-semibold text-tp-text">{{ t('nodes.detail.cpuChart') }}</h3>
 
         <div v-if="metrics.length >= 2">
           <svg
@@ -258,28 +259,28 @@ function nodeStatusColor(status: string) {
           class="flex flex-col items-center justify-center py-12 text-tp-muted text-sm gap-2"
         >
           <span class="material-symbols-outlined text-3xl opacity-40">show_chart</span>
-          No metric data yet
+          {{ t('nodes.detail.noMetrics') }}
         </div>
       </div>
 
       <!-- Servers on this node -->
       <div class="bg-tp-surface2 rounded-xl p-5 space-y-4">
         <h3 class="text-base font-semibold text-tp-text">
-          Servers on this node
+          {{ t('nodes.detail.servers') }}
           <span class="ml-2 text-sm font-normal text-tp-muted">({{ nodeServers.length }})</span>
         </h3>
 
         <div v-if="nodeServers.length === 0" class="flex flex-col items-center justify-center py-10 text-tp-muted text-sm gap-2">
           <span class="material-symbols-outlined text-3xl opacity-40">dns</span>
-          No servers on this node
+          {{ t('nodes.detail.noServers') }}
         </div>
 
         <table v-else class="w-full text-sm">
           <thead>
             <tr class="border-b border-tp-surface3">
-              <th class="text-left py-2 px-3 text-tp-muted font-medium">Name</th>
-              <th class="text-left py-2 px-3 text-tp-muted font-medium">Status</th>
-              <th class="text-left py-2 px-3 text-tp-muted font-medium">Port</th>
+              <th class="text-left py-2 px-3 text-tp-muted font-medium">{{ t('nodes.detail.colName') }}</th>
+              <th class="text-left py-2 px-3 text-tp-muted font-medium">{{ t('nodes.detail.colStatus') }}</th>
+              <th class="text-left py-2 px-3 text-tp-muted font-medium">{{ t('nodes.detail.colPort') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -302,7 +303,7 @@ function nodeStatusColor(status: string) {
                   :class="statusColor(server.status)"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
-                  {{ server.status }}
+                  {{ te(`status.${server.status}`) ? t(`status.${server.status}`) : server.status }}
                 </span>
               </td>
               <td class="py-2.5 px-3 text-tp-muted font-mono">{{ server.port }}</td>

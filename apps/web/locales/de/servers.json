@@ -1,0 +1,331 @@
+{
+  "servers": {
+    "list": {
+      "title": "Flottenübersicht",
+      "subtitle": "Überwache und verwalte deine Hytale-Cluster auf allen Nodes.",
+      "activeServers": "Aktive Server",
+      "searchPlaceholder": "Server suchen…",
+      "allStatus": "Alle Status",
+      "newServer": "Neuer Server",
+      "noMatchTitle": "Keine Server passen zu deinen Filtern",
+      "noServersTitle": "Noch keine Server",
+      "noMatchHint": "Passe deine Suche oder Filter an.",
+      "noServersHint": "Erstelle deinen ersten Hytale-Server, um loszulegen.",
+      "createFirst": "Ersten Server erstellen",
+      "columns": {
+        "identity": "Server",
+        "status": "Status",
+        "nodeId": "Node-ID",
+        "network": "Netzwerk",
+        "ram": "RAM",
+        "quickActions": "Schnellaktionen"
+      },
+      "ramLimit": "Limit {mb} MB",
+      "noLimit": "Kein Limit",
+      "openServer": "Server öffnen",
+      "more": "Mehr",
+      "showing": "{from} bis {to} von {total} Instanzen",
+      "confirmDelete": "Server „{name}“ löschen? Das kann nicht rückgängig gemacht werden.",
+      "errors": {
+        "actionFailed": "Aktion fehlgeschlagen",
+        "deleteFailed": "Löschen fehlgeschlagen",
+        "restartFailed": "Neustart fehlgeschlagen"
+      },
+      "ramAllocated": "RAM zugewiesen",
+      "noNodesTitle": "Füge zuerst eine Node hinzu",
+      "noNodesHint": "Game-Server laufen auf Nodes: Rechnern mit dem TalePanel-Daemon. Bei der Schnellinstallation ist der Panel-Host schon eine; sonst öffne Nodes, erstelle einen Enrollment-Token und führ den angezeigten Installationsbefehl auf dem Rechner aus.",
+      "addNode": "Node hinzufügen"
+    },
+    "create": {
+      "title": "Neuen Server erstellen",
+      "template": "Vorlage",
+      "templateHint": "Füllt die Felder unten aus. Festplattengröße, Absturzlimits, Startparameter und Netzwerkrolle kommen ebenfalls aus der Vorlage. Was du hier änderst, hat Vorrang.",
+      "name": "Servername",
+      "namePlaceholder": "Mein Hytale-Server",
+      "version": "Hytale-Version",
+      "release": "Release",
+      "preRelease": "Pre-Release",
+      "preReleaseWarning": "Pre-Release-Welten können von Release-Servern nicht geöffnet werden.",
+      "ramLimit": "RAM-Limit (MB)",
+      "ramPlaceholder": "z. B. 2048",
+      "cpuLimit": "CPU-Limit (%)",
+      "cpuPlaceholder": "100 = 1 Kern, leer = unbegrenzt",
+      "autoRestart": "Auto-Neustart",
+      "autoRestartHint": "Neustart nach einem Absturz; gibt nach wiederholten Abstürzen auf",
+      "submit": "Server erstellen",
+      "failed": "Server konnte nicht erstellt werden"
+    },
+    "player": {
+      "badges": {
+        "banned": "Gebannt",
+        "muted": "Stummgeschaltet",
+        "op": "Op",
+        "whitelisted": "Auf Whitelist"
+      },
+      "playtime": "Spielzeit",
+      "firstSeen": "Zuerst gesehen",
+      "lastSeen": "Zuletzt gesehen",
+      "sessions": "Sitzungen",
+      "actions": "Aktionen",
+      "kick": "Kicken",
+      "op": "Op geben",
+      "deop": "Op entziehen",
+      "mute": "Stummschalten",
+      "unmute": "Stumm aufheben",
+      "ban": "Bannen",
+      "unban": "Entbannen",
+      "whitelist": "Zur Whitelist",
+      "removeWhitelist": "Von Whitelist entfernen",
+      "sessionHistory": "Sitzungsverlauf",
+      "noSessions": "Keine Sitzungen aufgezeichnet.",
+      "joined": "Beigetreten",
+      "left": "Verlassen",
+      "duration": "Dauer",
+      "notFound": "Spieler nicht gefunden.",
+      "notFoundHint": "Diesen Spieler gibt es auf diesem Server möglicherweise nicht.",
+      "kickReason": "Grund für den Kick (optional):",
+      "banReason": "Grund für den Bann (optional):",
+      "toast": {
+        "kicked": "Spieler gekickt",
+        "kickFailed": "Spieler konnte nicht gekickt werden",
+        "opRemoved": "Op entzogen",
+        "opGranted": "Op vergeben",
+        "opFailed": "Op-Status konnte nicht geändert werden",
+        "unmuted": "Stummschaltung aufgehoben",
+        "muted": "Spieler stummgeschaltet",
+        "muteFailed": "Stummschaltung konnte nicht geändert werden",
+        "unbanned": "Spieler entbannt",
+        "banned": "Spieler gebannt",
+        "banFailed": "Bann-Status konnte nicht geändert werden",
+        "whitelistRemoved": "Von der Whitelist entfernt",
+        "whitelistAdded": "Zur Whitelist hinzugefügt",
+        "whitelistFailed": "Whitelist konnte nicht geändert werden"
+      }
+    },
+    "config": {
+      "runningWarning": "Der Server liest diese Dateien beim Start, Änderungen greifen also erst nach einem Neustart. Ein laufender Server kann beim Stoppen außerdem seine eigene Kopie zurückschreiben. Sicherer ist: stoppen, speichern, dann starten.",
+      "filesNav": "Konfigurationsdateien",
+      "loadingFiles": "Dateien werden geladen…",
+      "noFiles": "Noch keine Konfigurationsdateien. Hytale legt sie beim ersten Start an.",
+      "unsaved": "Ungespeichert",
+      "editorMode": "Editor-Modus",
+      "form": "Formular",
+      "rawJson": "Roh-JSON",
+      "reading": "{name} wird gelesen…",
+      "rawAria": "Roh-JSON von {name}",
+      "notValidJson": "Kein gültiges JSON: {error}",
+      "fixJsonFirst": "Korrigiere zuerst das JSON: {error}",
+      "notSavedInvalid": "Nicht gespeichert, das JSON ist ungültig: {error}",
+      "lossyNumbers": "Enthält Zahlen, die für das Formular zu groß sind ({value}). Bearbeite die Datei als Roh-JSON.",
+      "notObject": "Die Datei ist kein JSON-Objekt und keine Liste.",
+      "discardConfirm": "Ungespeicherte Änderungen an {name} verwerfen?",
+      "saved": "{name} gespeichert",
+      "savedRestart": "{name} gespeichert. Starte den Server neu, damit es wirkt.",
+      "errors": {
+        "loadList": "Dateiliste konnte nicht geladen werden",
+        "readFile": "Datei konnte nicht gelesen werden",
+        "saveFile": "Datei konnte nicht gespeichert werden"
+      },
+      "files": {
+        "config": {
+          "label": "Servereinstellungen",
+          "description": "Name, MOTD, Passwort, Spielerlimit, Sichtweite und Standardwerte."
+        },
+        "permissions": {
+          "label": "Berechtigungen",
+          "description": "Berechtigungsgruppen und welche Spieler dazugehören."
+        },
+        "whitelist": {
+          "label": "Whitelist",
+          "description": "Ob die Whitelist aktiv ist und wer darauf steht."
+        },
+        "bans": {
+          "label": "Banns",
+          "description": "Gebannte Spieler."
+        }
+      },
+      "fields": {
+        "config": {
+          "ServerName": {
+            "label": "Servername"
+          },
+          "MOTD": {
+            "label": "Nachricht des Tages",
+            "hint": "Wird in der Serverliste angezeigt."
+          },
+          "Password": {
+            "label": "Beitrittspasswort",
+            "hint": "Leer lassen für kein Passwort."
+          },
+          "MaxPlayers": {
+            "label": "Max. Spieler"
+          },
+          "MaxViewRadius": {
+            "label": "Max. Sichtradius",
+            "hint": "In Chunks. Höhere Werte kosten RAM und CPU."
+          },
+          "Defaults": {
+            "World": {
+              "label": "Standardwelt",
+              "hint": "Lässt sich auch im Tab Welten festlegen."
+            },
+            "GameMode": {
+              "label": "Standard-Spielmodus"
+            }
+          }
+        },
+        "whitelist": {
+          "enabled": {
+            "label": "Whitelist aktiv"
+          },
+          "list": {
+            "label": "Spieler",
+            "hint": "Spieler-UUIDs."
+          }
+        }
+      },
+      "field": {
+        "entries": "{n} Eintrag | {n} Einträge",
+        "settings": "{n} Einstellung | {n} Einstellungen",
+        "empty": "Leer.",
+        "noEntries": "Keine Einträge. Neue fügst du im Roh-JSON hinzu.",
+        "removeEntry": "Eintrag {n} entfernen",
+        "removeItem": "{item} entfernen",
+        "hide": "Verbergen",
+        "show": "Anzeigen",
+        "numberInvalid": "Gib eine Zahl ein. Der letzte gültige Wert bleibt erhalten.",
+        "addNumber": "Zahl hinzufügen",
+        "addEntry": "Eintrag hinzufügen",
+        "addTo": "Zu {label} hinzufügen",
+        "nullValue": "(im Roh-JSON bearbeiten)"
+      }
+    },
+    "performance": {
+      "title": "Leistung",
+      "timeRange": "Zeitraum",
+      "charts": "Diagramme",
+      "table": "Tabelle",
+      "loadFailed": "Leistungsverlauf konnte nicht geladen werden",
+      "noSamples": "Noch keine Messwerte in diesem Zeitraum. Das Panel zeichnet einen pro Minute auf, solange der Server läuft (benötigt TaleDaemon v0.14 oder neuer auf der Node).",
+      "cpu": "CPU",
+      "memory": "Arbeitsspeicher",
+      "playersOnline": "Spieler online",
+      "chartAria": "{title} im Zeitraum {range}",
+      "limit": "Limit",
+      "peak": "Spitze {value}",
+      "footnote": "Durchschnitt pro {bucket}; CPU 100 % = ein Kern. Lücken: Server gestoppt oder Node offline.",
+      "bucketHour": "Stunde",
+      "bucketMinutes": "{n} Min.",
+      "columns": {
+        "time": "Zeit",
+        "cpu": "CPU Ø / Spitze",
+        "ram": "RAM Ø / Spitze",
+        "players": "Spieler"
+      }
+    },
+    "card": {
+      "players": "{n} Spieler | {n} Spieler"
+    },
+    "templatePicker": {
+      "aria": "Servervorlage",
+      "blank": "Leer",
+      "blankHint": "Mit den Panel-Standardwerten starten und alles selbst einstellen.",
+      "custom": "eigene"
+    },
+    "templateSummary": {
+      "ramGb": "{n} GB RAM",
+      "ramMb": "{n} MB RAM",
+      "cores": "{n} Kern | {n} Kerne",
+      "cpuPercent": "{n} % CPU",
+      "diskGb": "{n} GB Festplatte",
+      "diskMb": "{n} MB Festplatte",
+      "preRelease": "Pre-Release",
+      "autoRestart": "Auto-Neustart",
+      "networkHub": "Netzwerk-Hub",
+      "networkGamemode": "Netzwerk-Spielmodus"
+    },
+    "tasks": {
+      "title": "Geplante Aufgaben",
+      "intro": "Neustarts, Hytale-Updates, Console-Befehle und Broadcasts nach Zeitplan. Updates laufen auch bei gestopptem Server, alles andere nur, während er läuft.",
+      "newTask": "Neue Aufgabe",
+      "action": "Aktion",
+      "options": {
+        "restart": "Server neu starten",
+        "update": "Hytale-Update (Wartungsfenster)",
+        "command": "Console-Befehl",
+        "broadcast": "Broadcast-Nachricht"
+      },
+      "schedule": "Zeitplan",
+      "cronExpression": "Cron-Ausdruck",
+      "cronPlaceholder": "Minute Stunde Tag Monat Wochentag",
+      "cronHint": "{desc} · Zeitzone des Panel-Servers · höchstens alle 5 Minuten",
+      "warnLabel": "Spieler vorher warnen (Minuten, 0–15)",
+      "updateHint": "Bei jedem Lauf prüft das Panel den Kanal des Servers auf einen neueren Build. Nur dann warnt es die Spieler, erstellt ein Backup, stoppt den Server, installiert den Build und startet ihn wieder. Ist er aktuell, passiert nichts.",
+      "command": "Befehl",
+      "commandPlaceholder": "z. B. world save",
+      "commandHint": "Läuft mit deiner Console-Rolle; Befehle darüber werden abgelehnt.",
+      "message": "Nachricht",
+      "messagePlaceholder": "z. B. Komm auf unseren Discord!",
+      "submit": "Planen",
+      "loading": "Aufgaben werden geladen…",
+      "emptyTitle": "Keine geplanten Aufgaben",
+      "emptyHint": "Plane einen nächtlichen Neustart oder einen wiederkehrenden Broadcast.",
+      "nextLast": "Nächster: {next} · Letzter: {last}",
+      "disabled": "deaktiviert",
+      "confirmDelete": "Diese geplante Aufgabe löschen?",
+      "presets": {
+        "hourly": "Stündlich",
+        "every6h": "Alle 6 Stunden",
+        "daily4": "Täglich um 04:00",
+        "weekly": "Wöchentlich, Sonntag 04:00",
+        "custom": "Benutzerdefiniert (Cron)"
+      },
+      "cron": {
+        "invalid": "Ungültiger Ausdruck",
+        "everyHour": "Stündlich",
+        "everyMinutes": "Alle {n} Minuten",
+        "everyHoursAt": "Alle {n} Stunden um :{min}",
+        "everyHourAt": "Stündlich um :{min}",
+        "dailyAt": "Täglich um {time}",
+        "weeklyOn": "Wöchentlich am {day} um {time}",
+        "custom": "Eigener Zeitplan"
+      },
+      "weekdays": {
+        "sun": "Sonntag",
+        "mon": "Montag",
+        "tue": "Dienstag",
+        "wed": "Mittwoch",
+        "thu": "Donnerstag",
+        "fri": "Freitag",
+        "sat": "Samstag"
+      },
+      "types": {
+        "restart": "Neustart",
+        "update": "Hytale-Update",
+        "command": "Console-Befehl",
+        "broadcast": "Broadcast"
+      },
+      "detail": {
+        "warns": "Warnt Spieler {n} Minute vorher | Warnt Spieler {n} Minuten vorher",
+        "noWarning": "Keine Warnung",
+        "update": "Nur wenn ein neuerer Build existiert · vorher Backup · {warning}"
+      },
+      "status": {
+        "ok": "ok",
+        "pending": "ausstehend",
+        "skipped": "übersprungen",
+        "failed": "fehlgeschlagen"
+      },
+      "toast": {
+        "scheduled": "Aufgabe geplant",
+        "deleted": "Aufgabe gelöscht"
+      },
+      "errors": {
+        "load": "Geplante Aufgaben konnten nicht geladen werden",
+        "create": "Aufgabe konnte nicht erstellt werden",
+        "update": "Aufgabe konnte nicht geändert werden",
+        "delete": "Aufgabe konnte nicht gelöscht werden"
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Server } from '~/types'
+const { t } = useI18n()
 
 // Server list for the game theme, laid out like a multiplayer server select.
 const props = defineProps<{
@@ -52,12 +53,12 @@ function tone(s: Server): 'gold' | 'green' | 'stone' | 'red' {
 
 function statusText(s: Server): string {
   switch (s.status) {
-    case 'running': return 'Online'
-    case 'starting': return 'Starting'
-    case 'stopping': return 'Stopping'
-    case 'installing': return 'Installing'
-    case 'crashed': return 'Crashed'
-    default: return 'Stopped'
+    case 'running': return t('status.online')
+    case 'starting': return t('status.starting')
+    case 'stopping': return t('status.stopping')
+    case 'installing': return t('status.installing')
+    case 'crashed': return t('status.crashed')
+    default: return t('status.stopped')
   }
 }
 
@@ -84,10 +85,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <div class="server-select">
-    <h1 class="title">Server Select</h1>
+    <h1 class="title">{{ t('misc.serverSelect.title') }}</h1>
     <p class="sub">
-      {{ counts.all }} {{ counts.all === 1 ? 'server' : 'servers' }} on {{ nodeCount }} {{ nodeCount === 1 ? 'node' : 'nodes' }}
-      · {{ counts.online }} online
+      {{ t('misc.serverSelect.summary', { servers: t('misc.serverSelect.servers', counts.all), nodes: t('misc.serverSelect.nodes', nodeCount) }) }}
+      · {{ t('misc.serverSelect.onlineCount', { n: counts.online }) }}
     </p>
 
     <div v-if="error" class="error">{{ error }}</div>
@@ -96,23 +97,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <span class="studs" />
       <div class="tabs" role="tablist">
         <button
-          v-for="t in (['all', 'online', 'stopped'] as const)"
-          :key="t"
+          v-for="tb in (['all', 'online', 'stopped'] as const)"
+          :key="tb"
           role="tab"
-          :aria-selected="tab === t"
-          :class="['tab', { on: tab === t }]"
-          @click="tab = t"
+          :aria-selected="tab === tb"
+          :class="['tab', { on: tab === tb }]"
+          @click="tab = tb"
         >
-          {{ t === 'all' ? 'All' : t === 'online' ? 'Online' : 'Stopped' }}<span class="n">{{ counts[t] }}</span>
+          {{ tb === 'all' ? t('misc.serverSelect.tabAll') : tb === 'online' ? t('status.online') : t('status.stopped') }}<span class="n">{{ counts[tb] }}</span>
         </button>
       </div>
 
-      <div v-if="loading && !servers.length" class="empty">Loading servers...</div>
+      <div v-if="loading && !servers.length" class="empty">{{ t('misc.serverSelect.loading') }}</div>
       <div v-else-if="!visible.length" class="empty">
-        <template v-if="tab === 'all'">No servers yet. Create your first one below.</template>
-        <template v-else>No {{ tab }} servers.</template>
+        <template v-if="tab === 'all'">{{ t('misc.serverSelect.empty') }}</template>
+        <template v-else-if="tab === 'online'">{{ t('misc.serverSelect.noOnline') }}</template>
+        <template v-else>{{ t('misc.serverSelect.noStopped') }}</template>
       </div>
-      <div v-else class="list" role="listbox" aria-label="Servers">
+      <div v-else class="list" role="listbox" :aria-label="t('misc.serverSelect.listLabel')">
         <div
           v-for="s in visible"
           :key="s.id"
@@ -127,13 +129,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <div class="name">{{ s.name }}</div>
             <div class="motd">
               <span :class="s.status === 'running' ? 'ok' : s.status === 'crashed' ? 'bad' : ''">{{ statusText(s) }}</span>
-              · {{ s.node_fqdn ? `${s.node_fqdn}:${s.port}` : `Port ${s.port}` }}
+              · {{ s.node_fqdn ? `${s.node_fqdn}:${s.port}` : t('misc.serverSelect.port', { port: s.port }) }}
               · Hytale {{ s.hytale_version }}
-              <template v-if="s.active_world"> · World {{ s.active_world }}</template>
+              <template v-if="s.active_world"> · {{ t('misc.serverSelect.world', { name: s.active_world }) }}</template>
             </div>
           </div>
           <div class="meta">
-            <div class="ram">{{ s.ram_limit_mb ? `${s.ram_limit_mb} MB` : 'no RAM limit' }}</div>
+            <div class="ram">{{ s.ram_limit_mb ? `${s.ram_limit_mb} MB` : t('misc.serverSelect.noRamLimit') }}</div>
             <span :class="['sig', { off: s.status !== 'running' }]" :title="statusText(s)">
               <i style="height:6px" /><i style="height:11px" /><i style="height:16px" />
             </span>
@@ -143,15 +145,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </div>
 
     <div class="bar">
-      <button class="gbtn gold" :disabled="!selected" @click="selected && emit('open', selected)">Open Server</button>
+      <button class="gbtn gold" :disabled="!selected" @click="selected && emit('open', selected)">{{ t('misc.serverSelect.open') }}</button>
       <button class="gbtn" :disabled="busy(selected)" @click="selected && emit('power', selected)">
-        {{ selected?.status === 'running' ? 'Stop' : 'Start' }}
+        {{ selected?.status === 'running' ? t('actions.stop') : t('actions.start') }}
       </button>
-      <button class="gbtn" :disabled="busy(selected) || selected?.status !== 'running'" @click="selected && emit('restart', selected)">Restart</button>
-      <button class="gbtn" @click="emit('create')">New Server</button>
-      <button class="gbtn danger" :disabled="!selected || pendingId === selected.id" @click="selected && emit('remove', selected)">Delete</button>
+      <button class="gbtn" :disabled="busy(selected) || selected?.status !== 'running'" @click="selected && emit('restart', selected)">{{ t('actions.restart') }}</button>
+      <button class="gbtn" @click="emit('create')">{{ t('misc.serverSelect.newServer') }}</button>
+      <button class="gbtn danger" :disabled="!selected || pendingId === selected.id" @click="selected && emit('remove', selected)">{{ t('actions.delete') }}</button>
     </div>
-    <p class="hint"><kbd>↑</kbd> <kbd>↓</kbd> select · <kbd>Enter</kbd> open · double-click opens</p>
+    <i18n-t keypath="misc.serverSelect.hint" tag="p" class="hint" scope="global">
+      <template #up><kbd>↑</kbd></template>
+      <template #down><kbd>↓</kbd></template>
+      <template #enter><kbd>Enter</kbd></template>
+    </i18n-t>
   </div>
 </template>
 

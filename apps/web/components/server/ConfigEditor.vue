@@ -3,7 +3,7 @@ import { AlertTriangle, Braces, FileJson, Loader2, RotateCcw, Save, SlidersHoriz
 import { useApi } from '~/composables/useApi'
 import {
   KNOWN_CONFIG_FILES, parseConfig, serializeConfig,
-  type JsonValue,
+  type JsonValue, type ParseResult,
 } from '~/utils/configForm'
 
 // Config tab: the server's JSON config files (config.json, permissions.json,
@@ -17,6 +17,22 @@ const props = defineProps<{ serverId: string, status?: string }>()
 const emit = defineEmits<{ toast: [msg: string, type: 'success' | 'error'] }>()
 
 const api = useApi()
+const { t, te } = useI18n()
+
+// Known files: label/description from servers.config.files.<name without
+// .json>, falling back to the English in KNOWN_CONFIG_FILES.
+function fileText(name: string, part: 'label' | 'description'): string | undefined {
+  const info = KNOWN_CONFIG_FILES[name]
+  if (!info) return undefined
+  const key = `servers.config.files.${name.replace(/\.json$/i, '')}.${part}`
+  return te(key) ? t(key) : info[part]
+}
+
+function formReasonText(parsed: Extract<ParseResult, { ok: true }>): string {
+  if (parsed.formReasonCode === 'lossy') return t('servers.config.lossyNumbers', { value: parsed.formReasonValue ?? '' })
+  if (parsed.formReasonCode === 'notObject') return t('servers.config.notObject')
+  return parsed.formReason ?? ''
+}
 
 const files = ref<string[]>([])
 const listLoading = ref(false)
@@ -55,7 +71,7 @@ async function loadList() {
     files.value = [...known, ...other]
     if (!selected.value && files.value.length) await openFile(files.value[0]!)
   } catch (err) {
-    listError.value = errorMessage(err, 'Failed to load the file list')
+    listError.value = errorMessage(err, t('servers.config.errors.loadList'))
   } finally {
     listLoading.value = false
   }
@@ -78,31 +94,38 @@ function loadInto(content: string) {
   rawError.value = ''
   const parsed = parseConfig(content)
   if (!parsed.ok) {
-    formBlocked.value = `Not valid JSON: ${parsed.error}`
+    formBlocked.value = t('servers.config.notValidJson', { error: parsed.error })
     draft.value = null
     mode.value = 'raw'
     return
   }
   baseline.value = serializeConfig(parsed.value, content)
   draft.value = parsed.value
-  formBlocked.value = parsed.formReason ?? ''
+  formBlocked.value = formReasonText(parsed)
   if (formBlocked.value) mode.value = 'raw'
 }
 
+// Bumped on every openFile, so a slow read of a file the user already left
+// can't land in the editor under the newer file's name (and be saved there).
+let openSeq = 0
+
 async function openFile(name: string) {
   if (name === selected.value) return
-  if (dirty.value && !window.confirm(`Discard unsaved changes to ${selected.value}?`)) return
+  if (dirty.value && !window.confirm(t('servers.config.discardConfirm', { name: selected.value ?? '' }))) return
+  const seq = ++openSeq
   selected.value = name
   fileLoading.value = true
   fileError.value = ''
   mode.value = 'form'
   try {
     const data = await api.get<{ content: string }>(`/servers/${props.serverId}/files/content`, { path: '/' + name })
+    if (seq !== openSeq) return
     loadInto(data.content)
   } catch (err) {
-    fileError.value = errorMessage(err, 'Failed to read the file')
+    if (seq !== openSeq) return
+    fileError.value = errorMessage(err, t('servers.config.errors.readFile'))
   } finally {
-    fileLoading.value = false
+    if (seq === openSeq) fileLoading.value = false
   }
 }
 
@@ -116,11 +139,11 @@ function switchMode(next: 'form' | 'raw') {
   }
   const parsed = parseConfig(rawText.value)
   if (!parsed.ok) {
-    rawError.value = `Fix the JSON first: ${parsed.error}`
+    rawError.value = t('servers.config.fixJsonFirst', { error: parsed.error })
     return
   }
   if (parsed.formReason) {
-    rawError.value = parsed.formReason
+    rawError.value = formReasonText(parsed)
     return
   }
   draft.value = parsed.value
@@ -139,17 +162,18 @@ async function save() {
   if (mode.value === 'raw') {
     const parsed = parseConfig(content)
     if (!parsed.ok) {
-      rawError.value = `Not saved, the JSON is invalid: ${parsed.error}`
+      rawError.value = t('servers.config.notSavedInvalid', { error: parsed.error })
       return
     }
   }
+  const name = selected.value
   saving.value = true
   try {
-    await api.put(`/servers/${props.serverId}/files/content`, { path: '/' + selected.value, content })
-    loadInto(content)
-    emit('toast', running.value ? `${selected.value} saved. Restart the server to apply it.` : `${selected.value} saved`, 'success')
+    await api.put(`/servers/${props.serverId}/files/content`, { path: '/' + name, content })
+    if (selected.value === name) loadInto(content)
+    emit('toast', running.value ? t('servers.config.savedRestart', { name }) : t('servers.config.saved', { name }), 'success')
   } catch (err) {
-    emit('toast', errorMessage(err, 'Failed to save the file'), 'error')
+    emit('toast', errorMessage(err, t('servers.config.errors.saveFile')), 'error')
   } finally {
     saving.value = false
   }
@@ -173,20 +197,19 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
     >
       <AlertTriangle class="w-4 h-4 text-tp-warning shrink-0 mt-0.5" />
       <p>
-        The server reads these files when it starts, so changes apply after a restart.
-        A running server can also write its own copy back when it stops. To be safe, stop it, save, then start it.
+        {{ t('servers.config.runningWarning') }}
       </p>
     </div>
 
     <div class="grid gap-3 md:grid-cols-[14rem_1fr]">
       <!-- File list -->
-      <nav class="bg-tp-surface rounded-xl p-2 h-fit" aria-label="Config files">
+      <nav class="bg-tp-surface rounded-xl p-2 h-fit" :aria-label="t('servers.config.filesNav')">
         <div v-if="listLoading" class="flex items-center gap-2 px-2 py-3 text-sm text-tp-muted">
-          <Loader2 class="w-4 h-4 animate-spin" /> Loading files…
+          <Loader2 class="w-4 h-4 animate-spin" /> {{ t('servers.config.loadingFiles') }}
         </div>
         <p v-else-if="listError" class="px-2 py-3 text-sm text-tp-danger">{{ listError }}</p>
         <p v-else-if="!files.length" class="px-2 py-3 text-sm text-tp-muted">
-          No config files yet. Hytale creates them on the first start.
+          {{ t('servers.config.noFiles') }}
         </p>
         <ul v-else class="space-y-0.5">
           <li v-for="name in files" :key="name">
@@ -199,7 +222,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
               :aria-current="selected === name ? 'true' : undefined"
               @click="openFile(name)"
             >
-              <span class="block text-sm font-medium">{{ KNOWN_CONFIG_FILES[name]?.label ?? name }}</span>
+              <span class="block text-sm font-medium">{{ fileText(name, 'label') ?? name }}</span>
               <span class="block text-xs font-mono text-tp-outline">{{ name }}</span>
             </button>
           </li>
@@ -212,10 +235,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
           <div class="flex items-center gap-2 min-w-0">
             <FileJson class="w-4 h-4 text-tp-muted shrink-0" />
             <span class="text-sm font-medium text-tp-text truncate">{{ selected }}</span>
-            <span v-if="dirty" class="text-xs text-tp-warning">Unsaved</span>
+            <span v-if="dirty" class="text-xs text-tp-warning">{{ t('servers.config.unsaved') }}</span>
           </div>
           <div class="flex items-center gap-2">
-            <div class="flex rounded-lg bg-tp-surface2 p-0.5" role="group" aria-label="Editor mode">
+            <div class="flex rounded-lg bg-tp-surface2 p-0.5" role="group" :aria-label="t('servers.config.editorMode')">
               <button
                 type="button"
                 :class="['flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium', mode === 'form' ? 'bg-tp-surface3 text-tp-text' : 'text-tp-muted hover:text-tp-text', formBlocked ? 'opacity-50 cursor-not-allowed' : '']"
@@ -223,7 +246,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
                 :aria-pressed="mode === 'form'"
                 @click="switchMode('form')"
               >
-                <SlidersHorizontal class="w-3.5 h-3.5" /> Form
+                <SlidersHorizontal class="w-3.5 h-3.5" /> {{ t('servers.config.form') }}
               </button>
               <button
                 type="button"
@@ -231,25 +254,25 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
                 :aria-pressed="mode === 'raw'"
                 @click="switchMode('raw')"
               >
-                <Braces class="w-3.5 h-3.5" /> Raw JSON
+                <Braces class="w-3.5 h-3.5" /> {{ t('servers.config.rawJson') }}
               </button>
             </div>
             <UiButton variant="secondary" size="sm" :disabled="!dirty || saving" @click="revert">
-              <RotateCcw class="w-3.5 h-3.5" /> Revert
+              <RotateCcw class="w-3.5 h-3.5" /> {{ t('actions.revert') }}
             </UiButton>
             <UiButton variant="primary" size="sm" :disabled="!dirty" :loading="saving" @click="save">
-              <Save class="w-3.5 h-3.5" /> Save
+              <Save class="w-3.5 h-3.5" /> {{ t('actions.save') }}
             </UiButton>
           </div>
         </header>
 
         <div v-if="fileLoading" class="flex items-center gap-2 p-4 text-sm text-tp-muted">
-          <Loader2 class="w-4 h-4 animate-spin" /> Reading {{ selected }}…
+          <Loader2 class="w-4 h-4 animate-spin" /> {{ t('servers.config.reading', { name: selected }) }}
         </div>
         <p v-else-if="fileError" class="p-4 text-sm text-tp-danger">{{ fileError }}</p>
         <template v-else>
           <p v-if="KNOWN_CONFIG_FILES[selected]" class="px-4 pt-3 text-xs text-tp-muted">
-            {{ KNOWN_CONFIG_FILES[selected]!.description }}
+            {{ fileText(selected, 'description') }}
           </p>
           <p v-if="formBlocked" class="mx-4 mt-3 text-xs text-tp-warning">{{ formBlocked }}</p>
           <p v-if="rawError" class="mx-4 mt-3 text-xs text-tp-danger" role="alert">{{ rawError }}</p>
@@ -269,7 +292,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
             class="mt-3 w-full bg-tp-surface-lowest text-tp-tertiary font-mono text-xs p-4 focus:outline-none resize-y"
             style="min-height: 480px; tab-size: 2;"
             spellcheck="false"
-            :aria-label="`Raw JSON of ${selected}`"
+            :aria-label="t('servers.config.rawAria', { name: selected })"
             @input="rawError = ''"
           />
         </template>

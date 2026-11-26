@@ -2,17 +2,18 @@
 import { useAuthStore } from '~/stores/auth'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ layout: 'auth', title: 'First-time Setup' })
+definePageMeta({ layout: 'auth', title: 'pages.setup' })
 
 const api = useApi()
 const authStore = useAuthStore()
 const serversStore = useServersStore()
+const { t } = useI18n()
 
 // 'loading' until /health/setup answers; 'manual' when the install has no
 // setup code and the first account has to be created with tale-cli.
 const mode = ref<'loading' | 'wizard' | 'manual'>('loading')
 const step = ref(1)
-const steps = ['Setup code', 'Your account', 'First server']
+const steps = computed(() => [t('auth.setup.steps.code'), t('auth.setup.steps.account'), t('auth.setup.steps.server')])
 
 onMounted(async () => {
   try {
@@ -52,9 +53,9 @@ function submitCode() {
     return
   }
   if (/[01OI]/.test(code.value)) {
-    codeError.value = 'Setup codes never contain 0, O, 1 or I. Please check the code in your terminal.'
+    codeError.value = t('auth.setup.codeAmbiguous')
   } else {
-    codeError.value = 'The code has 12 letters and numbers, like ABCD-EFGH-JKLM.'
+    codeError.value = t('auth.setup.codeFormat')
   }
 }
 
@@ -67,18 +68,18 @@ const showPassword = ref(false)
 
 // Mirrors the API's owner password policy.
 const passwordChecks = computed(() => [
-  { label: 'At least 12 characters', ok: [...account.password].length >= 12 },
-  { label: 'At least one number', ok: /[0-9]/.test(account.password) },
-  { label: 'At least one symbol, like ! ? # or -', ok: /[^A-Za-z0-9]/.test(account.password) },
+  { label: t('auth.setup.passwordChecks.length'), ok: [...account.password].length >= 12 },
+  { label: t('auth.setup.passwordChecks.number'), ok: /[0-9]/.test(account.password) },
+  { label: t('auth.setup.passwordChecks.symbol'), ok: /[^A-Za-z0-9]/.test(account.password) },
 ])
 const passwordOk = computed(() => passwordChecks.value.every(c => c.ok))
 
 function validateAccount(): boolean {
   accountErrors.email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email.trim())
-    ? '' : 'Please enter a valid email address'
+    ? '' : t('auth.validation.emailInvalid')
   accountErrors.username = /^[A-Za-z0-9_]{3,20}$/.test(account.username.trim())
-    ? '' : '3 to 20 letters, numbers or underscores'
-  accountErrors.confirm = account.password === account.confirm ? '' : 'The passwords do not match'
+    ? '' : t('auth.setup.usernameRule')
+  accountErrors.confirm = account.password === account.confirm ? '' : t('auth.setup.passwordMismatch')
   return !accountErrors.email && !accountErrors.username && !accountErrors.confirm && passwordOk.value
 }
 
@@ -100,14 +101,14 @@ async function submitAccount() {
   } catch (err: unknown) {
     const e = err as { status?: number; data?: { error?: string } }
     if (e.status === 403) {
-      codeError.value = 'That setup code is not correct. Please check it and try again.'
+      codeError.value = t('auth.setup.codeWrong')
       step.value = 1
     } else if (e.status === 409) {
       setupDone.value = true
     } else if (e.status === 429) {
-      accountError.value = 'Too many attempts. Please wait a minute and try again.'
+      accountError.value = t('auth.setup.tooManyAttempts')
     } else {
-      accountError.value = e.data?.error ?? 'Something went wrong. Please try again.'
+      accountError.value = e.data?.error ?? t('auth.setup.genericError')
     }
   }
 }
@@ -130,18 +131,18 @@ function patchlineLatest(name: string) {
 }
 
 const ramOptions = [
-  { mb: 2048, label: '2 GB', hint: 'A few friends' },
-  { mb: 4096, label: '4 GB', hint: 'Recommended' },
-  { mb: 8192, label: '8 GB', hint: 'Bigger groups' },
+  { mb: 2048, label: '2 GB', hint: 'auth.setup.ram.small' },
+  { mb: 4096, label: '4 GB', hint: 'auth.setup.ram.recommended' },
+  { mb: 8192, label: '8 GB', hint: 'auth.setup.ram.large' },
 ]
 
-const server = reactive({ name: 'My Hytale Server', hytale_version: 'latest', ram_limit_mb: 4096 })
+const server = reactive({ name: t('auth.setup.defaultServerName'), hytale_version: 'latest', ram_limit_mb: 4096 })
 const serverLoading = ref(false)
 const serverError = ref('')
 
 async function createServer() {
   if (!server.name.trim()) {
-    serverError.value = 'Please give your server a name'
+    serverError.value = t('auth.setup.serverNameRequired')
     return
   }
   serverLoading.value = true
@@ -157,8 +158,8 @@ async function createServer() {
     const e = err as { data?: { error?: string }; message?: string }
     const msg = e.data?.error ?? e.message ?? ''
     serverError.value = /no available node/i.test(msg)
-      ? 'The game server machine is not connected to the panel yet. This usually takes a minute after installing; try again shortly or skip for now.'
-      : msg || 'The server could not be created. You can try again from the Servers page.'
+      ? t('auth.setup.noNode')
+      : msg || t('auth.setup.createFailed')
   } finally {
     serverLoading.value = false
   }
@@ -186,34 +187,36 @@ const inputClass = [
     <!-- No setup code configured: create the owner with tale-cli -->
     <template v-else-if="mode === 'manual'">
       <div class="mb-6">
-        <h2 class="text-tp-text font-display font-bold text-xl">Welcome to TalePanel</h2>
-        <p class="text-tp-muted text-sm mt-1">No admin account exists yet. Create one to get started.</p>
+        <h2 class="text-tp-text font-display font-bold text-xl">{{ t('auth.setup.welcome') }}</h2>
+        <p class="text-tp-muted text-sm mt-1">{{ t('auth.setup.manualSubtitle') }}</p>
       </div>
 
       <div class="bg-tp-surface rounded-xl p-5 space-y-4 mb-5">
         <div class="flex items-center gap-2">
           <span class="material-symbols-outlined text-tp-accent text-lg">terminal</span>
-          <p class="text-tp-text font-medium text-sm">Run this command on your panel server:</p>
+          <p class="text-tp-text font-medium text-sm">{{ t('auth.setup.manualRun') }}</p>
         </div>
         <pre class="bg-tp-bg rounded-lg p-4 text-sm font-mono text-tp-accent overflow-x-auto">docker compose run --rm api tale-cli admin create</pre>
-        <p class="text-sm text-tp-muted">
-          This creates the first owner account. Once done,
-          <NuxtLink to="/auth/login" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors">
-            sign in here
-          </NuxtLink>.
-        </p>
+        <i18n-t keypath="auth.setup.manualDone" tag="p" class="text-sm text-tp-muted" scope="global">
+          <template #link>
+            <NuxtLink to="/auth/login" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors">
+              {{ t('auth.setup.manualSignInHere') }}
+            </NuxtLink>
+          </template>
+        </i18n-t>
       </div>
 
-      <p class="text-center text-xs text-tp-muted">
-        Running TalePanel outside Docker? Use
-        <code class="font-mono text-tp-accent">./tale-cli admin create</code> directly.
-      </p>
+      <i18n-t keypath="auth.setup.manualNoDocker" tag="p" class="text-center text-xs text-tp-muted" scope="global">
+        <template #command>
+          <code class="font-mono text-tp-accent">./tale-cli admin create</code>
+        </template>
+      </i18n-t>
     </template>
 
     <!-- Setup wizard -->
     <template v-else>
       <!-- Progress -->
-      <ol class="flex items-center mb-7" aria-label="Setup progress">
+      <ol class="flex items-center mb-7" :aria-label="t('auth.setup.progress')">
         <li
           v-for="(label, i) in steps"
           :key="label"
@@ -247,13 +250,13 @@ const inputClass = [
       <div v-if="setupDone" class="space-y-5">
         <div class="flex items-start gap-3 bg-tp-surface rounded-xl p-4">
           <span class="material-symbols-outlined text-tp-accent text-lg shrink-0 mt-0.5">info</span>
-          <p class="text-tp-text text-sm">This panel has already been set up. Please sign in with your account.</p>
+          <p class="text-tp-text text-sm">{{ t('auth.setup.alreadyDone') }}</p>
         </div>
         <NuxtLink
           to="/auth/login"
           class="w-full cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all"
         >
-          Go to sign in
+          {{ t('auth.setup.goToSignIn') }}
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </NuxtLink>
       </div>
@@ -261,15 +264,14 @@ const inputClass = [
       <!-- Step 1: setup code -->
       <form v-else-if="step === 1" class="space-y-5" @submit.prevent="submitCode">
         <div>
-          <h2 class="text-tp-text font-display font-bold text-xl">Welcome to TalePanel</h2>
+          <h2 class="text-tp-text font-display font-bold text-xl">{{ t('auth.setup.welcome') }}</h2>
           <p class="text-tp-muted text-sm mt-1">
-            Enter the setup code that was printed at the end of the installer in your terminal.
-            It proves that you are the person who installed this panel.
+            {{ t('auth.setup.codeIntro') }}
           </p>
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-code" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Setup code</label>
+          <label for="setup-code" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.setup.steps.code') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">key</span>
             <input
@@ -288,14 +290,14 @@ const inputClass = [
             />
           </div>
           <p v-if="codeError" class="text-tp-danger text-xs">{{ codeError }}</p>
-          <p v-else class="text-tp-outline text-xs">Lost the code? Run the installer again to get a new one.</p>
+          <p v-else class="text-tp-outline text-xs">{{ t('auth.setup.codeLost') }}</p>
         </div>
 
         <button
           type="submit"
           class="w-full cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all"
         >
-          Continue
+          {{ t('auth.setup.continue') }}
           <span class="material-symbols-outlined text-base">arrow_forward</span>
         </button>
       </form>
@@ -303,8 +305,8 @@ const inputClass = [
       <!-- Step 2: owner account -->
       <form v-else-if="step === 2" class="space-y-4" @submit.prevent="submitAccount">
         <div>
-          <h2 class="text-tp-text font-display font-bold text-xl">Your admin account</h2>
-          <p class="text-tp-muted text-sm mt-1">This account owns the panel. You use it to sign in from now on.</p>
+          <h2 class="text-tp-text font-display font-bold text-xl">{{ t('auth.setup.accountTitle') }}</h2>
+          <p class="text-tp-muted text-sm mt-1">{{ t('auth.setup.accountSubtitle') }}</p>
         </div>
 
         <div v-if="accountError" class="flex items-start gap-3 bg-tp-error/10 rounded-xl p-3">
@@ -313,7 +315,7 @@ const inputClass = [
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email address</label>
+          <label for="setup-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.setup.emailAddress') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
             <input
@@ -330,7 +332,7 @@ const inputClass = [
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-username" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
+          <label for="setup-username" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.username') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">person</span>
             <input
@@ -347,7 +349,7 @@ const inputClass = [
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label for="setup-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.password') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
@@ -361,7 +363,7 @@ const inputClass = [
             <button
               type="button"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-tp-outline hover:text-tp-muted transition-colors"
-              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+              :aria-label="showPassword ? t('auth.fields.hidePassword') : t('auth.fields.showPassword')"
               @click="showPassword = !showPassword"
             >
               <span class="material-symbols-outlined text-lg">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
@@ -380,7 +382,7 @@ const inputClass = [
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-confirm" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Repeat password</label>
+          <label for="setup-confirm" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.setup.repeatPassword') }}</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
@@ -396,14 +398,14 @@ const inputClass = [
         </div>
 
         <div class="flex items-center gap-3 pt-1">
-          <UiButton variant="ghost" size="md" @click="step = 1">Back</UiButton>
+          <UiButton variant="ghost" size="md" @click="step = 1">{{ t('actions.back') }}</UiButton>
           <button
             type="submit"
             :disabled="authStore.loading || !passwordOk"
             class="flex-1 cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span v-if="authStore.loading" class="material-symbols-outlined text-base animate-spin">progress_activity</span>
-            Create account
+            {{ t('auth.login.createAccount') }}
             <span class="material-symbols-outlined text-base">arrow_forward</span>
           </button>
         </div>
@@ -412,9 +414,9 @@ const inputClass = [
       <!-- Step 3: first server -->
       <form v-else class="space-y-4" @submit.prevent="createServer">
         <div>
-          <h2 class="text-tp-text font-display font-bold text-xl">Create your first Hytale server</h2>
+          <h2 class="text-tp-text font-display font-bold text-xl">{{ t('auth.setup.serverTitle') }}</h2>
           <p class="text-tp-muted text-sm mt-1">
-            Your account is ready. Pick a name and how much memory the server may use. You can change this later.
+            {{ t('auth.setup.serverSubtitle') }}
           </p>
         </div>
 
@@ -423,25 +425,25 @@ const inputClass = [
           <p class="text-tp-error text-sm">{{ serverError }}</p>
         </div>
 
-        <UiInput v-model="server.name" label="Server name" placeholder="My Hytale Server" :required="true" />
+        <UiInput v-model="server.name" :label="t('auth.setup.serverName')" :placeholder="t('auth.setup.defaultServerName')" :required="true" />
 
         <div class="flex flex-col gap-1.5">
-          <label for="setup-hytale-version" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Hytale version</label>
+          <label for="setup-hytale-version" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.setup.hytaleVersion') }}</label>
           <select
             id="setup-hytale-version"
             v-model="server.hytale_version"
             class="w-full bg-tp-surface text-tp-text rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50"
           >
-            <option value="latest">Release{{ patchlineLatest('release') ? ` (${patchlineLatest('release')})` : '' }}</option>
-            <option value="pre-release">Pre-release{{ patchlineLatest('pre-release') ? ` (${patchlineLatest('pre-release')})` : '' }}</option>
+            <option value="latest">{{ t('auth.setup.release') }}{{ patchlineLatest('release') ? ` (${patchlineLatest('release')})` : '' }}</option>
+            <option value="pre-release">{{ t('auth.setup.preRelease') }}{{ patchlineLatest('pre-release') ? ` (${patchlineLatest('pre-release')})` : '' }}</option>
           </select>
           <p v-if="server.hytale_version === 'pre-release'" class="text-tp-warning text-xs">
-            Pre-release worlds cannot be opened by release servers.
+            {{ t('auth.setup.preReleaseWarning') }}
           </p>
         </div>
 
         <fieldset class="flex flex-col gap-1.5">
-          <legend class="text-xs font-semibold text-tp-muted uppercase tracking-wider mb-1.5">Memory</legend>
+          <legend class="text-xs font-semibold text-tp-muted uppercase tracking-wider mb-1.5">{{ t('auth.setup.memory') }}</legend>
           <div class="grid grid-cols-3 gap-2">
             <button
               v-for="opt in ramOptions"
@@ -457,20 +459,20 @@ const inputClass = [
               @click="server.ram_limit_mb = opt.mb"
             >
               <span class="block text-tp-text text-sm font-semibold">{{ opt.label }}</span>
-              <span class="block text-tp-outline text-[11px]">{{ opt.hint }}</span>
+              <span class="block text-tp-outline text-[11px]">{{ t(opt.hint) }}</span>
             </button>
           </div>
         </fieldset>
 
         <div class="flex items-center gap-3 pt-1">
-          <UiButton variant="ghost" size="md" :disabled="serverLoading" @click="skipServer">Skip for now</UiButton>
+          <UiButton variant="ghost" size="md" :disabled="serverLoading" @click="skipServer">{{ t('auth.setup.skip') }}</UiButton>
           <button
             type="submit"
             :disabled="serverLoading"
             class="flex-1 cta-gradient text-tp-on-primary font-bold text-sm uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span v-if="serverLoading" class="material-symbols-outlined text-base animate-spin">progress_activity</span>
-            Create server
+            {{ t('auth.setup.createServer') }}
             <span class="material-symbols-outlined text-base">arrow_forward</span>
           </button>
         </div>

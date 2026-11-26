@@ -8,10 +8,11 @@ import {
 import { useApi } from '~/composables/useApi'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ title: 'Monitoring', middleware: 'auth' })
+definePageMeta({ title: 'pages.monitoring', middleware: 'auth' })
 
 const api = useApi()
 const serversStore = useServersStore()
+const { t, te } = useI18n()
 
 onMounted(() => {
   if (!Array.isArray(serversStore.servers) || serversStore.servers.length === 0) {
@@ -185,21 +186,21 @@ const expandedTalker = ref<string | null>(null)
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <Activity class="w-6 h-6 text-tp-primary" />
-        <h2 class="text-tp-text font-display font-bold text-2xl">Monitoring</h2>
+        <h2 class="text-tp-text font-display font-bold text-2xl">{{ t('pages.monitoring') }}</h2>
       </div>
       <UiButton variant="secondary" size="sm" :loading="metricsLoading || networkLoading" @click="() => { fetchAllMetrics(); fetchNetworkStats() }">
         <RefreshCw class="w-3.5 h-3.5" />
-        Refresh
+        {{ t('actions.refresh') }}
       </UiButton>
     </div>
 
     <!-- Overview stat cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div v-for="stat in [
-        { label: 'Servers', value: `${runningCount}/${servers.length}`, icon: Activity, color: 'text-tp-primary', bg: 'bg-tp-primary/10' },
-        { label: 'Avg CPU', value: totalCpu + '%', icon: Cpu, color: 'text-tp-warning', bg: 'bg-tp-warning/10' },
-        { label: 'Inbound PPS', value: net?.current ? formatPps(net.current.pps_in) : '-', icon: TrendingUp, color: 'text-tp-success', bg: 'bg-tp-success/10' },
-        { label: 'Threat Level', value: net?.threats?.level ? net.threats.level.toUpperCase() : '-', icon: Shield, color: net?.threats?.level && net.threats.level !== 'clear' ? 'text-tp-danger' : 'text-tp-success', bg: net?.threats?.level && net.threats.level !== 'clear' ? 'bg-tp-danger/10' : 'bg-tp-success/10' },
+        { label: t('monitoring.page.statServers'), value: `${runningCount}/${servers.length}`, icon: Activity, color: 'text-tp-primary', bg: 'bg-tp-primary/10' },
+        { label: t('monitoring.page.statAvgCpu'), value: totalCpu + '%', icon: Cpu, color: 'text-tp-warning', bg: 'bg-tp-warning/10' },
+        { label: t('monitoring.page.inboundPps'), value: net?.current ? formatPps(net.current.pps_in) : '-', icon: TrendingUp, color: 'text-tp-success', bg: 'bg-tp-success/10' },
+        { label: t('monitoring.page.threatLevel'), value: net?.threats?.level ? (te(`monitoring.page.levels.${net.threats.level}`) ? t(`monitoring.page.levels.${net.threats.level}`) : net.threats.level).toUpperCase() : '-', icon: Shield, color: net?.threats?.level && net.threats.level !== 'clear' ? 'text-tp-danger' : 'text-tp-success', bg: net?.threats?.level && net.threats.level !== 'clear' ? 'bg-tp-danger/10' : 'bg-tp-success/10' },
       ]" :key="stat.label"
         class="bg-tp-surface rounded-xl p-4 flex items-center gap-4">
         <div :class="['w-10 h-10 rounded-xl flex items-center justify-center shrink-0', stat.bg]">
@@ -215,19 +216,19 @@ const expandedTalker = ref<string | null>(null)
     <!-- Server metrics table -->
     <div class="bg-tp-surface rounded-xl overflow-hidden">
       <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
-        <h3 class="text-tp-text font-display font-semibold text-sm">Server Metrics</h3>
-        <span class="text-tp-outline text-xs">Polling every 2s</span>
+        <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('monitoring.page.serverMetrics') }}</h3>
+        <span class="text-tp-outline text-xs">{{ t('monitoring.page.polling') }}</span>
       </div>
-      <div v-if="servers.length === 0" class="p-8 text-center text-tp-muted text-sm">No servers to monitor.</div>
+      <div v-if="servers.length === 0" class="p-8 text-center text-tp-muted text-sm">{{ t('monitoring.page.noServers') }}</div>
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="border-b border-tp-border">
-            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Server</th>
-            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Status</th>
+            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colServer') }}</th>
+            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colStatus') }}</th>
             <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CPU</th>
             <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">RAM</th>
-            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Uptime</th>
-            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Port</th>
+            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colUptime') }}</th>
+            <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colPort') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -238,7 +239,7 @@ const expandedTalker = ref<string | null>(null)
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
                 <div :class="['w-2 h-2 rounded-full shrink-0', statusColor(server.status)]" />
-                <span class="text-tp-muted text-xs capitalize">{{ server.status }}</span>
+                <span class="text-tp-muted text-xs capitalize">{{ te(`status.${server.status}`) ? t(`status.${server.status}`) : server.status }}</span>
               </div>
             </td>
             <td class="px-4 py-3">
@@ -278,9 +279,9 @@ const expandedTalker = ref<string | null>(null)
       <div class="px-5 py-3 border-b border-tp-border flex items-center justify-between">
         <div class="flex items-center gap-1">
           <button v-for="tab in [
-            { key: 'overview', label: 'Network Overview', icon: Globe },
-            { key: 'threats', label: 'DDoS Detection', icon: ShieldAlert },
-            { key: 'mitigation', label: 'Mitigation', icon: ShieldCheck },
+            { key: 'overview', label: t('monitoring.page.tabOverview'), icon: Globe },
+            { key: 'threats', label: t('monitoring.page.tabThreats'), icon: ShieldAlert },
+            { key: 'mitigation', label: t('monitoring.page.tabMitigation'), icon: ShieldCheck },
           ]" :key="tab.key"
             :class="['flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
               networkTab === tab.key ? 'bg-tp-primary/10 text-tp-primary' : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2']"
@@ -289,49 +290,49 @@ const expandedTalker = ref<string | null>(null)
             {{ tab.label }}
             <span v-if="tab.key === 'threats' && net?.threats?.level && net.threats.level !== 'clear'"
               :class="['ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase', threatColor(net.threats.level).badge]">
-              {{ net.threats.level }}
+              {{ (te(`monitoring.page.levels.${net.threats.level}`) ? t(`monitoring.page.levels.${net.threats.level}`) : net.threats.level) }}
             </span>
           </button>
         </div>
-        <span v-if="networkLoading" class="text-tp-muted text-xs animate-pulse">updating...</span>
+        <span v-if="networkLoading" class="text-tp-muted text-xs animate-pulse">{{ t('monitoring.page.updating') }}</span>
       </div>
 
       <!-- OVERVIEW TAB -->
       <div v-if="networkTab === 'overview'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <Globe class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor to initialise...' }}</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? t('monitoring.page.telemetryDisabled') : t('monitoring.page.waitingInit') }}</p>
         </div>
         <div v-else class="p-4 space-y-4">
           <!-- PPS/BPS rate cards -->
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div class="bg-tp-surface2 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Inbound PPS</p>
+              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('monitoring.page.inboundPps') }}</p>
               <p class="text-tp-text font-mono text-2xl font-bold">{{ formatPps(net.current.pps_in) }}</p>
-              <p class="text-tp-muted text-[10px] mt-0.5">5s avg: {{ formatPps(net.averages.pps_in_5s) }} | 30s: {{ formatPps(net.averages.pps_in_30s) }}</p>
+              <p class="text-tp-muted text-[10px] mt-0.5">{{ t('monitoring.page.avgPps', { avg5: formatPps(net.averages.pps_in_5s), avg30: formatPps(net.averages.pps_in_30s) }) }}</p>
             </div>
             <div class="bg-tp-surface2 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Inbound BPS</p>
+              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('monitoring.page.inboundBps') }}</p>
               <p class="text-tp-text font-mono text-2xl font-bold">{{ formatRate(net.current.bps_in * 8) }}</p>
-              <p class="text-tp-muted text-[10px] mt-0.5">5s avg: {{ formatRate(net.averages.bps_in_5s * 8) }}</p>
+              <p class="text-tp-muted text-[10px] mt-0.5">{{ t('monitoring.page.avg5', { value: formatRate(net.averages.bps_in_5s * 8) }) }}</p>
             </div>
             <div class="bg-tp-surface2 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">UDP Datagrams/s</p>
+              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('monitoring.page.udpDatagrams') }}</p>
               <p :class="['font-mono text-2xl font-bold', net.current.udp_pps_in > 10000 ? 'text-tp-danger' : 'text-tp-text']">{{ formatPps(net.current.udp_pps_in) }}</p>
-              <p class="text-tp-muted text-[10px] mt-0.5">NoPorts/s: {{ Math.round(net.current.udp_noports_pps) }}</p>
+              <p class="text-tp-muted text-[10px] mt-0.5">{{ t('monitoring.page.noPorts', { n: Math.round(net.current.udp_noports_pps) }) }}</p>
             </div>
             <div class="bg-tp-surface2 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Peak PPS (30s)</p>
+              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('monitoring.page.peakPps') }}</p>
               <p class="text-tp-text font-mono text-2xl font-bold">{{ formatPps(net.peaks.pps_in_30s) }}</p>
-              <p class="text-tp-muted text-[10px] mt-0.5">Peak BPS: {{ formatRate(net.peaks.bps_in_30s * 8) }}</p>
+              <p class="text-tp-muted text-[10px] mt-0.5">{{ t('monitoring.page.peakBps', { value: formatRate(net.peaks.bps_in_30s * 8) }) }}</p>
             </div>
           </div>
 
           <!-- PPS sparkline chart -->
           <div v-if="ppsHistory.length > 1" class="bg-tp-surface2 rounded-xl p-4">
             <div class="flex items-center justify-between mb-2">
-              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">PPS History (last 60s)</p>
-              <p class="text-tp-muted text-xs">Peak: {{ formatPps(maxPps) }}</p>
+              <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.ppsHistory') }}</p>
+              <p class="text-tp-muted text-xs">{{ t('monitoring.page.peak', { value: formatPps(maxPps) }) }}</p>
             </div>
             <svg viewBox="0 0 100 40" class="w-full h-20" preserveAspectRatio="none">
               <!-- Grid lines -->
@@ -353,22 +354,22 @@ const expandedTalker = ref<string | null>(null)
 
           <!-- Interface traffic -->
           <div v-if="net.interfaces.length > 0">
-            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">Interfaces</p>
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">{{ t('monitoring.page.interfaces') }}</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div v-for="iface in net.interfaces.filter(i => i.name !== 'lo')" :key="iface.name"
                 class="bg-tp-surface2 rounded-xl p-3">
                 <div class="flex items-center justify-between mb-2">
                   <span class="text-tp-text font-mono font-semibold text-sm">{{ iface.name }}</span>
-                  <span class="text-tp-outline text-[10px]">{{ formatPps(iface.pps_in) }} pps in / {{ formatPps(iface.pps_out) }} out</span>
+                  <span class="text-tp-outline text-[10px]">{{ t('monitoring.page.ifacePps', { in: formatPps(iface.pps_in), out: formatPps(iface.pps_out) }) }}</span>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <p class="text-tp-outline">RX Total</p>
+                    <p class="text-tp-outline">{{ t('monitoring.page.rxTotal') }}</p>
                     <p class="text-tp-success font-mono">{{ formatBytes(iface.rx_bytes) }}</p>
                     <p class="text-tp-muted font-mono text-[10px]">{{ formatRate(iface.bps_in * 8) }}</p>
                   </div>
                   <div>
-                    <p class="text-tp-outline">TX Total</p>
+                    <p class="text-tp-outline">{{ t('monitoring.page.txTotal') }}</p>
                     <p class="text-tp-primary font-mono">{{ formatBytes(iface.tx_bytes) }}</p>
                     <p class="text-tp-muted font-mono text-[10px]">{{ formatRate(iface.bps_out * 8) }}</p>
                   </div>
@@ -379,13 +380,13 @@ const expandedTalker = ref<string | null>(null)
 
           <!-- Game port activity -->
           <div v-if="net.game_ports.length > 0">
-            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">Game Ports</p>
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">{{ t('monitoring.page.gamePorts') }}</p>
             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
               <div v-for="gp in net.game_ports" :key="gp.port" class="bg-tp-surface2 rounded-xl p-3 text-center">
                 <p class="text-tp-text font-mono font-semibold">:{{ gp.port }}</p>
-                <p class="text-tp-tertiary text-sm font-mono">{{ gp.active_connections }} conn</p>
-                <p v-if="gp.rx_queue > 0" class="text-tp-warning text-[10px] font-mono">queue: {{ gp.rx_queue }}B</p>
-                <p v-if="gp.drops > 0" class="text-tp-danger text-[10px] font-mono">{{ gp.drops }} drops</p>
+                <p class="text-tp-tertiary text-sm font-mono">{{ t('monitoring.page.conn', { n: gp.active_connections }) }}</p>
+                <p v-if="gp.rx_queue > 0" class="text-tp-warning text-[10px] font-mono">{{ t('monitoring.page.queue', { n: gp.rx_queue }) }}</p>
+                <p v-if="gp.drops > 0" class="text-tp-danger text-[10px] font-mono">{{ t('monitoring.page.drops', { n: gp.drops }) }}</p>
               </div>
             </div>
           </div>
@@ -396,11 +397,11 @@ const expandedTalker = ref<string | null>(null)
       <div v-if="networkTab === 'threats'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldAlert class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor...' }}</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? t('monitoring.page.telemetryDisabled') : t('monitoring.page.waiting') }}</p>
         </div>
         <div v-else-if="!net.threats" class="p-12 text-center">
           <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">Threat detection not available on this node.</p>
+          <p class="text-tp-muted text-sm">{{ t('monitoring.page.threatsUnavailable') }}</p>
         </div>
         <div v-else>
           <!-- Threat level banner -->
@@ -412,10 +413,10 @@ const expandedTalker = ref<string | null>(null)
               </div>
               <div>
                 <p :class="['text-sm font-semibold', threatColor(net.threats.level).text]">
-                  {{ net.threats.level === 'clear' ? 'No Threats Detected' : `Threat Level: ${net.threats.level.toUpperCase()}` }}
+                  {{ net.threats.level === 'clear' ? t('monitoring.page.noThreats') : t('monitoring.page.threatLevelValue', { level: (te(`monitoring.page.levels.${net.threats.level}`) ? t(`monitoring.page.levels.${net.threats.level}`) : net.threats.level).toUpperCase() }) }}
                 </p>
                 <p class="text-tp-muted text-xs">
-                  {{ formatPps(net.current.pps_in) }} PPS inbound | {{ net.current.total_connections }} game connections | {{ net.threats.top_talkers?.length ?? 0 }} tracked IPs
+                  {{ t('monitoring.page.threatSummary', { pps: formatPps(net.current.pps_in), conns: net.current.total_connections, ips: net.threats.top_talkers?.length ?? 0 }) }}
                 </p>
               </div>
             </div>
@@ -429,47 +430,47 @@ const expandedTalker = ref<string | null>(null)
                 net.current.udp_pps_in > 10000 ? 'border-tp-warning/30 bg-tp-warning/5' : 'border-tp-border bg-tp-surface2']">
                 <div class="flex items-center gap-2 mb-1">
                   <Zap :class="['w-4 h-4', net.current.udp_pps_in > 10000 ? 'text-tp-danger' : 'text-tp-muted']" />
-                  <span class="text-tp-text text-xs font-semibold">UDP Flood</span>
+                  <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.udpFlood') }}</span>
                 </div>
                 <p class="text-tp-text font-mono text-lg font-bold">{{ formatPps(net.current.udp_pps_in) }}/s</p>
-                <p class="text-tp-muted text-[10px]">UDP datagrams per second</p>
+                <p class="text-tp-muted text-[10px]">{{ t('monitoring.page.udpFloodHint') }}</p>
               </div>
 
               <div :class="['rounded-xl border p-3',
                 net.threats.syn_flood_count > 20 ? 'border-tp-danger/30 bg-tp-danger/5' : 'border-tp-border bg-tp-surface2']">
                 <div class="flex items-center gap-2 mb-1">
                   <Zap :class="['w-4 h-4', net.threats.syn_flood_count > 20 ? 'text-tp-danger' : 'text-tp-muted']" />
-                  <span class="text-tp-text text-xs font-semibold">SYN Flood</span>
+                  <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.synFlood') }}</span>
                 </div>
                 <p class="text-tp-text font-mono text-lg font-bold">{{ net.threats.syn_flood_count }}</p>
-                <p class="text-tp-muted text-[10px]">half-open TCP connections</p>
+                <p class="text-tp-muted text-[10px]">{{ t('monitoring.page.synFloodHint') }}</p>
               </div>
 
               <div :class="['rounded-xl border p-3',
                 net.threats.pps_spike_detected ? 'border-tp-warning/30 bg-tp-warning/5' : 'border-tp-border bg-tp-surface2']">
                 <div class="flex items-center gap-2 mb-1">
                   <TrendingUp :class="['w-4 h-4', net.threats.pps_spike_detected ? 'text-tp-warning' : 'text-tp-muted']" />
-                  <span class="text-tp-text text-xs font-semibold">PPS Spike</span>
+                  <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.ppsSpike') }}</span>
                 </div>
-                <p class="text-tp-text font-mono text-lg font-bold">{{ net.threats.pps_spike_detected ? 'DETECTED' : 'None' }}</p>
-                <p class="text-tp-muted text-[10px]">sudden rate increase vs 30s avg</p>
+                <p class="text-tp-text font-mono text-lg font-bold">{{ net.threats.pps_spike_detected ? t('monitoring.page.detected') : t('common.none') }}</p>
+                <p class="text-tp-muted text-[10px]">{{ t('monitoring.page.ppsSpikeHint') }}</p>
               </div>
 
               <div :class="['rounded-xl border p-3',
                 net.current.udp_noports_pps > 100 ? 'border-tp-warning/30 bg-tp-warning/5' : 'border-tp-border bg-tp-surface2']">
                 <div class="flex items-center gap-2 mb-1">
                   <Radio :class="['w-4 h-4', net.current.udp_noports_pps > 100 ? 'text-tp-warning' : 'text-tp-muted']" />
-                  <span class="text-tp-text text-xs font-semibold">Reflection/Scan</span>
+                  <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.reflection') }}</span>
                 </div>
                 <p class="text-tp-text font-mono text-lg font-bold">{{ Math.round(net.current.udp_noports_pps) }}/s</p>
-                <p class="text-tp-muted text-[10px]">packets to closed ports</p>
+                <p class="text-tp-muted text-[10px]">{{ t('monitoring.page.reflectionHint') }}</p>
               </div>
             </div>
 
             <!-- Top talkers -->
             <div v-if="(net.threats.top_talkers?.length ?? 0) > 0">
               <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">
-                Top Talkers <span class="normal-case font-normal">({{ net.threats.top_talkers?.length ?? 0 }} IPs)</span>
+                {{ t('monitoring.page.topTalkers') }} <span class="normal-case font-normal">({{ t('monitoring.page.ipCount', { n: net.threats.top_talkers?.length ?? 0 }) }})</span>
               </p>
               <div class="space-y-1">
                 <div v-for="talker in (net.threats.top_talkers ?? [])" :key="talker.ip">
@@ -481,13 +482,13 @@ const expandedTalker = ref<string | null>(null)
                     @click="expandedTalker = expandedTalker === talker.ip ? null : talker.ip">
                     <div class="flex items-center gap-3">
                       <span class="text-tp-text text-xs font-mono font-semibold">{{ talker.ip }}</span>
-                      <span v-if="talker.blacklisted" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-tp-danger/20 text-tp-danger">BLOCKED</span>
+                      <span v-if="talker.blacklisted" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-tp-danger/20 text-tp-danger">{{ t('monitoring.page.blocked') }}</span>
                       <span v-else-if="talker.severity !== 'normal'"
                         :class="['text-[10px] font-bold uppercase px-1.5 py-0.5 rounded', threatColor(talker.severity).badge]">
-                        {{ talker.severity }}
+                        {{ (te(`monitoring.page.levels.${talker.severity}`) ? t(`monitoring.page.levels.${talker.severity}`) : talker.severity) }}
                       </span>
                     </div>
-                    <span class="text-tp-text text-xs font-mono">{{ talker.connections }} connections</span>
+                    <span class="text-tp-text text-xs font-mono">{{ t('monitoring.page.connections', { n: talker.connections }) }}</span>
                   </button>
                 </div>
               </div>
@@ -496,10 +497,10 @@ const expandedTalker = ref<string | null>(null)
             <!-- Threat event log -->
             <div>
               <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">
-                Event Log <span class="normal-case font-normal">({{ net.threats.events?.length ?? 0 }} events)</span>
+                {{ t('monitoring.page.eventLog') }} <span class="normal-case font-normal">({{ t('monitoring.page.eventCount', { n: net.threats.events?.length ?? 0 }) }})</span>
               </p>
               <div v-if="(net.threats.events?.length ?? 0) === 0" class="text-center py-6 text-tp-muted text-sm">
-                No threat events recorded.
+                {{ t('monitoring.page.noEvents') }}
               </div>
               <div v-else class="space-y-1 max-h-80 overflow-y-auto">
                 <div v-for="(evt, i) in [...(net.threats.events ?? [])].reverse().slice(0, 50)" :key="i"
@@ -507,9 +508,9 @@ const expandedTalker = ref<string | null>(null)
                   <AlertTriangle :class="['w-3.5 h-3.5 shrink-0 mt-0.5', threatColor(evt.severity).text]" />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
-                      <span :class="['font-semibold uppercase', threatColor(evt.severity).text]">{{ evt.severity }}</span>
+                      <span :class="['font-semibold uppercase', threatColor(evt.severity).text]">{{ (te(`monitoring.page.levels.${evt.severity}`) ? t(`monitoring.page.levels.${evt.severity}`) : evt.severity) }}</span>
                       <span class="text-tp-muted">{{ evt.event_type }}</span>
-                      <span v-if="evt.auto_mitigated" class="text-tp-success text-[10px] font-semibold">AUTO-MITIGATED</span>
+                      <span v-if="evt.auto_mitigated" class="text-tp-success text-[10px] font-semibold">{{ t('monitoring.page.autoMitigated') }}</span>
                     </div>
                     <p class="text-tp-text mt-0.5">{{ evt.description }}</p>
                     <p class="text-tp-muted text-[10px] mt-0.5">{{ new Date(evt.timestamp).toLocaleTimeString() }}</p>
@@ -525,7 +526,7 @@ const expandedTalker = ref<string | null>(null)
       <div v-if="networkTab === 'mitigation'">
         <div v-if="!net || !net.current || !net.averages" class="p-12 text-center">
           <ShieldCheck class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? 'Detailed network telemetry is not enabled on this node.' : 'Waiting for network monitor...' }}</p>
+          <p class="text-tp-muted text-sm">{{ detailedTelemetrySupported === false ? t('monitoring.page.telemetryDisabled') : t('monitoring.page.waiting') }}</p>
         </div>
         <div v-else class="p-4 space-y-4">
           <!-- Mitigation status -->
@@ -536,33 +537,33 @@ const expandedTalker = ref<string | null>(null)
                 <span class="text-tp-text text-xs font-semibold">nftables</span>
               </div>
               <p :class="['font-mono text-sm font-bold', net.mitigation.nft_available ? 'text-tp-success' : 'text-tp-muted']">
-                {{ net.mitigation.nft_available ? 'Available' : 'Unavailable' }}
+                {{ net.mitigation.nft_available ? t('monitoring.page.available') : t('monitoring.page.unavailable') }}
               </p>
             </div>
 
             <div :class="['rounded-xl border p-3', net.mitigation.rate_limit_active ? 'border-tp-success/30 bg-tp-success/5' : 'border-tp-border bg-tp-surface2']">
               <div class="flex items-center gap-2 mb-1">
                 <Timer class="w-4 h-4 text-tp-muted" />
-                <span class="text-tp-text text-xs font-semibold">Rate Limiting</span>
+                <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.rateLimiting') }}</span>
               </div>
               <p :class="['font-mono text-sm font-bold', net.mitigation.rate_limit_active ? 'text-tp-success' : 'text-tp-muted']">
-                {{ net.mitigation.rate_limit_active ? 'Active' : 'Inactive' }}
+                {{ net.mitigation.rate_limit_active ? t('monitoring.page.active') : t('monitoring.page.inactive') }}
               </p>
-              <p class="text-tp-muted text-[10px]">Per-IP: 5K pps | Global: 50K pps</p>
+              <p class="text-tp-muted text-[10px]">{{ t('monitoring.page.rateLimits') }}</p>
             </div>
 
             <div class="rounded-xl border border-tp-border bg-tp-surface2 p-3">
               <div class="flex items-center gap-2 mb-1">
                 <Ban class="w-4 h-4 text-tp-muted" />
-                <span class="text-tp-text text-xs font-semibold">Blacklisted</span>
+                <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.blacklisted') }}</span>
               </div>
-              <p class="text-tp-text font-mono text-sm font-bold">{{ net.mitigation.blacklisted_ips.length }} IPs</p>
+              <p class="text-tp-text font-mono text-sm font-bold">{{ t('monitoring.page.ipCount', { n: net.mitigation.blacklisted_ips.length }) }}</p>
             </div>
 
             <div class="rounded-xl border border-tp-border bg-tp-surface2 p-3">
               <div class="flex items-center gap-2 mb-1">
                 <Eye class="w-4 h-4 text-tp-muted" />
-                <span class="text-tp-text text-xs font-semibold">Rules Applied</span>
+                <span class="text-tp-text text-xs font-semibold">{{ t('monitoring.page.rulesApplied') }}</span>
               </div>
               <p class="text-tp-text font-mono text-sm font-bold">{{ net.mitigation.rules_applied }}</p>
             </div>
@@ -570,47 +571,46 @@ const expandedTalker = ref<string | null>(null)
 
           <!-- Protection rules info -->
           <div v-if="net.mitigation.nft_available" class="bg-tp-surface2 rounded-xl p-4">
-            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">Active Protection Rules</p>
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ t('monitoring.page.activeRules') }}</p>
             <div class="space-y-2 text-xs font-mono">
               <div class="flex items-center gap-2 text-tp-text">
                 <ShieldCheck class="w-3.5 h-3.5 text-tp-success shrink-0" />
-                <span>Blacklist set (auto-block abusive IPs for 5min)</span>
+                <span>{{ t('monitoring.page.ruleBlacklist') }}</span>
               </div>
               <div class="flex items-center gap-2 text-tp-text">
                 <ShieldCheck class="w-3.5 h-3.5 text-tp-success shrink-0" />
-                <span>Per-IP rate limit: DROP if >5,000 UDP pps per source</span>
+                <span>{{ t('monitoring.page.rulePerIp') }}</span>
               </div>
               <div class="flex items-center gap-2 text-tp-text">
                 <ShieldCheck class="w-3.5 h-3.5 text-tp-success shrink-0" />
-                <span>Global rate limit: DROP if >50,000 UDP pps total on game ports</span>
+                <span>{{ t('monitoring.page.ruleGlobal') }}</span>
               </div>
               <div class="flex items-center gap-2 text-tp-text">
                 <ShieldCheck class="w-3.5 h-3.5 text-tp-success shrink-0" />
-                <span>Traffic counters on UDP ports 5520-5600</span>
+                <span>{{ t('monitoring.page.ruleCounters') }}</span>
               </div>
             </div>
           </div>
           <div v-else class="bg-tp-warning/5 border border-tp-warning/20 rounded-xl p-4">
             <div class="flex items-center gap-2 mb-1">
               <AlertTriangle class="w-4 h-4 text-tp-warning" />
-              <span class="text-tp-warning text-xs font-semibold">Mitigation Unavailable</span>
+              <span class="text-tp-warning text-xs font-semibold">{{ t('monitoring.page.mitigationUnavailable') }}</span>
             </div>
             <p class="text-tp-muted text-xs">
-              nftables is not available in this container. The daemon is running in detection-only mode.
-              To enable mitigation, ensure the container has NET_ADMIN capability and nftables is installed.
+              {{ t('monitoring.page.mitigationUnavailableText') }}
             </p>
           </div>
 
           <!-- Blacklisted IPs -->
           <div v-if="net.mitigation.blacklisted_ips.length > 0">
-            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">Blacklisted IPs</p>
+            <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2 px-1">{{ t('monitoring.page.blacklistedIps') }}</p>
             <table class="w-full text-sm">
               <thead>
                 <tr class="border-b border-tp-border">
                   <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">IP</th>
-                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Reason</th>
-                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">PPS at Block</th>
-                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Expires</th>
+                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colReason') }}</th>
+                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colPpsAtBlock') }}</th>
+                  <th class="text-left px-4 py-2 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('monitoring.page.colExpires') }}</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,4 +1,8 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+
+// One message file per area and language: locales/<code>/<area>.json.
+const LOCALE_AREAS = ['common', 'auth', 'dashboard', 'servers', 'server', 'nodes', 'admin', 'settings', 'backups', 'mods', 'monitoring', 'players', 'alerts', 'misc']
+
 export default defineNuxtConfig({
   ssr: false,
 
@@ -12,7 +16,30 @@ export default defineNuxtConfig({
     '@nuxtjs/tailwindcss',
     '@vueuse/nuxt',
     '@nuxt/eslint',
+    '@nuxtjs/i18n',
   ],
+
+  // UI languages. Messages live in locales/<code>/<area>.json and are loaded
+  // when a language is picked. No URL prefix; the choice is kept in the
+  // tp_lang cookie (first visit: the browser's language, else English).
+  i18n: {
+    restructureDir: '.',
+    langDir: 'locales',
+    strategy: 'no_prefix',
+    defaultLocale: 'en',
+    locales: [
+      { code: 'en', language: 'en', name: 'English', files: LOCALE_AREAS.map(a => `en/${a}.json`) },
+      { code: 'de', language: 'de', name: 'Deutsch', files: LOCALE_AREAS.map(a => `de/${a}.json`) },
+    ],
+    detectBrowserLanguage: {
+      useCookie: true,
+      cookieKey: 'tp_lang',
+      redirectOn: 'root',
+      alwaysRedirect: false,
+      fallbackLocale: 'en',
+    },
+    vueI18n: './i18n.config.ts',
+  },
 
   runtimeConfig: {
     public: {

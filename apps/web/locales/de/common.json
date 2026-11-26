@@ -1,0 +1,144 @@
+{
+  "pages": {
+    "backups": "Backups",
+    "admin": "Admin-Bereich",
+    "monitoring": "Monitoring",
+    "players": "Spieler",
+    "setup": "Ersteinrichtung",
+    "nodes": "Nodes",
+    "dashboard": "Dashboard",
+    "worlds": "Welten",
+    "profile": "Profil",
+    "notifications": "Benachrichtigungen",
+    "settings": "Einstellungen",
+    "activity": "Aktivität & Sitzungen",
+    "security": "Sicherheit",
+    "alerts": "Warnungen",
+    "playerDetail": "Spielerdetails",
+    "servers": "Server",
+    "invitations": "Meine Einladungen",
+    "mods": "Mods"
+  },
+  "nav": {
+    "mainNavigation": "Hauptnavigation",
+    "tagline": "Hytale-Server",
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Menü schließen",
+    "expandSidebar": "Seitenleiste ausklappen",
+    "collapseSidebar": "Seitenleiste einklappen",
+    "logout": "Abmelden",
+    "sectionOverview": "Übersicht",
+    "sectionInfrastructure": "Infrastruktur",
+    "sectionOperations": "Betrieb",
+    "sectionSystem": "System",
+    "sectionAdministration": "Verwaltung",
+    "dashboard": "Dashboard",
+    "servers": "Server",
+    "nodes": "Nodes",
+    "backups": "Backups",
+    "alerts": "Warnungen",
+    "monitoring": "Monitoring",
+    "settings": "Einstellungen",
+    "admin": "Admin-Bereich"
+  },
+  "layout": {
+    "search": "Infrastruktur durchsuchen …",
+    "notifications": "Benachrichtigungen",
+    "openAlerts": "Offene Warnungen",
+    "noOpenAlerts": "Keine offenen Warnungen.",
+    "viewAllAlerts": "Alle Warnungen ansehen",
+    "help": {
+      "title": "Hilfe",
+      "heading": "Hilfe & Ressourcen",
+      "docs": {
+        "label": "Dokumentation",
+        "desc": "Anleitungen und Referenz"
+      },
+      "start": {
+        "label": "Erste Schritte",
+        "desc": "Installation und erster Server"
+      },
+      "community": {
+        "label": "Community",
+        "desc": "TalePanel-Discord"
+      },
+      "bug": {
+        "label": "Fehler melden",
+        "desc": "Ein GitHub-Issue eröffnen"
+      }
+    },
+    "profile": "Profil",
+    "theme": "Design",
+    "themes": {
+      "classic": "Klassisch",
+      "game": "Game"
+    },
+    "language": "Sprache",
+    "logOut": "Abmelden",
+    "user": "Benutzer"
+  },
+  "roles": {
+    "owner": "Owner",
+    "admin": "Admin",
+    "moderator": "Moderator",
+    "user": "Benutzer"
+  },
+  "time": {
+    "justNow": "gerade eben",
+    "minutesAgo": "vor {n} Min.",
+    "hoursAgo": "vor {n} Std.",
+    "daysAgo": "vor {n} Tg."
+  },
+  "status": {
+    "running": "Läuft",
+    "stopped": "Gestoppt",
+    "starting": "Startet",
+    "stopping": "Stoppt",
+    "crashed": "Abgestürzt",
+    "installing": "Wird installiert",
+    "online": "Online",
+    "offline": "Offline",
+    "unknown": "Unbekannt"
+  },
+  "actions": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "create": "Erstellen",
+    "add": "Hinzufügen",
+    "remove": "Entfernen",
+    "confirm": "Bestätigen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "refresh": "Aktualisieren",
+    "retry": "Erneut versuchen",
+    "search": "Suchen",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "download": "Herunterladen",
+    "upload": "Hochladen",
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neustarten",
+    "kill": "Beenden erzwingen",
+    "revert": "Verwerfen",
+    "apply": "Übernehmen",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "yes": "Ja",
+    "no": "Nein"
+  },
+  "common": {
+    "loading": "Wird geladen …",
+    "saving": "Wird gespeichert …",
+    "noData": "Hier ist noch nichts.",
+    "error": "Etwas ist schiefgelaufen.",
+    "never": "Nie",
+    "none": "Keine",
+    "unknown": "Unbekannt",
+    "optional": "optional",
+    "required": "Pflichtfeld"
+  }
+}

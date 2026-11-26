@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useProfileStore } from '~/stores/profile'
 
-definePageMeta({ title: 'Profile Settings', middleware: 'auth' })
+definePageMeta({ title: 'pages.profile', middleware: 'auth' })
 
 const profileStore = useProfileStore()
+const { t } = useI18n()
 const toast = ref('')
 const toastType = ref<'success' | 'error'>('success')
 
@@ -37,9 +38,9 @@ async function saveProfile() {
       language: form.language,
       timezone: form.timezone,
     })
-    showToast('Profile updated')
+    showToast(t('settings.profile.updated'))
   } catch {
-    showToast('Failed to update profile', 'error')
+    showToast(t('settings.profile.updateFailed'), 'error')
   } finally {
     saving.value = false
   }
@@ -48,24 +49,24 @@ async function saveProfile() {
 
 <template>
   <div class="p-6 max-w-2xl">
-    <h2 class="text-tp-text font-bold text-2xl mb-6">Profile Settings</h2>
+    <h2 class="text-tp-text font-bold text-2xl mb-6">{{ t('pages.profile') }}</h2>
 
     <div class="bg-tp-surface rounded-xl border border-tp-border overflow-hidden">
       <div class="px-5 py-4 border-b border-tp-border">
-        <h3 class="text-tp-text font-semibold text-sm">Profile Information</h3>
+        <h3 class="text-tp-text font-semibold text-sm">{{ t('settings.profile.info') }}</h3>
       </div>
       <div class="p-5 space-y-4">
         <div>
-          <label class="block text-sm text-tp-muted mb-1">Display Name</label>
+          <label class="block text-sm text-tp-muted mb-1">{{ t('settings.profile.displayName') }}</label>
           <input
             v-model="form.display_name"
             type="text"
             class="w-full bg-tp-surface2 border border-tp-border rounded-lg px-3 py-2 text-tp-text text-sm"
-            placeholder="Your display name"
+            :placeholder="t('settings.profile.displayNamePlaceholder')"
           />
         </div>
         <div>
-          <label class="block text-sm text-tp-muted mb-1">Language</label>
+          <label class="block text-sm text-tp-muted mb-1">{{ t('layout.language') }}</label>
           <select v-model="form.language" class="w-full bg-tp-surface2 border border-tp-border rounded-lg px-3 py-2 text-tp-text text-sm">
             <option value="en">English</option>
             <option value="de">Deutsch</option>
@@ -74,7 +75,7 @@ async function saveProfile() {
           </select>
         </div>
         <div>
-          <label class="block text-sm text-tp-muted mb-1">Timezone</label>
+          <label class="block text-sm text-tp-muted mb-1">{{ t('settings.profile.timezone') }}</label>
           <select v-model="form.timezone" class="w-full bg-tp-surface2 border border-tp-border rounded-lg px-3 py-2 text-tp-text text-sm">
             <option value="UTC">UTC</option>
             <option value="America/New_York">America/New_York (EST)</option>
@@ -92,7 +93,7 @@ async function saveProfile() {
             :disabled="saving"
             class="px-4 py-2 bg-tp-primary text-white rounded-lg text-sm font-medium hover:bg-tp-primary/90 disabled:opacity-50"
           >
-            {{ saving ? 'Saving...' : 'Save Changes' }}
+            {{ saving ? t('common.saving') : t('settings.profile.saveChanges') }}
           </button>
         </div>
       </div>

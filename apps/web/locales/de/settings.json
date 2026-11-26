@@ -1,0 +1,248 @@
+{
+  "settings": {
+    "index": {
+      "sections": {
+        "profile": "Profil",
+        "security": "Sicherheit",
+        "apiKeys": "API-Keys",
+        "notifications": "Benachrichtigungen",
+        "modules": "Module"
+      },
+      "notif": {
+        "loginNewDevice": {
+          "label": "Warnung bei neuer Anmeldung",
+          "desc": "E-Mail, wenn sich jemand von einem neuen Gerät oder Netzwerk in dein Konto einloggt"
+        },
+        "crash": {
+          "label": "Server-Absturz",
+          "desc": "Benachrichtigung, wenn ein Server abstürzt oder unerwartet stoppt"
+        },
+        "backup": {
+          "label": "Backup abgeschlossen",
+          "desc": "Benachrichtigungen, wenn Backups fertig sind oder fehlschlagen"
+        },
+        "resource": {
+          "label": "Ressourcen-Warnungen",
+          "desc": "Warnungen, wenn CPU-, RAM- oder Speicherauslastung Grenzwerte überschreitet"
+        },
+        "ddos": {
+          "label": "DDoS-Erkennung",
+          "desc": "Sofortige Warnung bei verdächtigem Netzwerkverkehr"
+        },
+        "player": {
+          "label": "Spieler-Ereignisse",
+          "desc": "Benachrichtigungen bei Spieler-Beitritten, Banns und Moderationsaktionen"
+        }
+      },
+      "accountInfo": "Kontoinformationen",
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "role": "Rolle",
+      "memberSince": "Mitglied seit",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "notifSubtitle": "Wähle, wie und wann du benachrichtigt wirst.",
+      "profileTitle": "Einsatzprofil",
+      "profileHint": "Mit „Hoster“ werden Multi-Node- und Monitoring-Module standardmäßig aktiviert. Einzelne Module kannst du unten trotzdem umschalten.",
+      "profileSolo": "Solo / Freunde",
+      "profileHoster": "Hosting-Anbieter",
+      "modulesTitle": "Funktionsmodule",
+      "modulesHint": "Aktiviere oder deaktiviere Funktionen. Module nur für Hoster sind mit einem Badge markiert. Deaktivierte Module werden in der Seitenleiste ausgeblendet.",
+      "hosterBadge": "Hoster"
+    },
+    "password": {
+      "title": "Passwort ändern",
+      "subtitle": "Ändere dein Kontopasswort. Mind. 8 Zeichen.",
+      "current": "Aktuelles Passwort",
+      "new": "Neues Passwort",
+      "confirm": "Neues Passwort bestätigen",
+      "mismatch": "Die neuen Passwörter stimmen nicht überein",
+      "tooShort": "Das neue Passwort muss mindestens 8 Zeichen lang sein",
+      "changed": "Passwort erfolgreich geändert",
+      "changeFailed": "Passwort konnte nicht geändert werden"
+    },
+    "twoFactor": {
+      "title": "Zwei-Faktor-Authentifizierung",
+      "currently": "2FA ist derzeit {state}.",
+      "stateEnabled": "aktiviert",
+      "stateDisabled": "deaktiviert",
+      "app": "Authenticator-App",
+      "appHint": "TOTP (Google Authenticator, Authy usw.)",
+      "enable": "2FA aktivieren",
+      "disable": "2FA deaktivieren"
+    },
+    "profile": {
+      "updated": "Profil aktualisiert",
+      "updateFailed": "Profil konnte nicht aktualisiert werden",
+      "info": "Profilinformationen",
+      "displayName": "Anzeigename",
+      "displayNamePlaceholder": "Dein Anzeigename",
+      "timezone": "Zeitzone",
+      "saveChanges": "Änderungen speichern"
+    },
+    "notifications": {
+      "saved": "Einstellungen gespeichert",
+      "saveFailed": "Einstellungen konnten nicht gespeichert werden",
+      "loadFailed": "Benachrichtigungseinstellungen konnten nicht geladen werden",
+      "saveOneFailed": "Einstellung konnte nicht gespeichert werden",
+      "channels": "Benachrichtigungskanäle",
+      "event": "Ereignis",
+      "email": "E-Mail",
+      "types": {
+        "loginNewDevice": "Warnung bei neuer Anmeldung",
+        "serverDown": "Server offline",
+        "backupFailed": "Backup fehlgeschlagen",
+        "alertEvent": "Alarmregel ausgelöst"
+      }
+    },
+    "activity": {
+      "recentTab": "Letzte Aktivitäten",
+      "sessionsTab": "Aktive Sitzungen",
+      "noSessions": "Keine aktiven Sitzungen",
+      "unknownDevice": "Unbekanntes Gerät",
+      "created": "Erstellt {date}"
+    },
+    "security": {
+      "subtitle": "Zwei-Faktor-Authentifizierung und aktive Sitzungen.",
+      "sso": {
+        "title": "Single Sign-on",
+        "text": "Verbinde dein Konto mit {name}, um dich damit anzumelden. Dein Passwort funktioniert weiter.",
+        "connected": "Mit {name} verbunden.",
+        "notConnected": "Nicht verbunden.",
+        "connect": "{name} verbinden",
+        "reconnect": "Anderes Konto verbinden",
+        "connectedToast": "Single Sign-on verbunden"
+      },
+      "toast": {
+        "codesRegenerated": "Neue Wiederherstellungscodes erstellt; die alten funktionieren nicht mehr",
+        "codesFailed": "Wiederherstellungscodes konnten nicht erstellt werden",
+        "setupFailed": "2FA-Einrichtung konnte nicht gestartet werden",
+        "enabled": "2FA aktiviert",
+        "invalidCode": "Ungültiger Code",
+        "disabled": "2FA deaktiviert",
+        "passwordIncorrect": "Passwort falsch",
+        "sessionRevoked": "Sitzung widerrufen"
+      },
+      "revokeConfirm": "Diese Sitzung widerrufen?",
+      "requiredTitle": "Zwei-Faktor-Authentifizierung ist erforderlich",
+      "requiredText": "Der Panel-Owner verlangt 2FA für Admin-Konten. Richte es unten ein; der Rest des Panels wird direkt danach freigeschaltet.",
+      "recoveryUsedTitle": "Du hast dich mit einem Wiederherstellungscode angemeldet",
+      "recoveryUsed": "Dieser Code ist jetzt verbraucht.",
+      "recoveryUsedLeft": "Dieser Code ist jetzt verbraucht; {n} übrig.",
+      "recoveryUsedText": "Wenn du deinen Authenticator verloren hast, deaktiviere 2FA unten und richte es auf deinem neuen Gerät neu ein; ansonsten erstelle neue Codes, sobald sie knapp werden.",
+      "dismiss": "Ausblenden",
+      "totpIntro": "Eine Authenticator-App fügt einen zweiten Anmeldefaktor hinzu; mit Wiederherstellungscodes kommst du rein, falls du sie verlierst.",
+      "activeText": "2FA ist für dein Konto {active}.",
+      "active": "aktiv",
+      "unused": "{remaining} von {total} unbenutzt",
+      "unusedNone": ": erstelle welche, damit du dich auch ohne Authenticator anmelden kannst",
+      "unusedZero": ": erstelle jetzt neue",
+      "unusedLow": ": erstelle am besten neue",
+      "generateNew": "Neue Codes erstellen",
+      "addApp": "Füge eine Authenticator-App (1Password, Authy, Aegis, Google Authenticator) als zusätzlichen Anmeldefaktor hinzu.",
+      "setup": "2FA einrichten",
+      "scan": "Scanne diesen QR-Code mit deiner Authenticator-App und gib dann zur Bestätigung den 6-stelligen Code ein.",
+      "qrAlt": "TOTP-QR-Code",
+      "cantScan": "Scannen klappt nicht? Gib das Secret manuell ein",
+      "verificationCode": "Bestätigungscode",
+      "regenTitle": "Neue Wiederherstellungscodes erstellen",
+      "regenText": "Deine aktuellen Wiederherstellungscodes funktionieren sofort nicht mehr. Bestätige mit deinem Passwort und einem Code aus deiner Authenticator-App.",
+      "authenticatorCode": "Authenticator-Code",
+      "generate": "Erstellen",
+      "disableText": "Gib zur Bestätigung dein Passwort ein. Deine Wiederherstellungscodes werden ebenfalls gelöscht.",
+      "sessionsTitle": "Aktive Sitzungen",
+      "sessionsText": "Ein Eintrag pro Refresh-Token. Widerrufe alles, was du nicht erkennst.",
+      "unknownDevice": "unbekanntes Gerät",
+      "revoke": "Widerrufen",
+      "noSessions": "Keine aktiven Sitzungen."
+    },
+    "apiKeys": {
+      "scopes": {
+        "power": {
+          "label": "Power",
+          "detail": "Starten, stoppen, neu starten, beenden"
+        },
+        "console": {
+          "label": "Console",
+          "detail": "Console-Befehle senden, gespeicherte Spielbefehle ausführen"
+        },
+        "manage": {
+          "label": "Verwalten",
+          "detail": "Einstellungen, Neuinstallation, Hytale-Updates, geplante Aufgaben, aktive Welt"
+        },
+        "backups": {
+          "label": "Backups",
+          "detail": "Backups erstellen, wiederherstellen, herunterladen und löschen; Backup-Zeitpläne"
+        },
+        "players": {
+          "label": "Spieler",
+          "detail": "Kicken, bannen, entbannen, stummschalten, Whitelist"
+        }
+      },
+      "expiry": {
+        "days30": "30 Tage",
+        "days90": "90 Tage",
+        "year": "1 Jahr"
+      },
+      "loadFailed": "API-Keys konnten nicht geladen werden",
+      "nameRequired": "Gib dem Key einen Namen, z. B. „Discord-Bot“",
+      "serverRequired": "Wähle mindestens einen Server",
+      "createFailed": "API-Key konnte nicht erstellt werden",
+      "copyFailed": "Kopieren fehlgeschlagen – markiere den Key und kopiere ihn von Hand",
+      "revokeConfirm": "API-Key „{name}“ widerrufen? Skripte, die ihn nutzen, funktionieren sofort nicht mehr.",
+      "revoked": "API-Key widerrufen",
+      "revokeFailed": "API-Key konnte nicht widerrufen werden",
+      "readPlus": "Lesen, {scopes}",
+      "readOnly": "Nur lesen",
+      "allYourServers": "Alle deine Server",
+      "deletedServer": "gelöschter Server",
+      "intro": "Für Skripte, Bots und Monitoring. Ein Key handelt in deinem Namen, aber nur mit den Rechten und Servern, die du auswählst, und kommt nie an deine Konto-, Admin- oder Node-Einstellungen. Sende ihn als {header}",
+      "newKey": "Neuer Key",
+      "created": "Key „{name}“ erstellt",
+      "copyNow": "Kopiere ihn jetzt. Er wird nur als Hash gespeichert und kann nicht erneut angezeigt werden.",
+      "name": "Name",
+      "namePlaceholder": "z. B. Discord-Bot",
+      "rights": "Rechte (Lesen deiner Server ist immer erlaubt)",
+      "rightsHint": "Ein Key bekommt nie mehr als deine eigenen Rechte auf einem Server.",
+      "allServers": "Alle meine Server, auch zukünftige",
+      "onlyThese": "Nur diese Server",
+      "noServers": "Du hast noch keine Server.",
+      "expires": "Läuft ab",
+      "createKey": "Key erstellen",
+      "empty": "Noch keine API-Keys.",
+      "expired": "abgelaufen",
+      "meta": "Erstellt {created} · Läuft ab {expires}",
+      "never": "nie",
+      "lastUsed": "Zuletzt genutzt {date}",
+      "lastUsedFrom": "Zuletzt genutzt {date} von {ip}"
+    },
+    "invitations": {
+      "empty": "Keine offenen Einladungen",
+      "title": "Server-Einladung",
+      "role": "Rolle: {role}",
+      "expires": "Läuft ab am {date}",
+      "accept": "Annehmen",
+      "decline": "Ablehnen"
+    },
+    "notFound": {
+      "thisPage": "Diese Seite",
+      "text": "Seite nicht gefunden."
+    },
+    "error": {
+      "backToDashboard": "Zurück zum Dashboard",
+      "messages": {
+        "notFound": "Die gesuchte Seite existiert nicht.",
+        "forbidden": "Du hast keine Berechtigung, diese Seite aufzurufen.",
+        "server": "Bei uns ist etwas schiefgelaufen. Bitte versuch es später erneut.",
+        "unavailable": "Der Dienst ist vorübergehend nicht verfügbar. Bitte versuch es später erneut.",
+        "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+      },
+      "titles": {
+        "notFound": "Seite nicht gefunden",
+        "forbidden": "Zugriff verweigert",
+        "server": "Serverfehler",
+        "generic": "Etwas ist schiefgelaufen"
+      }
+    }
+  }
+}

@@ -3,13 +3,17 @@ import { useAuthStore } from '~/stores/auth'
 
 const authStore = useAuthStore()
 const route = useRoute()
+const { t, te, locale, locales, setLocale } = useI18n()
 const router = useRouter()
 
-// Route names like "servers-id" read badly; fall back to the first path segment.
+// Pages set `title` to a message key (pages.*). Route names like
+// "servers-id" read badly; fall back to the first path segment.
 const pageTitle = computed(() => {
-  if (route.meta.title) return route.meta.title as string
+  if (route.meta.title) return t(route.meta.title as string)
   const first = route.path.split('/').filter(Boolean)[0]
-  return first ? first.replace(/-/g, ' ') : 'Dashboard'
+  if (!first) return t('pages.dashboard')
+  const key = `pages.${first}`
+  return te(key) ? t(key) : first.replace(/-/g, ' ')
 })
 
 // ── Dropdowns ─────────────────────────────────────────────────────────────────
@@ -103,10 +107,10 @@ onUnmounted(() => clearInterval(alertTimer))
 
 function timeAgo(iso: string): string {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
-  return `${Math.floor(s / 86400)}d ago`
+  if (s < 60) return t('time.justNow')
+  if (s < 3600) return t('time.minutesAgo', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('time.hoursAgo', { n: Math.floor(s / 3600) })
+  return t('time.daysAgo', { n: Math.floor(s / 86400) })
 }
 
 function severityDot(sev: string): string {
@@ -116,11 +120,12 @@ function severityDot(sev: string): string {
 }
 
 // ── Help links ────────────────────────────────────────────────────────────────
+// key → layout.help.<key>.label / .desc
 const helpLinks = [
-  { icon: 'menu_book', label: 'Documentation', desc: 'Guides and reference', href: 'https://talepanel.com/docs/' },
-  { icon: 'school', label: 'Getting Started', desc: 'Install and first server', href: 'https://talepanel.com/docs/start/install/' },
-  { icon: 'forum', label: 'Community', desc: 'TalePanel Discord', href: 'https://discord.gg/6N8WNrW5WJ' },
-  { icon: 'bug_report', label: 'Report a Bug', desc: 'Open a GitHub issue', href: 'https://github.com/BitaceS/talepanel/issues' },
+  { icon: 'menu_book', key: 'docs', href: 'https://talepanel.com/docs/' },
+  { icon: 'school', key: 'start', href: 'https://talepanel.com/docs/start/install/' },
+  { icon: 'forum', key: 'community', href: 'https://discord.gg/6N8WNrW5WJ' },
+  { icon: 'bug_report', key: 'bug', href: 'https://github.com/BitaceS/talepanel/issues' },
 ]
 
 const { info: versionInfo } = useUpdateCheck()
@@ -145,7 +150,7 @@ const mobileNav = useMobileNav()
           <button
             type="button"
             class="md:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2"
-            aria-label="Open menu"
+            :aria-label="t('nav.openMenu')"
             aria-controls="app-sidebar"
             :aria-expanded="mobileNav.open.value"
             @click.stop="mobileNav.toggle()"
@@ -164,7 +169,7 @@ const mobileNav = useMobileNav()
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search infrastructure..."
+              :placeholder="t('layout.search')"
               class="bg-transparent text-tp-text text-sm placeholder:text-tp-outline focus:outline-none w-44"
             />
           </form>
@@ -173,7 +178,7 @@ const mobileNav = useMobileNav()
           <div class="relative" data-dropdown>
             <button
               class="relative w-8 h-8 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
-              title="Notifications"
+              :title="t('layout.notifications')"
               @click.stop="toggleNotifications"
             >
               <span class="material-symbols-outlined text-xl">notifications</span>
@@ -190,13 +195,13 @@ const mobileNav = useMobileNav()
                 class="absolute right-0 top-full mt-2 w-80 bg-tp-surface2 rounded-xl shadow-ambient overflow-hidden z-50"
               >
                 <div class="flex items-center justify-between px-4 py-3">
-                  <h3 class="text-tp-text font-display font-semibold text-sm">Open alerts</h3>
+                  <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('layout.openAlerts') }}</h3>
                   <span class="text-tp-outline text-xs">{{ unreadCount }}</span>
                 </div>
 
                 <div class="max-h-72 overflow-y-auto scrollbar-thin">
                   <p v-if="openAlerts.length === 0" class="px-4 py-6 text-center text-tp-muted text-sm">
-                    No open alerts.
+                    {{ t('layout.noOpenAlerts') }}
                   </p>
                   <NuxtLink
                     v-for="ev in openAlerts.slice(0, 8)"
@@ -220,7 +225,7 @@ const mobileNav = useMobileNav()
                     class="text-tp-accent text-xs font-medium hover:text-tp-primary transition-colors flex items-center justify-center gap-1"
                     @click="closeAll"
                   >
-                    View all alerts
+                    {{ t('layout.viewAllAlerts') }}
                     <span class="material-symbols-outlined text-sm">arrow_forward</span>
                   </NuxtLink>
                 </div>
@@ -232,7 +237,7 @@ const mobileNav = useMobileNav()
           <div class="relative" data-dropdown>
             <button
               class="w-8 h-8 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
-              title="Help"
+              :title="t('layout.help.title')"
               @click.stop="toggleHelp"
             >
               <span class="material-symbols-outlined text-xl">help_outline</span>
@@ -245,13 +250,13 @@ const mobileNav = useMobileNav()
                 class="absolute right-0 top-full mt-2 w-72 bg-tp-surface2 rounded-xl shadow-ambient overflow-hidden z-50"
               >
                 <div class="px-4 py-3">
-                  <h3 class="text-tp-text font-display font-semibold text-sm">Help & Resources</h3>
+                  <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('layout.help.heading') }}</h3>
                 </div>
 
                 <div>
                   <a
                     v-for="link in helpLinks"
-                    :key="link.label"
+                    :key="link.key"
                     :href="link.href"
                     target="_blank"
                     rel="noopener"
@@ -261,8 +266,8 @@ const mobileNav = useMobileNav()
                       <span class="material-symbols-outlined text-tp-accent text-base">{{ link.icon }}</span>
                     </div>
                     <div class="min-w-0">
-                      <p class="text-tp-text text-sm font-medium">{{ link.label }}</p>
-                      <p class="text-tp-outline text-[10px]">{{ link.desc }}</p>
+                      <p class="text-tp-text text-sm font-medium">{{ t(`layout.help.${link.key}.label`) }}</p>
+                      <p class="text-tp-outline text-[10px]">{{ t(`layout.help.${link.key}.desc`) }}</p>
                     </div>
                   </a>
                 </div>
@@ -288,10 +293,10 @@ const mobileNav = useMobileNav()
               </div>
               <div class="hidden sm:block text-left">
                 <p class="text-tp-text text-xs font-semibold leading-none">
-                  {{ authStore.user?.username ?? 'User' }}
+                  {{ authStore.user?.username ?? t('layout.user') }}
                 </p>
                 <p class="text-tp-muted text-[10px] capitalize mt-0.5">
-                  {{ authStore.user?.role ?? 'user' }}
+                  {{ t(`roles.${authStore.user?.role ?? 'user'}`) }}
                 </p>
               </div>
               <span class="material-symbols-outlined text-tp-outline text-base hidden sm:block">expand_more</span>
@@ -309,7 +314,7 @@ const mobileNav = useMobileNav()
                     {{ authStore.user?.username?.charAt(0) ?? 'U' }}
                   </div>
                   <div class="min-w-0">
-                    <p class="text-tp-text text-sm font-semibold truncate">{{ authStore.user?.username ?? 'User' }}</p>
+                    <p class="text-tp-text text-sm font-semibold truncate">{{ authStore.user?.username ?? t('layout.user') }}</p>
                     <p class="text-tp-outline text-[10px] truncate">{{ authStore.user?.email ?? '' }}</p>
                   </div>
                 </div>
@@ -321,7 +326,7 @@ const mobileNav = useMobileNav()
                     @click="closeAll"
                   >
                     <span class="material-symbols-outlined text-lg">person</span>
-                    Profile
+                    {{ t('layout.profile') }}
                   </NuxtLink>
                   <NuxtLink
                     to="/settings"
@@ -329,7 +334,7 @@ const mobileNav = useMobileNav()
                     @click="closeAll"
                   >
                     <span class="material-symbols-outlined text-lg">settings</span>
-                    Settings
+                    {{ t('nav.settings') }}
                   </NuxtLink>
                   <NuxtLink
                     v-if="authStore.user?.role === 'admin' || authStore.user?.role === 'owner'"
@@ -338,24 +343,42 @@ const mobileNav = useMobileNav()
                     @click="closeAll"
                   >
                     <span class="material-symbols-outlined text-lg">admin_panel_settings</span>
-                    Admin Panel
+                    {{ t('nav.admin') }}
                   </NuxtLink>
                 </div>
 
                 <div class="border-t border-tp-border/20 px-4 py-3">
-                  <p class="text-tp-outline text-[11px] font-mono uppercase tracking-[0.18em] mb-2">Theme</p>
-                  <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Theme">
+                  <p class="text-tp-outline text-[11px] font-mono uppercase tracking-[0.18em] mb-2">{{ t('layout.theme') }}</p>
+                  <div class="grid grid-cols-2 gap-1.5" role="radiogroup" :aria-label="t('layout.theme')">
                     <button
-                      v-for="t in PANEL_THEMES"
-                      :key="t.id"
+                      v-for="pt in PANEL_THEMES"
+                      :key="pt.id"
                       role="radio"
-                      :aria-checked="theme === t.id"
+                      :aria-checked="theme === pt.id"
                       :class="[
                         'rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors',
-                        theme === t.id ? 'bg-tp-primary text-tp-on-primary' : 'bg-tp-surface3 text-tp-muted hover:text-tp-text',
+                        theme === pt.id ? 'bg-tp-primary text-tp-on-primary' : 'bg-tp-surface3 text-tp-muted hover:text-tp-text',
                       ]"
-                      @click="setTheme(t.id)"
-                    >{{ t.label }}</button>
+                      @click="setTheme(pt.id)"
+                    >{{ t(`layout.themes.${pt.id}`) }}</button>
+                  </div>
+                </div>
+
+                <div class="border-t border-tp-border/20 px-4 py-3">
+                  <p class="text-tp-outline text-[11px] font-mono uppercase tracking-[0.18em] mb-2">{{ t('layout.language') }}</p>
+                  <div class="grid grid-cols-2 gap-1.5" role="radiogroup" :aria-label="t('layout.language')">
+                    <button
+                      v-for="l in locales"
+                      :key="l.code"
+                      role="radio"
+                      :aria-checked="locale === l.code"
+                      :lang="l.code"
+                      :class="[
+                        'rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors',
+                        locale === l.code ? 'bg-tp-primary text-tp-on-primary' : 'bg-tp-surface3 text-tp-muted hover:text-tp-text',
+                      ]"
+                      @click="setLocale(l.code)"
+                    >{{ l.name }}</button>
                   </div>
                 </div>
 
@@ -365,7 +388,7 @@ const mobileNav = useMobileNav()
                     @click="authStore.logout(); closeAll()"
                   >
                     <span class="material-symbols-outlined text-lg">logout</span>
-                    Log out
+                    {{ t('layout.logOut') }}
                   </button>
                 </div>
               </div>

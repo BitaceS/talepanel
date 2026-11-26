@@ -1,7 +1,7 @@
 <template>
   <div class="p-6 space-y-6">
     <div v-if="loading" class="bg-tp-surface rounded-xl p-8 text-center">
-      <p class="text-tp-muted text-sm">Loading...</p>
+      <p class="text-tp-muted text-sm">{{ t('common.loading') }}</p>
     </div>
 
     <template v-else-if="player">
@@ -17,59 +17,59 @@
           </div>
         </div>
         <div class="flex gap-2 flex-wrap">
-          <span v-if="player.is_banned"      class="px-2 py-1 rounded-lg text-xs font-medium bg-tp-error/10 text-tp-error">Banned</span>
-          <span v-if="player.is_muted"       class="px-2 py-1 rounded-lg text-xs font-medium bg-orange-500/15 text-orange-400">Muted</span>
-          <span v-if="player.is_op"          class="px-2 py-1 rounded-lg text-xs font-medium bg-yellow-500/15 text-yellow-400">Op</span>
-          <span v-if="player.is_whitelisted" class="px-2 py-1 rounded-lg text-xs font-medium bg-tp-success/15 text-tp-success">Whitelisted</span>
+          <span v-if="player.is_banned"      class="px-2 py-1 rounded-lg text-xs font-medium bg-tp-error/10 text-tp-error">{{ t('servers.player.badges.banned') }}</span>
+          <span v-if="player.is_muted"       class="px-2 py-1 rounded-lg text-xs font-medium bg-orange-500/15 text-orange-400">{{ t('servers.player.badges.muted') }}</span>
+          <span v-if="player.is_op"          class="px-2 py-1 rounded-lg text-xs font-medium bg-yellow-500/15 text-yellow-400">{{ t('servers.player.badges.op') }}</span>
+          <span v-if="player.is_whitelisted" class="px-2 py-1 rounded-lg text-xs font-medium bg-tp-success/15 text-tp-success">{{ t('servers.player.badges.whitelisted') }}</span>
         </div>
       </div>
 
       <!-- Stats -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div class="bg-tp-surface rounded-xl p-4">
-          <p class="text-tp-muted text-xs mb-1">Playtime</p>
+          <p class="text-tp-muted text-xs mb-1">{{ t('servers.player.playtime') }}</p>
           <p class="text-tp-text font-semibold text-sm">{{ formatDuration(player.playtime_s) }}</p>
         </div>
         <div class="bg-tp-surface rounded-xl p-4">
-          <p class="text-tp-muted text-xs mb-1">First Seen</p>
+          <p class="text-tp-muted text-xs mb-1">{{ t('servers.player.firstSeen') }}</p>
           <p class="text-tp-text font-semibold text-sm">{{ formatDate(player.first_seen) }}</p>
         </div>
         <div class="bg-tp-surface rounded-xl p-4">
-          <p class="text-tp-muted text-xs mb-1">Last Seen</p>
-          <p class="text-tp-text font-semibold text-sm">{{ player.last_seen ? formatDate(player.last_seen) : 'Never' }}</p>
+          <p class="text-tp-muted text-xs mb-1">{{ t('servers.player.lastSeen') }}</p>
+          <p class="text-tp-text font-semibold text-sm">{{ player.last_seen ? formatDate(player.last_seen) : t('common.never') }}</p>
         </div>
         <div class="bg-tp-surface rounded-xl p-4">
-          <p class="text-tp-muted text-xs mb-1">Sessions</p>
+          <p class="text-tp-muted text-xs mb-1">{{ t('servers.player.sessions') }}</p>
           <p class="text-tp-text font-semibold text-sm">{{ sessions.length }}</p>
         </div>
       </div>
 
       <!-- Actions -->
       <div class="bg-tp-surface rounded-xl p-4">
-        <h2 class="text-tp-text font-semibold text-sm mb-3">Actions</h2>
+        <h2 class="text-tp-text font-semibold text-sm mb-3">{{ t('servers.player.actions') }}</h2>
         <div class="flex gap-2 flex-wrap">
           <button class="px-3 py-1.5 rounded-lg text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors" @click="kick">
-            Kick
+            {{ t('servers.player.kick') }}
           </button>
           <button class="px-3 py-1.5 rounded-lg text-sm transition-colors"
             :class="player.is_op ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30' : 'bg-tp-surface2 text-tp-muted hover:text-tp-text hover:bg-tp-surface2'"
             @click="toggleOp">
-            {{ player.is_op ? 'Deop' : 'Op' }}
+            {{ player.is_op ? t('servers.player.deop') : t('servers.player.op') }}
           </button>
           <button class="px-3 py-1.5 rounded-lg text-sm transition-colors"
             :class="player.is_muted ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : 'bg-tp-surface2 text-tp-muted hover:text-tp-text hover:bg-tp-surface2'"
             @click="toggleMute">
-            {{ player.is_muted ? 'Unmute' : 'Mute' }}
+            {{ player.is_muted ? t('servers.player.unmute') : t('servers.player.mute') }}
           </button>
           <button class="px-3 py-1.5 rounded-lg text-sm transition-colors"
             :class="player.is_banned ? 'bg-tp-success/15 text-tp-success hover:bg-tp-success/20' : 'bg-tp-error/10 text-tp-error hover:bg-tp-error/20'"
             @click="toggleBan">
-            {{ player.is_banned ? 'Unban' : 'Ban' }}
+            {{ player.is_banned ? t('servers.player.unban') : t('servers.player.ban') }}
           </button>
           <button class="px-3 py-1.5 rounded-lg text-sm transition-colors"
             :class="player.is_whitelisted ? 'bg-tp-warning/15 text-tp-warning hover:bg-tp-warning/20' : 'bg-tp-surface2 text-tp-muted hover:text-tp-text hover:bg-tp-surface2'"
             @click="toggleWhitelist">
-            {{ player.is_whitelisted ? 'Remove Whitelist' : 'Whitelist' }}
+            {{ player.is_whitelisted ? t('servers.player.removeWhitelist') : t('servers.player.whitelist') }}
           </button>
         </div>
       </div>
@@ -77,17 +77,17 @@
       <!-- Session History -->
       <div class="bg-tp-surface rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-tp-border">
-          <h2 class="text-tp-text font-semibold text-sm">Session History</h2>
+          <h2 class="text-tp-text font-semibold text-sm">{{ t('servers.player.sessionHistory') }}</h2>
         </div>
         <p v-if="!sessions.length" class="px-4 py-8 text-tp-muted text-sm text-center">
-          No sessions recorded.
+          {{ t('servers.player.noSessions') }}
         </p>
         <table v-else class="w-full text-sm">
           <thead>
             <tr class="border-b border-tp-border">
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Joined</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Left</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Duration</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('servers.player.joined') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('servers.player.left') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('servers.player.duration') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -102,8 +102,8 @@
     </template>
 
     <div v-else class="bg-tp-surface rounded-xl p-12 text-center">
-      <p class="text-tp-text font-semibold mb-1">Player not found.</p>
-      <p class="text-tp-muted text-sm">This player may not exist on this server.</p>
+      <p class="text-tp-text font-semibold mb-1">{{ t('servers.player.notFound') }}</p>
+      <p class="text-tp-muted text-sm">{{ t('servers.player.notFoundHint') }}</p>
     </div>
 
     <!-- Toast -->
@@ -122,13 +122,14 @@
 import { usePlayersStore } from '~/stores/players'
 import type { Player, PlayerSession } from '~/types'
 
-definePageMeta({ title: 'Player Detail', middleware: 'auth' })
+definePageMeta({ title: 'pages.playerDetail', middleware: 'auth' })
 
 const route = useRoute()
 const serverId = route.params.id as string
 const playerId = route.params.playerId as string
 
 const playersStore = usePlayersStore()
+const { t } = useI18n()
 
 const player = ref<Player | null>(null)
 const sessions = ref<PlayerSession[]>([])
@@ -162,30 +163,30 @@ async function loadData() {
 }
 
 async function kick() {
-  const reason = prompt('Kick reason (optional):') ?? ''
+  const reason = prompt(t('servers.player.kickReason')) ?? ''
   try {
     await playersStore.kickPlayer(serverId, playerId, reason)
-    showToast('Player kicked')
+    showToast(t('servers.player.toast.kicked'))
     await loadData()
-  } catch { showToast('Failed to kick player', 'error') }
+  } catch { showToast(t('servers.player.toast.kickFailed'), 'error') }
 }
 
 async function toggleOp() {
   if (!player.value) return
   try {
     await playersStore.setOp(serverId, playerId, !player.value.is_op)
-    showToast(player.value.is_op ? 'Op removed' : 'Op granted')
+    showToast(player.value.is_op ? t('servers.player.toast.opRemoved') : t('servers.player.toast.opGranted'))
     await loadData()
-  } catch { showToast('Failed to update op status', 'error') }
+  } catch { showToast(t('servers.player.toast.opFailed'), 'error') }
 }
 
 async function toggleMute() {
   if (!player.value) return
   try {
     await playersStore.setMute(serverId, playerId, !player.value.is_muted)
-    showToast(player.value.is_muted ? 'Player unmuted' : 'Player muted')
+    showToast(player.value.is_muted ? t('servers.player.toast.unmuted') : t('servers.player.toast.muted'))
     await loadData()
-  } catch { showToast('Failed to update mute status', 'error') }
+  } catch { showToast(t('servers.player.toast.muteFailed'), 'error') }
 }
 
 async function toggleBan() {
@@ -193,23 +194,23 @@ async function toggleBan() {
   try {
     if (player.value.is_banned) {
       await playersStore.unbanPlayer(serverId, playerId)
-      showToast('Player unbanned')
+      showToast(t('servers.player.toast.unbanned'))
     } else {
-      const reason = prompt('Ban reason (optional):') ?? ''
+      const reason = prompt(t('servers.player.banReason')) ?? ''
       await playersStore.banPlayer(serverId, playerId, reason)
-      showToast('Player banned')
+      showToast(t('servers.player.toast.banned'))
     }
     await loadData()
-  } catch { showToast('Failed to update ban status', 'error') }
+  } catch { showToast(t('servers.player.toast.banFailed'), 'error') }
 }
 
 async function toggleWhitelist() {
   if (!player.value) return
   try {
     await playersStore.setWhitelist(serverId, playerId, !player.value.is_whitelisted)
-    showToast(player.value.is_whitelisted ? 'Removed from whitelist' : 'Added to whitelist')
+    showToast(player.value.is_whitelisted ? t('servers.player.toast.whitelistRemoved') : t('servers.player.toast.whitelistAdded'))
     await loadData()
-  } catch { showToast('Failed to update whitelist', 'error') }
+  } catch { showToast(t('servers.player.toast.whitelistFailed'), 'error') }
 }
 
 function formatDate(iso: string): string {

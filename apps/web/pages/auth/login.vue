@@ -7,19 +7,52 @@ definePageMeta({
 
 const authStore = useAuthStore()
 const api = useApi()
+const { t } = useI18n()
 
 // A fresh install has no account to sign in with yet; send the visitor to the
 // setup wizard instead.
 onMounted(async () => {
+  readSsoReturn()
   try {
     const data = await api.get<{ needs_setup: boolean }>('/health/setup')
     if (data.needs_setup) {
       await navigateTo('/setup')
+      return
     }
   } catch {
     // Setup status is best-effort; the sign-in form still works.
   }
+  try {
+    sso.value = await api.get<{ enabled: boolean, display_name?: string }>('/auth/oidc')
+  } catch {
+    // Older API without SSO: no button.
+  }
 })
+
+// ── Single sign-on ───────────────────────────────────────────────────────────
+const sso = ref<{ enabled: boolean, display_name?: string }>({ enabled: false })
+const route = useRoute()
+const SSO_ERRORS = ['denied', 'state', 'unverified', 'domain', 'no_account', 'link_required', 'inactive', 'disabled', 'failed']
+
+function startSso() {
+  window.location.href = `${useRuntimeConfig().public.apiBase}/auth/oidc/start`
+}
+
+// The SSO callback comes back here with ?sso_error=<code>, or with
+// #sso_partial=<token> when the account still needs its 2FA code.
+function readSsoReturn() {
+  const code = route.query.sso_error
+  if (typeof code === 'string') {
+    serverError.value = t(`auth.sso.errors.${SSO_ERRORS.includes(code) ? code : 'failed'}`)
+  }
+  const m = window.location.hash.match(/sso_partial=([^&]+)/)
+  if (m?.[1]) {
+    authStore.partialToken = decodeURIComponent(m[1])
+    totpRequired.value = true
+  }
+  // Keep Vue Router's entry state; only the query and hash go.
+  if (code || m) history.replaceState(history.state, '', window.location.pathname)
+}
 
 const form = reactive({
   email: '',
@@ -59,13 +92,13 @@ function validate(): boolean {
   errors.password = ''
 
   if (!form.email) {
-    errors.email = 'Email is required'
+    errors.email = t('auth.validation.emailRequired')
   } else if (!validateEmail(form.email)) {
-    errors.email = 'Please enter a valid email address'
+    errors.email = t('auth.validation.emailInvalid')
   }
 
   if (!form.password) {
-    errors.password = 'Password is required'
+    errors.password = t('auth.validation.passwordRequired')
   }
 
   return !errors.email && !errors.password
@@ -84,7 +117,7 @@ async function onSubmit() {
     }
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serverError.value = e.data?.error ?? e.message ?? 'Login failed. Please check your credentials.'
+    serverError.value = e.data?.error ?? e.message ?? t('auth.login.failed')
   }
 }
 
@@ -95,11 +128,11 @@ async function onVerifyTotp() {
   if (useRecoveryCode.value) {
     // xxxxx-xxxxx; the server ignores dashes, spaces and case.
     if (!/^[0-9a-z]{10}$/i.test(code.replace(/[\s-]/g, ''))) {
-      serverError.value = 'Enter one of your recovery codes (format xxxxx-xxxxx)'
+      serverError.value = t('auth.login.recoveryCodeInvalid')
       return
     }
   } else if (!/^\d{6}$/.test(code)) {
-    serverError.value = 'Enter the 6-digit code from your authenticator app'
+    serverError.value = t('auth.login.totpHint')
     return
   }
 
@@ -107,7 +140,7 @@ async function onVerifyTotp() {
     await authStore.verifyTotp(code)
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serverError.value = e.data?.error ?? e.message ?? 'Verification failed. Please try again.'
+    serverError.value = e.data?.error ?? e.message ?? t('auth.login.verifyFailed')
   }
 }
 
@@ -125,12 +158,12 @@ function cancelTotp() {
     <!-- Title -->
     <div class="mb-6">
       <h2 class="text-tp-text font-display font-bold text-xl">
-        {{ totpRequired ? 'Two-factor authentication' : 'Welcome back' }}
+        {{ totpRequired ? t('auth.login.totpTitle') : t('auth.login.title') }}
       </h2>
       <p class="text-tp-muted text-sm mt-1">
-        <template v-if="!totpRequired">Sign in to manage your servers</template>
-        <template v-else-if="useRecoveryCode">Enter one of the recovery codes you saved when enabling 2FA</template>
-        <template v-else>Enter the 6-digit code from your authenticator app</template>
+        <template v-if="!totpRequired">{{ t('auth.login.subtitle') }}</template>
+        <template v-else-if="useRecoveryCode">{{ t('auth.login.recoverySubtitle') }}</template>
+        <template v-else>{{ t('auth.login.totpHint') }}</template>
       </p>
     </div>
 
@@ -147,7 +180,7 @@ function cancelTotp() {
     <form v-if="totpRequired" class="space-y-5" @submit.prevent="onVerifyTotp">
       <div class="flex flex-col gap-1.5">
         <label for="totp-code" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">
-          {{ useRecoveryCode ? 'Recovery Code' : 'Authentication Code' }}
+          {{ useRecoveryCode ? t('auth.login.recoveryCode') : t('auth.login.authCode') }}
         </label>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">{{ useRecoveryCode ? 'key' : 'pin' }}</span>
@@ -187,7 +220,7 @@ function cancelTotp() {
           class="self-start text-tp-accent text-xs font-semibold hover:text-tp-primary transition-colors"
           @click="toggleRecoveryCode"
         >
-          {{ useRecoveryCode ? 'Use your authenticator app instead' : 'Lost your authenticator? Use a recovery code' }}
+          {{ useRecoveryCode ? t('auth.login.useAuthenticator') : t('auth.login.useRecovery') }}
         </button>
       </div>
 
@@ -205,7 +238,7 @@ function cancelTotp() {
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span>VERIFY</span>
+        <span>{{ t('auth.login.verify') }}</span>
         <span class="material-symbols-outlined text-base">arrow_forward</span>
       </button>
 
@@ -214,7 +247,7 @@ function cancelTotp() {
         class="w-full text-tp-muted text-sm hover:text-tp-text transition-colors"
         @click="cancelTotp"
       >
-        Back to sign in
+        {{ t('auth.login.backToSignIn') }}
       </button>
     </form>
 
@@ -222,10 +255,11 @@ function cancelTotp() {
     <form v-else class="space-y-5" @submit.prevent="onSubmit">
       <!-- Email -->
       <div class="flex flex-col gap-1.5">
-        <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
+        <label for="login-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.emailAddress') }}</label>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
           <input
+            id="login-email"
             v-model="form.email"
             type="email"
             placeholder="you@example.com"
@@ -246,14 +280,15 @@ function cancelTotp() {
       <!-- Password / Access Key -->
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center justify-between">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label for="login-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('auth.fields.password') }}</label>
         </div>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
           <input
+            id="login-password"
             v-model="form.password"
             :type="showPassword ? 'text' : 'password'"
-            placeholder="Your password"
+            :placeholder="t('auth.login.passwordPlaceholder')"
             autocomplete="current-password"
             required
             :class="[
@@ -267,6 +302,7 @@ function cancelTotp() {
           <button
             type="button"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-tp-outline hover:text-tp-muted transition-colors"
+            :aria-label="showPassword ? t('auth.fields.hidePassword') : t('auth.fields.showPassword')"
             @click="showPassword = !showPassword"
           >
             <span class="material-symbols-outlined text-lg">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
@@ -284,7 +320,7 @@ function cancelTotp() {
           class="w-4 h-4 rounded bg-tp-surface text-tp-primary focus:ring-tp-primary/50 focus:ring-2 focus:outline-none cursor-pointer accent-tp-primary"
         />
         <label for="remember-me" class="text-sm text-tp-muted cursor-pointer select-none">
-          Stay signed in
+          {{ t('auth.login.staySignedIn') }}
         </label>
       </div>
 
@@ -303,17 +339,34 @@ function cancelTotp() {
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span>Sign in</span>
+        <span>{{ t('auth.login.signIn') }}</span>
         <span class="material-symbols-outlined text-base">arrow_forward</span>
       </button>
     </form>
 
+    <!-- Single sign-on -->
+    <div v-if="sso.enabled && !totpRequired" class="mt-4">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="flex-1 h-px bg-tp-border/50" />
+        <span class="text-tp-outline text-xs uppercase tracking-wider">{{ t('auth.sso.or') }}</span>
+        <div class="flex-1 h-px bg-tp-border/50" />
+      </div>
+      <button
+        type="button"
+        class="w-full bg-tp-surface2 text-tp-text font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-tp-surface3 transition-colors"
+        @click="startSso"
+      >
+        <span class="material-symbols-outlined text-base">key</span>
+        {{ t('auth.sso.signInWith', { name: sso.display_name ?? 'SSO' }) }}
+      </button>
+    </div>
+
     <!-- Register link -->
     <div class="mt-5 text-center">
       <p class="text-tp-muted text-sm">
-        No account yet?
+        {{ t('auth.login.noAccount') }}
         <NuxtLink to="/auth/register" class="text-tp-accent font-semibold hover:text-tp-primary transition-colors ml-1">
-          Create account
+          {{ t('auth.login.createAccount') }}
         </NuxtLink>
       </p>
     </div>
@@ -322,7 +375,7 @@ function cancelTotp() {
     <div class="flex items-center justify-center gap-4 mt-6 pt-5 border-t border-tp-border/50">
       <a href="https://talepanel.com/docs/" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
         <span class="material-symbols-outlined text-sm">menu_book</span>
-        Docs
+        {{ t('auth.docs') }}
       </a>
       <a href="https://discord.gg/6N8WNrW5WJ" target="_blank" rel="noopener" class="flex items-center gap-1 text-tp-outline text-xs hover:text-tp-muted transition-colors">
         <span class="material-symbols-outlined text-sm">forum</span>

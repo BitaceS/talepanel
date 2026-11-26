@@ -9,6 +9,7 @@ import type { ServerTemplate, ServerTemplateSettings } from '~/types'
 
 const emit = defineEmits<{ toast: [msg: string, type: 'success' | 'error'] }>()
 
+const { t } = useI18n()
 const store = useServerTemplatesStore()
 const serversStore = useServersStore()
 const loading = ref(false)
@@ -25,7 +26,7 @@ async function load() {
   try {
     await store.fetchTemplates(true)
   } catch (err: unknown) {
-    loadError.value = errMsg(err, 'Failed to load templates')
+    loadError.value = errMsg(err, t('admin.templates.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -34,9 +35,9 @@ onMounted(load)
 
 // Launch flags a template may set; mirrors the API allowlist.
 const launchFlagOptions = [
-  { flag: '--accept-early-plugins', label: 'Accept early plugins', hint: 'required by mods that load before the server boots' },
-  { flag: '--disable-sentry', label: 'Disable crash reporting', hint: 'no crash reports to Hypixel (Sentry)' },
-  { flag: '--allow-op', label: 'Allow /op', hint: 'only admins can create servers from this template' },
+  { flag: '--accept-early-plugins', label: 'admin.templates.flags.acceptEarlyPlugins', hint: 'admin.templates.flags.acceptEarlyPluginsHint' },
+  { flag: '--disable-sentry', label: 'admin.templates.flags.disableSentry', hint: 'admin.templates.flags.disableSentryHint' },
+  { flag: '--allow-op', label: 'admin.templates.flags.allowOp', hint: 'admin.templates.flags.allowOpHint' },
 ]
 
 // ── Create by hand ──────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ function optInt(v: string | number): number | undefined {
 
 async function submitCreate() {
   if (!form.name.trim()) {
-    formError.value = 'Name is required'
+    formError.value = t('admin.templates.nameRequired')
     return
   }
   const settings: ServerTemplateSettings = {
@@ -100,9 +101,9 @@ async function submitCreate() {
       settings,
     })
     showCreate.value = false
-    emit('toast', 'Template created', 'success')
+    emit('toast', t('admin.templates.created'), 'success')
   } catch (err: unknown) {
-    formError.value = errMsg(err, 'Failed to create template')
+    formError.value = errMsg(err, t('admin.templates.createFailed'))
   } finally {
     saving.value = false
   }
@@ -121,12 +122,12 @@ async function openFromServer() {
 
 watch(() => fromServer.server_id, (id) => {
   const srv = serversStore.servers.find(s => s.id === id)
-  if (srv && !fromServer.name) fromServer.name = `${srv.name} settings`
+  if (srv && !fromServer.name) fromServer.name = t('admin.templates.defaultName', { name: srv.name })
 })
 
 async function submitFromServer() {
   if (!fromServer.server_id || !fromServer.name.trim()) {
-    formError.value = 'Pick a server and give the template a name'
+    formError.value = t('admin.templates.pickServer')
     return
   }
   saving.value = true
@@ -138,9 +139,9 @@ async function submitFromServer() {
       icon: fromServer.icon.trim(),
     })
     showFromServer.value = false
-    emit('toast', 'Template saved from server', 'success')
+    emit('toast', t('admin.templates.savedFromServer'), 'success')
   } catch (err: unknown) {
-    formError.value = errMsg(err, 'Failed to save template')
+    formError.value = errMsg(err, t('admin.templates.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -149,14 +150,14 @@ async function submitFromServer() {
 // ── Delete ──────────────────────────────────────────────────────────────────
 const deleting = ref<string | null>(null)
 
-async function remove(t: ServerTemplate) {
-  if (!confirm(`Delete the template "${t.name}"? Servers created from it are not affected.`)) return
-  deleting.value = t.id
+async function remove(tpl: ServerTemplate) {
+  if (!confirm(t('admin.templates.confirmDelete', { name: tpl.name }))) return
+  deleting.value = tpl.id
   try {
-    await store.deleteTemplate(t.id)
-    emit('toast', 'Template deleted', 'success')
+    await store.deleteTemplate(tpl.id)
+    emit('toast', t('admin.templates.deleted'), 'success')
   } catch (err: unknown) {
-    emit('toast', errMsg(err, 'Failed to delete template'), 'error')
+    emit('toast', errMsg(err, t('admin.templates.deleteFailed')), 'error')
   } finally {
     deleting.value = null
   }
@@ -171,20 +172,20 @@ const labelClass = 'text-xs font-semibold text-tp-muted uppercase tracking-wider
     <div class="bg-tp-surface rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
       <div>
         <h3 class="text-tp-text font-display font-semibold text-lg flex items-center gap-2">
-          <LayoutTemplate class="w-4 h-4 text-tp-primary" /> Server templates
+          <LayoutTemplate class="w-4 h-4 text-tp-primary" /> {{ t('admin.templates.title') }}
         </h3>
         <p class="text-tp-muted text-sm mt-1 max-w-2xl">
-          Presets offered when someone creates a server. A template only fills in defaults: the same rules apply as
-          for settings chosen by hand, so a user cannot get admin-only options (such as <span class="font-mono">--allow-op</span>
-          or a network role) through a template.
+          <i18n-t keypath="admin.templates.desc" tag="span" scope="global">
+            <template #flag><span class="font-mono">--allow-op</span></template>
+          </i18n-t>
         </p>
       </div>
       <div class="flex gap-2">
         <UiButton variant="secondary" size="sm" @click="openFromServer">
-          <Copy class="w-3.5 h-3.5" /> Save from server
+          <Copy class="w-3.5 h-3.5" /> {{ t('admin.templates.saveFromServer') }}
         </UiButton>
         <UiButton variant="primary" size="sm" @click="openCreate">
-          <Plus class="w-3.5 h-3.5" /> New template
+          <Plus class="w-3.5 h-3.5" /> {{ t('admin.templates.newTemplate') }}
         </UiButton>
       </div>
     </div>
@@ -195,117 +196,116 @@ const labelClass = 'text-xs font-semibold text-tp-muted uppercase tracking-wider
     <div v-else-if="loadError" class="bg-tp-error/10 text-tp-error rounded-xl p-4 text-sm">{{ loadError }}</div>
     <template v-else>
       <div v-for="group in [
-        { title: 'Custom', items: store.custom, empty: 'No custom templates yet. Create one or save the settings of an existing server.' },
-        { title: 'Built-in', items: store.builtin, empty: '' },
-      ]" :key="group.title" class="space-y-2">
+        { id: 'custom', title: t('admin.templates.groupCustom'), items: store.custom, empty: t('admin.templates.customEmpty') },
+        { id: 'builtin', title: t('admin.templates.groupBuiltin'), items: store.builtin, empty: '' },
+      ]" :key="group.id" class="space-y-2">
         <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline px-1">{{ group.title }}</p>
         <div v-if="!group.items.length && group.empty" class="bg-tp-surface rounded-xl p-6 text-center text-tp-muted text-sm">
           {{ group.empty }}
         </div>
-        <div v-for="t in group.items" :key="t.id" class="bg-tp-surface rounded-xl p-4 flex items-start justify-between gap-3">
+        <div v-for="tpl in group.items" :key="tpl.id" class="bg-tp-surface rounded-xl p-4 flex items-start justify-between gap-3">
           <div class="flex gap-3 min-w-0">
-            <span class="material-symbols-outlined text-tp-primary text-xl shrink-0">{{ t.icon || 'dns' }}</span>
+            <span class="material-symbols-outlined text-tp-primary text-xl shrink-0">{{ tpl.icon || 'dns' }}</span>
             <div class="min-w-0">
-              <p class="text-tp-text text-sm font-medium">{{ t.name }}</p>
-              <p v-if="t.description" class="text-tp-muted text-xs mt-0.5">{{ t.description }}</p>
+              <p class="text-tp-text text-sm font-medium">{{ tpl.name }}</p>
+              <p v-if="tpl.description" class="text-tp-muted text-xs mt-0.5">{{ tpl.description }}</p>
               <div class="flex flex-wrap gap-1 mt-1.5">
                 <span
-                  v-for="chip in templateSummary(t.settings)"
+                  v-for="chip in templateSummary(tpl.settings, (k, n) => t(k, n))"
                   :key="chip"
                   class="text-[10px] px-1.5 py-0.5 rounded bg-tp-surface3 text-tp-muted font-mono"
                 >{{ chip }}</span>
               </div>
             </div>
           </div>
-          <UiBadge v-if="t.is_builtin" variant="muted" size="sm">read-only</UiBadge>
-          <UiButton v-else variant="danger" size="sm" :loading="deleting === t.id" @click="remove(t)">
-            <Trash2 class="w-3.5 h-3.5" /> Delete
+          <UiBadge v-if="tpl.is_builtin" variant="muted" size="sm">{{ t('admin.templates.readOnly') }}</UiBadge>
+          <UiButton v-else variant="danger" size="sm" :loading="deleting === tpl.id" @click="remove(tpl)">
+            <Trash2 class="w-3.5 h-3.5" /> {{ t('actions.delete') }}
           </UiButton>
         </div>
       </div>
     </template>
 
     <!-- New template -->
-    <UiModal :open="showCreate" title="New server template" size="lg" @close="showCreate = false">
+    <UiModal :open="showCreate" :title="t('admin.templates.newTitle')" size="lg" @close="showCreate = false">
       <form class="space-y-4" @submit.prevent="submitCreate">
         <div v-if="formError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">{{ formError }}</div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="sm:col-span-2">
-            <UiInput v-model="form.name" label="Name" placeholder="e.g. PvP arena" :required="true" />
+            <UiInput v-model="form.name" :label="t('admin.templates.name')" :placeholder="t('admin.templates.namePlaceholder')" :required="true" />
           </div>
-          <UiInput v-model="form.icon" label="Icon" placeholder="Material Symbols name, e.g. swords" />
+          <UiInput v-model="form.icon" :label="t('admin.templates.icon')" :placeholder="t('admin.templates.iconPlaceholder')" />
         </div>
-        <UiInput v-model="form.description" label="Description" placeholder="Shown on the template card" />
+        <UiInput v-model="form.description" :label="t('admin.templates.description')" :placeholder="t('admin.templates.descriptionPlaceholder')" />
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <label for="tmpl-version" :class="labelClass">Hytale version</label>
+            <label for="tmpl-version" :class="labelClass">{{ t('admin.templates.hytaleVersion') }}</label>
             <select id="tmpl-version" v-model="form.hytale_version" :class="inputClass">
-              <option value="release">Release</option>
-              <option value="pre-release">Pre-release</option>
+              <option value="release">{{ t('admin.templates.release') }}</option>
+              <option value="pre-release">{{ t('admin.templates.preRelease') }}</option>
             </select>
           </div>
           <div class="flex flex-col gap-1.5">
-            <label for="tmpl-role" :class="labelClass">Network role</label>
+            <label for="tmpl-role" :class="labelClass">{{ t('admin.templates.networkRole') }}</label>
             <select id="tmpl-role" v-model="form.network_role" :class="inputClass">
-              <option value="none">Not in the network</option>
-              <option value="hub">Hub (lobby)</option>
-              <option value="gamemode">Gamemode</option>
+              <option value="none">{{ t('admin.templates.roleNone') }}</option>
+              <option value="hub">{{ t('admin.templates.roleHub') }}</option>
+              <option value="gamemode">{{ t('admin.templates.roleGamemode') }}</option>
             </select>
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <UiInput v-model="form.ram_limit_mb" type="number" label="RAM (MB)" placeholder="default 2048" />
-          <UiInput v-model="form.cpu_limit" type="number" label="CPU (%)" placeholder="100 = 1 core" />
-          <UiInput v-model="form.disk_limit_mb" type="number" label="Disk (MB)" placeholder="default 10240" />
+          <UiInput v-model="form.ram_limit_mb" type="number" :label="t('admin.templates.ram')" :placeholder="t('admin.templates.ramPlaceholder')" />
+          <UiInput v-model="form.cpu_limit" type="number" :label="t('admin.templates.cpu')" :placeholder="t('admin.templates.cpuPlaceholder')" />
+          <UiInput v-model="form.disk_limit_mb" type="number" :label="t('admin.templates.disk')" :placeholder="t('admin.templates.diskPlaceholder')" />
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-          <UiInput v-model="form.crash_limit" type="number" label="Crash limit" placeholder="default 3" />
-          <UiInput v-model="form.crash_window_s" type="number" label="Crash window (s)" placeholder="default 300" />
+          <UiInput v-model="form.crash_limit" type="number" :label="t('admin.templates.crashLimit')" :placeholder="t('admin.templates.crashLimitPlaceholder')" />
+          <UiInput v-model="form.crash_window_s" type="number" :label="t('admin.templates.crashWindow')" :placeholder="t('admin.templates.crashWindowPlaceholder')" />
           <label class="flex items-center gap-2 text-sm text-tp-text pb-2">
             <input v-model="form.auto_restart" type="checkbox" class="accent-tp-primary" />
-            Auto restart
+            {{ t('admin.templates.autoRestart') }}
           </label>
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <span :class="labelClass">Launch flags</span>
+          <span :class="labelClass">{{ t('admin.templates.launchFlags') }}</span>
           <label v-for="o in launchFlagOptions" :key="o.flag" class="flex items-center gap-2 text-sm text-tp-text">
             <input v-model="form.launch_flags" type="checkbox" :value="o.flag" class="accent-tp-primary" />
-            {{ o.label }} <span class="font-mono text-xs text-tp-muted">{{ o.flag }}</span>
-            <span class="text-xs text-tp-muted">· {{ o.hint }}</span>
+            {{ t(o.label) }} <span class="font-mono text-xs text-tp-muted">{{ o.flag }}</span>
+            <span class="text-xs text-tp-muted">· {{ t(o.hint) }}</span>
           </label>
         </div>
       </form>
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="showCreate = false">Cancel</UiButton>
-        <UiButton variant="primary" size="md" :loading="saving" @click="submitCreate">Create template</UiButton>
+        <UiButton variant="ghost" size="md" @click="showCreate = false">{{ t('actions.cancel') }}</UiButton>
+        <UiButton variant="primary" size="md" :loading="saving" @click="submitCreate">{{ t('admin.templates.createTemplate') }}</UiButton>
       </template>
     </UiModal>
 
     <!-- Save from server -->
-    <UiModal :open="showFromServer" title="Save server settings as template" size="md" @close="showFromServer = false">
+    <UiModal :open="showFromServer" :title="t('admin.templates.fromServerTitle')" size="md" @close="showFromServer = false">
       <form class="space-y-4" @submit.prevent="submitFromServer">
         <div v-if="formError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">{{ formError }}</div>
         <div class="flex flex-col gap-1.5">
-          <label for="tmpl-from-server" :class="labelClass">Server</label>
+          <label for="tmpl-from-server" :class="labelClass">{{ t('admin.templates.server') }}</label>
           <select id="tmpl-from-server" v-model="fromServer.server_id" :class="inputClass">
-            <option value="" disabled>Choose a server…</option>
+            <option value="" disabled>{{ t('admin.templates.chooseServer') }}</option>
             <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
           <p class="text-tp-muted text-xs">
-            Copies version, RAM, CPU, disk, auto restart, crash limits, launch flags and network role. Files and worlds
-            are not copied.
+            {{ t('admin.templates.copiesNote') }}
           </p>
         </div>
-        <UiInput v-model="fromServer.name" label="Template name" :required="true" />
-        <UiInput v-model="fromServer.description" label="Description" />
-        <UiInput v-model="fromServer.icon" label="Icon" placeholder="Material Symbols name" />
+        <UiInput v-model="fromServer.name" :label="t('admin.templates.templateName')" :required="true" />
+        <UiInput v-model="fromServer.description" :label="t('admin.templates.description')" />
+        <UiInput v-model="fromServer.icon" :label="t('admin.templates.icon')" :placeholder="t('admin.templates.iconPlaceholderShort')" />
       </form>
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="showFromServer = false">Cancel</UiButton>
-        <UiButton variant="primary" size="md" :loading="saving" @click="submitFromServer">Save template</UiButton>
+        <UiButton variant="ghost" size="md" @click="showFromServer = false">{{ t('actions.cancel') }}</UiButton>
+        <UiButton variant="primary" size="md" :loading="saving" @click="submitFromServer">{{ t('admin.templates.saveTemplate') }}</UiButton>
       </template>
     </UiModal>
   </div>

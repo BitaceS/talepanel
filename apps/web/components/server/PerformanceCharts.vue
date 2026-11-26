@@ -35,6 +35,7 @@ const WINDOW_MS: Record<RangeKey, number> = {
 }
 
 const api = useApi()
+const { t } = useI18n()
 const range = ref<RangeKey>('24h')
 const data = ref<History | null>(null)
 const loading = ref(false)
@@ -52,7 +53,7 @@ async function load() {
     error.value = ''
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    error.value = e.data?.error ?? e.message ?? 'Could not load performance history'
+    error.value = e.data?.error ?? e.message ?? t('servers.performance.loadFailed')
   } finally {
     loading.value = false
   }
@@ -122,16 +123,16 @@ const series = computed<Series[]>(() => {
   const playersPeak = Math.max(0, ...pts.map(p => p.players))
   return [
     {
-      key: 'cpu', title: 'CPU', value: p => p.cpu, peak: p => p.cpu_max,
+      key: 'cpu', title: t('servers.performance.cpu'), value: p => p.cpu, peak: p => p.cpu_max,
       // 100 % = one core; a busy server can use several.
       max: niceCeil(Math.max(100, cpuPeak)), fmt: v => (v <= 0 ? '0%' : `${v.toFixed(v < 10 ? 1 : 0)}%`),
     },
     {
-      key: 'ram', title: 'Memory', value: p => p.ram_mb, peak: p => p.ram_max_mb,
+      key: 'ram', title: t('servers.performance.memory'), value: p => p.ram_mb, peak: p => p.ram_max_mb,
       max: ramScale(Math.max(limit, ramPeak, 256)), fmt: formatMB, limit: limit > 0 ? limit : undefined,
     },
     {
-      key: 'players', title: 'Players online', value: p => p.players,
+      key: 'players', title: t('servers.performance.playersOnline'), value: p => p.players,
       max: Math.max(4, Math.ceil(niceCeil(playersPeak))), fmt: v => `${Math.round(v)}`,
     },
   ]
@@ -226,9 +227,9 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
 <template>
   <div class="bg-tp-surface rounded-xl overflow-hidden">
     <div class="px-5 py-3 border-b border-tp-border flex flex-wrap items-center justify-between gap-3">
-      <h3 class="text-tp-text font-display font-semibold text-sm">Performance</h3>
+      <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('servers.performance.title') }}</h3>
       <div class="flex items-center gap-2">
-        <div class="flex bg-tp-surface2 rounded-lg p-0.5" role="group" aria-label="Time range">
+        <div class="flex bg-tp-surface2 rounded-lg p-0.5" role="group" :aria-label="t('servers.performance.timeRange')">
           <button
             v-for="r in RANGES" :key="r.key" type="button"
             :aria-pressed="range === r.key"
@@ -240,7 +241,7 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
         <button
           type="button" class="px-2.5 py-1 text-xs rounded-md text-tp-muted hover:text-tp-text"
           :aria-pressed="showTable" @click="showTable = !showTable"
-        >{{ showTable ? 'Charts' : 'Table' }}</button>
+        >{{ showTable ? t('servers.performance.charts') : t('servers.performance.table') }}</button>
       </div>
     </div>
 
@@ -248,8 +249,7 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
       <p v-if="error" class="text-tp-error text-sm">{{ error }}</p>
 
       <div v-else-if="!loading && points.length === 0" class="text-tp-muted text-sm py-6 text-center">
-        No samples in this range yet. The panel records one per minute while the server runs
-        (requires TaleDaemon v0.14 or newer on the node).
+        {{ t('servers.performance.noSamples') }}
       </div>
 
       <template v-else-if="!showTable">
@@ -262,7 +262,7 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
           </div>
           <svg
             :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" class="block max-w-full touch-none"
-            role="img" :aria-label="`${s.title} over the last ${range}`"
+            role="img" :aria-label="t('servers.performance.chartAria', { title: s.title, range })"
             @pointermove="onMove" @pointerleave="hoverT = null"
           >
             <!-- recessive grid: baseline, half, top -->
@@ -278,7 +278,7 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
             <g v-if="s.limit" class="text-tp-muted">
               <line :x1="PAD.l" :x2="W - PAD.r" :y1="y(s.limit, s.max)" :y2="y(s.limit, s.max)"
                 stroke="currentColor" stroke-dasharray="4 3" stroke-width="1" stroke-opacity="0.7" />
-              <text :x="W - PAD.r" :y="y(s.limit, s.max) - 4" text-anchor="end" font-size="10" fill="currentColor">limit</text>
+              <text :x="W - PAD.r" :y="y(s.limit, s.max) - 4" text-anchor="end" font-size="10" fill="currentColor">{{ t('servers.performance.limit') }}</text>
             </g>
 
             <g class="text-tp-primary">
@@ -288,8 +288,8 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
             </g>
 
             <g v-if="s.key === 'players'" class="text-tp-outline">
-              <text v-for="t in xTicks" :key="t.label + t.x" :x="t.x" :y="H - 5" text-anchor="middle"
-                font-size="10" fill="currentColor">{{ t.label }}</text>
+              <text v-for="tick in xTicks" :key="tick.label + tick.x" :x="tick.x" :y="H - 5" text-anchor="middle"
+                font-size="10" fill="currentColor">{{ tick.label }}</text>
             </g>
 
             <!-- crosshair -->
@@ -310,14 +310,17 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
             <div class="text-tp-text font-mono">
               {{ s.fmt(s.value(hovered)) }}
               <span v-if="s.peak && s.peak(hovered) > s.value(hovered)" class="text-tp-muted">
-                · peak {{ s.fmt(s.peak(hovered)) }}
+                · {{ t('servers.performance.peak', { value: s.fmt(s.peak(hovered)) }) }}
               </span>
             </div>
           </div>
         </div>
         <p class="text-tp-outline text-[11px]">
-          Averages per {{ data && data.bucket_s >= 3600 ? 'hour' : `${Math.round((data?.bucket_s ?? 60) / 60)} min` }};
-          CPU 100 % = one core. Gaps: server stopped or node offline.
+          {{ t('servers.performance.footnote', {
+            bucket: data && data.bucket_s >= 3600
+              ? t('servers.performance.bucketHour')
+              : t('servers.performance.bucketMinutes', { n: Math.round((data?.bucket_s ?? 60) / 60) }),
+          }) }}
         </p>
       </template>
 
@@ -325,10 +328,10 @@ const recent = computed(() => latest.value && windowEnd.value - latest.value.ms 
         <table class="w-full text-xs">
           <thead class="text-tp-muted text-left sticky top-0 bg-tp-surface">
             <tr>
-              <th class="py-1.5 pr-3 font-medium">Time</th>
-              <th class="py-1.5 pr-3 font-medium text-right">CPU avg / peak</th>
-              <th class="py-1.5 pr-3 font-medium text-right">RAM avg / peak</th>
-              <th class="py-1.5 font-medium text-right">Players</th>
+              <th class="py-1.5 pr-3 font-medium">{{ t('servers.performance.columns.time') }}</th>
+              <th class="py-1.5 pr-3 font-medium text-right">{{ t('servers.performance.columns.cpu') }}</th>
+              <th class="py-1.5 pr-3 font-medium text-right">{{ t('servers.performance.columns.ram') }}</th>
+              <th class="py-1.5 font-medium text-right">{{ t('servers.performance.columns.players') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-tp-border text-tp-text font-mono">

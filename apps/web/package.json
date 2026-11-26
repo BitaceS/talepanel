@@ -8,7 +8,8 @@
     "preview": "nuxt preview",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "vitest run"
   },
   "dependencies": {
     "@lucide/vue": "^1.52.0",
@@ -17,13 +18,16 @@
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
+    "@nuxtjs/i18n": "^10.7.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
     "@pinia/nuxt": "^0.11.3",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.20.5",
     "@vueuse/nuxt": "^14.4.0",
     "eslint": "^9.39.5",
     "nuxt": "4.5.2",
     "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
     "vue-tsc": "^3.3.12"
   }
 }
