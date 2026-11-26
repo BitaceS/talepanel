@@ -114,10 +114,11 @@ async function onSubmit() {
       <form class="space-y-4" @submit.prevent="onSubmit">
         <!-- Username -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
+          <label for="register-username" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Username</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">person</span>
             <input
+              id="register-username"
               v-model="form.username"
               type="text"
               placeholder="Choose a username"
@@ -137,10 +138,11 @@ async function onSubmit() {
 
         <!-- Email -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
+          <label for="register-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
             <input
+              id="register-email"
               v-model="form.email"
               type="email"
               placeholder="you@example.com"
@@ -160,10 +162,11 @@ async function onSubmit() {
 
         <!-- Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label for="register-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
+              id="register-password"
               v-model="form.password"
               :type="showPassword ? 'text' : 'password'"
               placeholder="Min. 8 characters"
@@ -190,10 +193,11 @@ async function onSubmit() {
 
         <!-- Confirm Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Confirm password</label>
+          <label for="register-confirm" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Confirm password</label>
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
             <input
+              id="register-confirm"
               v-model="form.confirm"
               :type="showPassword ? 'text' : 'password'"
               placeholder="Repeat your password"

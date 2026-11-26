@@ -222,10 +222,11 @@ function cancelTotp() {
     <form v-else class="space-y-5" @submit.prevent="onSubmit">
       <!-- Email -->
       <div class="flex flex-col gap-1.5">
-        <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
+        <label for="login-email" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Email Address</label>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">alternate_email</span>
           <input
+            id="login-email"
             v-model="form.email"
             type="email"
             placeholder="you@example.com"
@@ -246,11 +247,12 @@ function cancelTotp() {
       <!-- Password / Access Key -->
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center justify-between">
-          <label class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
+          <label for="login-password" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Password</label>
         </div>
         <div class="relative">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg">lock</span>
           <input
+            id="login-password"
             v-model="form.password"
             :type="showPassword ? 'text' : 'password'"
             placeholder="Your password"

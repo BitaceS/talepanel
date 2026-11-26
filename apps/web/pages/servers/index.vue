@@ -287,16 +287,16 @@ onMounted(() => {
     </div>
 
     <!-- Filter bar -->
-    <div class="flex items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-3 min-w-0">
         <!-- Search -->
-        <div class="relative">
+        <div class="relative w-full sm:w-auto">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-tp-outline text-lg pointer-events-none">search</span>
           <input
             v-model="searchQuery"
             type="text"
             placeholder="Search servers..."
-            class="bg-tp-surface2 text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:bg-tp-surface transition-all w-64"
+            class="bg-tp-surface2 text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:bg-tp-surface transition-all w-full sm:w-64"
           />
         </div>
 
@@ -348,25 +348,25 @@ onMounted(() => {
     <!-- Server table -->
     <div v-else class="bg-tp-surface2 rounded-xl overflow-hidden">
       <!-- Table header -->
-      <div class="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 items-center px-5 py-3 border-b border-tp-border/30">
-        <div class="w-12" />
+      <div class="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto] lg:grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-3 border-b border-tp-border/30">
+        <div class="hidden sm:block w-12" />
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Server Identity</p>
         <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Status</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Node ID</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Network</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36">RAM</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-28 text-center">Quick Actions</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">Node ID</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">Network</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36 hidden lg:block">RAM</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-28 text-center"><span class="sr-only sm:not-sr-only">Quick Actions</span></p>
       </div>
 
       <!-- Server rows -->
       <div
         v-for="server in paginatedServers"
         :key="server.id"
-        class="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 items-center px-5 py-4 hover:bg-tp-surface3/50 transition-colors cursor-pointer"
+        class="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto] lg:grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-4 hover:bg-tp-surface3/50 transition-colors cursor-pointer"
         @click="onRowClick($event, server)"
       >
         <!-- Server image placeholder -->
-        <div class="w-12 h-12 rounded-xl bg-tp-surface3 flex items-center justify-center shrink-0">
+        <div class="w-12 h-12 rounded-xl bg-tp-surface3 hidden sm:flex items-center justify-center shrink-0">
           <span class="material-symbols-outlined text-tp-muted text-xl">dns</span>
         </div>
 
@@ -385,16 +385,16 @@ onMounted(() => {
         </div>
 
         <!-- Node ID -->
-        <p class="text-tp-muted text-xs w-20 text-center truncate">{{ server.node_id?.slice(0, 8) ?? '—' }}</p>
+        <p class="text-tp-muted text-xs w-20 text-center truncate hidden lg:block">{{ server.node_id?.slice(0, 8) ?? '—' }}</p>
 
         <!-- Network/Port -->
-        <div class="w-20 flex items-center justify-center gap-1 text-tp-muted text-xs">
+        <div class="w-20 hidden lg:flex items-center justify-center gap-1 text-tp-muted text-xs">
           <span class="material-symbols-outlined text-sm">settings_input_component</span>
           {{ server.port ?? '—' }}
         </div>
 
         <!-- RAM limit (live usage is on the server page) -->
-        <div class="w-36 text-tp-muted text-xs whitespace-nowrap tabular-nums">
+        <div class="w-36 hidden lg:block text-tp-muted text-xs whitespace-nowrap tabular-nums">
           {{ server.ram_limit_mb ? `${server.ram_limit_mb} MB limit` : 'No limit' }}
         </div>
 
