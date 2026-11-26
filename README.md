@@ -32,7 +32,7 @@ TalePanel is a free, open-source, self-hosted **Hytale server panel** and **Hyta
 
 It works as a Hytale hosting panel for communities and small hosters too: multi-node, per-server roles, no paid tier. Think of it as a Pterodactyl alternative built only for Hytale ([how they compare](https://talepanel.com/docs/reference/pterodactyl-vs-talepanel/)). Worlds, mods and players are real objects in the UI, not files in a generic file manager.
 
-**Status:** actively developed. Latest release: [v0.18.0](https://github.com/BitaceS/talepanel/releases/tag/v0.18.0) (2026-11-26), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
+**Status:** actively developed. Latest release: [v0.18.1](https://github.com/BitaceS/talepanel/releases/tag/v0.18.1) (2026-11-26), see the [changelog](CHANGELOG.md). It runs against real Hytale servers. The list below is the honest split between what ships today and what is still roadmap — no marketing bullets that the code does not hold.
 
 ### At a glance
 
