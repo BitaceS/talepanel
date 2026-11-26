@@ -34,7 +34,10 @@
       "emptyTitle": "Noch keine Server",
       "emptyText": "Erstelle deinen ersten Server, um loszulegen.",
       "createFirst": "Ersten Server erstellen",
-      "viewAll": "Alle {n} Server anzeigen"
+      "viewAll": "Alle {n} Server anzeigen",
+      "noNodesTitle": "Füge zuerst eine Node hinzu",
+      "noNodesText": "Game-Server laufen auf Nodes: Rechnern mit dem TalePanel-Daemon. Bei der Schnellinstallation ist der Panel-Host schon eine; sonst öffne Nodes, erstelle einen Enrollment-Token und führ den angezeigten Installationsbefehl auf dem Rechner aus.",
+      "addNode": "Node hinzufügen"
     },
     "recent": {
       "title": "Letzte Aktivitäten",

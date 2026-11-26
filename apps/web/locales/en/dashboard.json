@@ -34,7 +34,10 @@
       "emptyTitle": "No servers yet",
       "emptyText": "Create your first server to get started.",
       "createFirst": "Create your first server",
-      "viewAll": "View all {n} servers"
+      "viewAll": "View all {n} servers",
+      "noNodesTitle": "Add a node first",
+      "noNodesText": "Game servers run on nodes: machines with the TalePanel daemon. On a quick install the panel host is already one; otherwise open Nodes, create an enrollment token and run the install command it shows on the machine.",
+      "addNode": "Add a node"
     },
     "recent": {
       "title": "Recent Activity",

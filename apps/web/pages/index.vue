@@ -299,6 +299,17 @@ function actionLabel(action: string): string {
         <div class="w-16 h-16 bg-tp-surface3 rounded-2xl flex items-center justify-center mx-auto mb-4">
           <span class="material-symbols-outlined text-3xl text-tp-muted">dns</span>
         </div>
+        <template v-if="cluster && cluster.total_nodes === 0">
+          <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('dashboard.servers.noNodesTitle') }}</h4>
+          <p class="text-tp-muted text-sm mb-6 max-w-md mx-auto">{{ t('dashboard.servers.noNodesText') }}</p>
+          <NuxtLink to="/nodes">
+            <UiButton variant="primary" size="md">
+              <span class="material-symbols-outlined text-base">lan</span>
+              {{ t('dashboard.servers.addNode') }}
+            </UiButton>
+          </NuxtLink>
+        </template>
+        <template v-else>
         <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('dashboard.servers.emptyTitle') }}</h4>
         <p class="text-tp-muted text-sm mb-6">{{ t('dashboard.servers.emptyText') }}</p>
         <NuxtLink to="/servers">
@@ -307,6 +318,7 @@ function actionLabel(action: string): string {
             {{ t('dashboard.servers.createFirst') }}
           </UiButton>
         </NuxtLink>
+        </template>
       </div>
 
       <!-- Server grid -->

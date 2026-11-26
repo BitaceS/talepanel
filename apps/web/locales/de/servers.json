@@ -31,7 +31,10 @@
         "deleteFailed": "Löschen fehlgeschlagen",
         "restartFailed": "Neustart fehlgeschlagen"
       },
-      "ramAllocated": "RAM zugewiesen"
+      "ramAllocated": "RAM zugewiesen",
+      "noNodesTitle": "Füge zuerst eine Node hinzu",
+      "noNodesHint": "Game-Server laufen auf Nodes: Rechnern mit dem TalePanel-Daemon. Bei der Schnellinstallation ist der Panel-Host schon eine; sonst öffne Nodes, erstelle einen Enrollment-Token und führ den angezeigten Installationsbefehl auf dem Rechner aus.",
+      "addNode": "Node hinzufügen"
     },
     "create": {
       "title": "Neuen Server erstellen",

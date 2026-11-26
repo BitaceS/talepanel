@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useServersStore } from '~/stores/servers'
+import { useAuthStore } from '~/stores/auth'
 import { useServerTemplatesStore } from '~/stores/serverTemplates'
 import type { Server as ServerType } from '~/types'
 
@@ -9,6 +10,20 @@ definePageMeta({
 })
 
 const serversStore = useServersStore()
+const authStore = useAuthStore()
+
+// A fresh panel has no node yet, and a server can't be created without one.
+// Admins get pointed at the Nodes page first (others can't add nodes).
+const noNodes = ref(false)
+onMounted(async () => {
+  if (authStore.user?.role !== 'admin' && authStore.user?.role !== 'owner') return
+  try {
+    const stats = await useApi().get<{ total_nodes: number }>('/nodes/cluster-stats')
+    noNodes.value = stats.total_nodes === 0
+  } catch {
+    // Unknown: keep the normal empty state.
+  }
+})
 const templatesStore = useServerTemplatesStore()
 const api = useApi()
 const { theme } = useTheme()
@@ -341,6 +356,17 @@ const totalRamGb = computed(() => {
       <div class="w-16 h-16 bg-tp-surface3 rounded-2xl flex items-center justify-center mx-auto mb-4">
         <span class="material-symbols-outlined text-3xl text-tp-muted">dns</span>
       </div>
+      <template v-if="noNodes && !searchQuery && statusFilter === 'all'">
+        <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('servers.list.noNodesTitle') }}</h4>
+        <p class="text-tp-muted text-sm mb-6 max-w-md mx-auto">{{ t('servers.list.noNodesHint') }}</p>
+        <NuxtLink to="/nodes">
+          <UiButton variant="primary" size="md">
+            <span class="material-symbols-outlined text-base">lan</span>
+            {{ t('servers.list.addNode') }}
+          </UiButton>
+        </NuxtLink>
+      </template>
+      <template v-else>
       <h4 class="text-tp-text font-display font-semibold text-lg mb-2">
         {{ searchQuery || statusFilter !== 'all' ? t('servers.list.noMatchTitle') : t('servers.list.noServersTitle') }}
       </h4>
@@ -351,6 +377,7 @@ const totalRamGb = computed(() => {
         <span class="material-symbols-outlined text-base">add</span>
         {{ t('servers.list.createFirst') }}
       </UiButton>
+      </template>
     </div>
 
     <!-- Server table -->

@@ -31,7 +31,10 @@
         "deleteFailed": "Delete failed",
         "restartFailed": "Restart failed"
       },
-      "ramAllocated": "RAM allocated"
+      "ramAllocated": "RAM allocated",
+      "noNodesTitle": "Add a node first",
+      "noNodesHint": "Game servers run on nodes: machines with the TalePanel daemon. On a quick install the panel host is already one; otherwise open Nodes, create an enrollment token and run the install command it shows on the machine.",
+      "addNode": "Add a node"
     },
     "create": {
       "title": "Create New Server",
