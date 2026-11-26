@@ -58,6 +58,9 @@ services:
       CORS_ORIGINS: http://localhost:${DEMO_PORT:-14000}
       DAEMON_SERVERS_DIR: /srv/taledaemon/servers
       TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+      # The E2E suite runs several browsers from one address; at the default
+      # of 120 per minute they get 429 and the panel shows errors.
+      API_RATE_LIMIT_PER_MIN: "2000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
       interval: 3s

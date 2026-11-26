@@ -4,7 +4,11 @@ All notable changes to TalePanel are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- `API_RATE_LIMIT_PER_MIN` in the panel `.env` sets the general API limit per client IP and minute (default 120, as before). Raise it when many people use the panel from one address. The sign-in routes keep their limit of 30.
+
 ### Fixed
+- The E2E job failed now and then: its browsers share one address and went over the API limit of 120 requests per minute, so pages showed "Server not found" or the session ended. The demo stack now sets a higher limit.
 - Admin → Integrations → Single sign-on still said that existing accounts are linked by verified email on the first SSO sign-in. That was changed before v0.18.0 (accounts connect under Settings → Security); the hint now describes the 2FA step after SSO instead.
 
 ## [0.18.0] — 2026-11-26

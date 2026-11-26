@@ -112,6 +112,8 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
       # Optional: restrict /api/v1/admin/* to these IPs/CIDRs (comma-separated).
       ADMIN_IP_ALLOWLIST: ${ADMIN_IP_ALLOWLIST:-}
+      # Optional: general API requests per client IP and minute (default 120).
+      API_RATE_LIMIT_PER_MIN: ${API_RATE_LIMIT_PER_MIN:-}
     networks:
       - talepanel
     extra_hosts:
