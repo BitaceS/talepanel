@@ -113,6 +113,21 @@
         "reconnect": "Anderes Konto verbinden",
         "connectedToast": "Single Sign-on verbunden"
       },
+      "discord": {
+        "title": "Discord",
+        "text": "Verknüpfe dein Discord-Konto, um deine Server auf dem Discord-Server mit /server zu starten, zu stoppen und neu zu starten.",
+        "linked": "Verknüpft mit {name}.",
+        "notLinked": "Nicht verknüpft.",
+        "createCode": "Code zum Verknüpfen erstellen",
+        "codeIntro": "Gib das auf dem Discord-Server ein:",
+        "codeHint": "Der Code gilt einmal und 10 Minuten lang. Die Antwort des Bots siehst nur du.",
+        "done": "Erledigt, neu laden",
+        "codeFailed": "Code konnte nicht erstellt werden",
+        "unlink": "Verknüpfung lösen",
+        "unlinkConfirm": "Verknüpfung mit Discord lösen? /server funktioniert dann für dieses Konto nicht mehr.",
+        "unlinked": "Discord-Konto getrennt",
+        "unlinkFailed": "Verknüpfung mit Discord konnte nicht gelöst werden"
+      },
       "toast": {
         "codesRegenerated": "Neue Wiederherstellungscodes erstellt; die alten funktionieren nicht mehr",
         "codesFailed": "Wiederherstellungscodes konnten nicht erstellt werden",

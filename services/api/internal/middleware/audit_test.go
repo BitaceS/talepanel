@@ -39,6 +39,13 @@ func TestSanitizePayloadRedactsIntegrationSecrets(t *testing.T) {
 	}
 }
 
+func TestSanitizePayloadRedactsDiscordBotToken(t *testing.T) {
+	out := string(sanitizePayload([]byte(`{"bot_token":"MTIz.secret-token","guild_id":"123456789012345678"}`)))
+	if strings.Contains(out, "secret-token") || !strings.Contains(out, "123456789012345678") {
+		t.Fatalf("bot token not redacted or guild dropped: %s", out)
+	}
+}
+
 func TestSanitizePayloadRedactsWebhookURL(t *testing.T) {
 	out := string(sanitizePayload([]byte(`{"type":"server_crashed","webhook_url":"https://discord.com/api/webhooks/1/s3cr3t"}`)))
 	if strings.Contains(out, "s3cr3t") {

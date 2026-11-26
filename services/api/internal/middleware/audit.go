@@ -44,6 +44,8 @@ var sensitiveFields = map[string]struct{}{
 	// Alert webhook URLs (Discord, generic) embed their credential in the
 	// URL: anyone who reads it can post to the channel.
 	"webhook_url": {},
+	// Discord bot token (Admin → Integrations → Discord).
+	"bot_token": {},
 }
 
 // multiSlash collapses consecutive slashes and trailing slashes for

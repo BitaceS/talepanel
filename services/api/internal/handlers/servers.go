@@ -377,27 +377,61 @@ func (h *ServerHandler) StartServer(c *gin.Context) {
 		return
 	}
 
-	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
-	if err != nil {
+	if _, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
 		serverError(c, err)
 		return
 	}
+	h.respondPower(c, serverID, "start")
+}
 
-	if server.Status == models.StatusRunning || server.Status == models.StatusStarting {
+// PowerAction starts, stops or restarts a server and returns the status it
+// moves to. It does not check permissions: the panel's routes do that in
+// middleware, the Discord bot with the linked user's permissions. The daemon
+// call runs in the background.
+func (h *ServerHandler) PowerAction(ctx context.Context, serverID uuid.UUID, action string) (string, error) {
+	server, err := h.svc.GetServerByID(ctx, serverID)
+	if err != nil {
+		return "", err
+	}
+	switch action {
+	case "start":
+		if server.Status == models.StatusRunning || server.Status == models.StatusStarting {
+			return "", services.ErrServerAlreadyRunning
+		}
+		// Update DB status immediately so the UI reflects the transition
+		if err := h.svc.UpdateServerStatus(ctx, serverID, models.StatusStarting); err != nil {
+			return "", err
+		}
+		go h.dispatchStart(server)
+		return models.StatusStarting, nil
+	case "stop":
+		_ = h.svc.UpdateServerStatus(ctx, serverID, models.StatusStopping)
+		go h.dispatchStop(server.NodeID.String(), server.ID, server.Status)
+		return models.StatusStopping, nil
+	case "restart":
+		_ = h.svc.UpdateServerStatus(ctx, serverID, models.StatusStopping)
+		go h.dispatchRestart(server)
+		return models.StatusStopping, nil
+	}
+	return "", errors.New("unknown power action " + action)
+}
+
+// respondPower runs a power action for the panel's routes.
+func (h *ServerHandler) respondPower(c *gin.Context, serverID uuid.UUID, action string) {
+	status, err := h.PowerAction(c.Request.Context(), serverID, action)
+	if errors.Is(err, services.ErrServerAlreadyRunning) {
 		c.JSON(http.StatusConflict, gin.H{"error": "server is already running or starting"})
 		return
 	}
-
-	// Update DB status immediately so the UI reflects the transition
-	if err := h.svc.UpdateServerStatus(c.Request.Context(), serverID, models.StatusStarting); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
+	if err != nil {
+		if action == "start" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
+			return
+		}
+		serverError(c, err)
 		return
 	}
-
-	// Dispatch to daemon asynchronously — do not block the HTTP response
-	go h.dispatchStart(server)
-
-	c.JSON(http.StatusAccepted, gin.H{"message": "start dispatched", "status": models.StatusStarting})
+	c.JSON(http.StatusAccepted, gin.H{"message": action + " dispatched", "status": status})
 }
 
 // StopServer handles POST /servers/:id/stop.
@@ -408,17 +442,11 @@ func (h *ServerHandler) StopServer(c *gin.Context) {
 		return
 	}
 
-	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
-	if err != nil {
+	if _, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
 		serverError(c, err)
 		return
 	}
-
-	_ = h.svc.UpdateServerStatus(c.Request.Context(), serverID, models.StatusStopping)
-
-	go h.dispatchStop(server.NodeID.String(), server.ID, server.Status)
-
-	c.JSON(http.StatusAccepted, gin.H{"message": "stop dispatched", "status": models.StatusStopping})
+	h.respondPower(c, serverID, "stop")
 }
 
 // RestartServer handles POST /servers/:id/restart.
@@ -429,16 +457,11 @@ func (h *ServerHandler) RestartServer(c *gin.Context) {
 		return
 	}
 
-	server, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role)
-	if err != nil {
+	if _, err := h.svc.GetServer(c.Request.Context(), serverID, user.ID, user.Role); err != nil {
 		serverError(c, err)
 		return
 	}
-
-	_ = h.svc.UpdateServerStatus(c.Request.Context(), serverID, models.StatusStopping)
-	go h.dispatchRestart(server)
-
-	c.JSON(http.StatusAccepted, gin.H{"message": "restart dispatched", "status": models.StatusStopping})
+	h.respondPower(c, serverID, "restart")
 }
 
 // KillServer handles POST /servers/:id/kill.
