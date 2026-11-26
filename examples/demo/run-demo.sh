@@ -37,7 +37,8 @@ stop_all() {
   done
   # Wait for them to exit: the daemon stops its game servers first (up to
   # 30 s), and a restart must not race it for the port.
-  for pid in "${pids[@]}"; do
+  # ${pids[@]+...}: bash before 4.4 (macOS) treats an empty array as unset under set -u.
+  for pid in ${pids[@]+"${pids[@]}"}; do
     for _ in $(seq 1 45); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   done
   # The daemon leaves game servers running when it exits (as on a real node,

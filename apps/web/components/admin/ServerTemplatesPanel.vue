@@ -211,7 +211,7 @@ const labelClass = 'text-xs font-semibold text-tp-muted uppercase tracking-wider
               <p v-if="tpl.description" class="text-tp-muted text-xs mt-0.5">{{ tpl.description }}</p>
               <div class="flex flex-wrap gap-1 mt-1.5">
                 <span
-                  v-for="chip in templateSummary(tpl.settings)"
+                  v-for="chip in templateSummary(tpl.settings, (k, n) => t(k, n))"
                   :key="chip"
                   class="text-[10px] px-1.5 py-0.5 rounded bg-tp-surface3 text-tp-muted font-mono"
                 >{{ chip }}</span>
