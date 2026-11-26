@@ -15,13 +15,14 @@ interface NotificationsResponse {
 }
 
 const ALERT_TYPES: { key: string; label: string }[] = [
-  { key: 'login_new_device', label: 'New sign-in alerts' },
-  { key: 'server_down',      label: 'Server offline' },
-  { key: 'backup_failed',    label: 'Backup failed' },
-  { key: 'alert_event',      label: 'Alert rule triggered' },
+  { key: 'login_new_device', label: 'settings.notifications.types.loginNewDevice' },
+  { key: 'server_down',      label: 'settings.notifications.types.serverDown' },
+  { key: 'backup_failed',    label: 'settings.notifications.types.backupFailed' },
+  { key: 'alert_event',      label: 'settings.notifications.types.alertEvent' },
 ]
 
 const api = useApi()
+const { t } = useI18n()
 const toast = ref('')
 const toastType = ref<'success' | 'error'>('success')
 
@@ -45,7 +46,7 @@ onMounted(async () => {
       }
     }
   } catch {
-    showToast('Failed to load notification preferences', 'error')
+    showToast(t('settings.notifications.loadFailed'), 'error')
   }
 })
 
@@ -66,24 +67,24 @@ async function onToggle(alertType: string) {
       telegram: pref.telegram,
     })
   } catch {
-    showToast('Failed to save preference', 'error')
+    showToast(t('settings.notifications.saveOneFailed'), 'error')
   }
 }
 </script>
 
 <template>
   <div class="p-6 max-w-2xl">
-    <h2 class="text-tp-text font-bold text-2xl mb-6">Notification Preferences</h2>
+    <h2 class="text-tp-text font-bold text-2xl mb-6">{{ t('pages.notifications') }}</h2>
 
     <div class="bg-tp-surface rounded-xl border border-tp-border overflow-hidden">
       <div class="px-5 py-4 border-b border-tp-border">
-        <h3 class="text-tp-text font-semibold text-sm">Notification Channels</h3>
+        <h3 class="text-tp-text font-semibold text-sm">{{ t('settings.notifications.channels') }}</h3>
       </div>
 
       <!-- Column headers -->
       <div class="grid grid-cols-4 gap-4 px-5 py-3 border-b border-tp-border">
-        <span class="text-tp-muted text-xs font-medium uppercase tracking-wide">Event</span>
-        <span class="text-tp-muted text-xs font-medium uppercase tracking-wide text-center">Email</span>
+        <span class="text-tp-muted text-xs font-medium uppercase tracking-wide">{{ t('settings.notifications.event') }}</span>
+        <span class="text-tp-muted text-xs font-medium uppercase tracking-wide text-center">{{ t('settings.notifications.email') }}</span>
         <span class="text-tp-muted text-xs font-medium uppercase tracking-wide text-center">Discord</span>
         <span class="text-tp-muted text-xs font-medium uppercase tracking-wide text-center">Telegram</span>
       </div>
@@ -97,7 +98,7 @@ async function onToggle(alertType: string) {
           index < ALERT_TYPES.length - 1 ? 'border-b border-tp-border' : '',
         ]"
       >
-        <span class="text-tp-text text-sm">{{ type.label }}</span>
+        <span class="text-tp-text text-sm">{{ t(type.label) }}</span>
 
         <!-- Email -->
         <div class="flex justify-center">

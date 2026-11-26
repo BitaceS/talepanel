@@ -12,7 +12,7 @@
             <img src="/logo.svg" alt="" class="w-11 h-11" />
             <span class="text-tp-text font-display font-bold text-3xl">TalePanel</span>
           </div>
-          <span class="text-tp-outline font-mono text-[11px] uppercase tracking-[0.18em]">Hytale server panel</span>
+          <span class="text-tp-outline font-mono text-[11px] uppercase tracking-[0.18em]">{{ $t('auth.layout.tagline') }}</span>
         </div>
 
         <!-- Page content -->
@@ -21,7 +21,7 @@
 
       <!-- Footer -->
       <p class="text-center text-tp-outline text-xs mt-6">
-        TalePanel &middot; by Tyraxo
+        {{ $t('auth.layout.footer') }}
       </p>
     </div>
   </div>

@@ -1,1 +1,239 @@
-{}
+{
+  "settings": {
+    "index": {
+      "sections": {
+        "profile": "Profile",
+        "security": "Security",
+        "apiKeys": "API keys",
+        "notifications": "Notifications",
+        "modules": "Modules"
+      },
+      "notif": {
+        "loginNewDevice": {
+          "label": "New Sign-in Alerts",
+          "desc": "Email when your account is signed into from a new device or network"
+        },
+        "crash": {
+          "label": "Server Crash Alerts",
+          "desc": "Get notified when a server crashes or stops unexpectedly"
+        },
+        "backup": {
+          "label": "Backup Completion",
+          "desc": "Notifications when backups complete or fail"
+        },
+        "resource": {
+          "label": "Resource Warnings",
+          "desc": "Alerts when CPU, RAM, or disk usage exceeds thresholds"
+        },
+        "ddos": {
+          "label": "DDoS Detection",
+          "desc": "Immediate alerts when suspicious network traffic is detected"
+        },
+        "player": {
+          "label": "Player Events",
+          "desc": "Notifications for player joins, bans, and moderation actions"
+        }
+      },
+      "accountInfo": "Account Information",
+      "username": "Username",
+      "email": "Email",
+      "role": "Role",
+      "memberSince": "Member since",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "notifSubtitle": "Choose how and when you receive notifications.",
+      "profileTitle": "Deployment profile",
+      "profileHint": "Switching to \"Hoster\" enables multi-node and monitoring modules by default. You can still toggle individual modules below.",
+      "profileSolo": "Solo / Friends",
+      "profileHoster": "Hosting Provider",
+      "modulesTitle": "Feature Modules",
+      "modulesHint": "Enable or disable features. Hoster-only modules are marked with a badge. Disabled modules are hidden from the sidebar.",
+      "hosterBadge": "Hoster"
+    },
+    "password": {
+      "title": "Change Password",
+      "subtitle": "Update your account password. Min. 8 characters.",
+      "current": "Current Password",
+      "new": "New Password",
+      "confirm": "Confirm New Password",
+      "mismatch": "New passwords do not match",
+      "tooShort": "New password must be at least 8 characters",
+      "changed": "Password changed successfully",
+      "changeFailed": "Failed to change password"
+    },
+    "twoFactor": {
+      "title": "Two-Factor Authentication",
+      "currently": "2FA is currently {state}.",
+      "stateEnabled": "enabled",
+      "stateDisabled": "disabled",
+      "app": "Authenticator App",
+      "appHint": "TOTP (Google Authenticator, Authy, etc.)",
+      "enable": "Enable 2FA",
+      "disable": "Disable 2FA"
+    },
+    "profile": {
+      "updated": "Profile updated",
+      "updateFailed": "Failed to update profile",
+      "info": "Profile Information",
+      "displayName": "Display Name",
+      "displayNamePlaceholder": "Your display name",
+      "timezone": "Timezone",
+      "saveChanges": "Save Changes"
+    },
+    "notifications": {
+      "saved": "Preferences saved",
+      "saveFailed": "Failed to save preferences",
+      "loadFailed": "Failed to load notification preferences",
+      "saveOneFailed": "Failed to save preference",
+      "channels": "Notification Channels",
+      "event": "Event",
+      "email": "Email",
+      "types": {
+        "loginNewDevice": "New sign-in alerts",
+        "serverDown": "Server offline",
+        "backupFailed": "Backup failed",
+        "alertEvent": "Alert rule triggered"
+      }
+    },
+    "activity": {
+      "recentTab": "Recent Activity",
+      "sessionsTab": "Active Sessions",
+      "noSessions": "No active sessions",
+      "unknownDevice": "Unknown device",
+      "created": "Created {date}"
+    },
+    "security": {
+      "subtitle": "Two-factor authentication and active sessions.",
+      "toast": {
+        "codesRegenerated": "New recovery codes generated; the old ones no longer work",
+        "codesFailed": "Could not generate recovery codes",
+        "setupFailed": "Could not start 2FA setup",
+        "enabled": "2FA enabled",
+        "invalidCode": "Invalid code",
+        "disabled": "2FA disabled",
+        "passwordIncorrect": "Password incorrect",
+        "sessionRevoked": "Session revoked"
+      },
+      "revokeConfirm": "Revoke this session?",
+      "requiredTitle": "Two-factor authentication is required",
+      "requiredText": "The panel owner requires 2FA for admin accounts. Set it up below; the rest of the panel unlocks right after.",
+      "recoveryUsedTitle": "You signed in with a recovery code",
+      "recoveryUsed": "That code is now used up.",
+      "recoveryUsedLeft": "That code is now used up; {n} left.",
+      "recoveryUsedText": "If you lost your authenticator, disable 2FA below and set it up again on your new device; otherwise generate new codes once you're running low.",
+      "dismiss": "Dismiss",
+      "totpIntro": "An authenticator app adds a second login factor; recovery codes get you in if you lose it.",
+      "activeText": "2FA is {active} on your account.",
+      "active": "active",
+      "unused": "{remaining} of {total} unused",
+      "unusedNone": ": generate a set so you can still sign in without your authenticator",
+      "unusedZero": ": generate new ones now",
+      "unusedLow": ": consider generating new ones",
+      "generateNew": "Generate new codes",
+      "addApp": "Add an authenticator app (1Password, Authy, Aegis, Google Authenticator) for an extra login factor.",
+      "setup": "Set up 2FA",
+      "scan": "Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.",
+      "qrAlt": "TOTP QR code",
+      "cantScan": "Can't scan? Enter the secret manually",
+      "verificationCode": "Verification code",
+      "regenTitle": "Generate new recovery codes",
+      "regenText": "Your current recovery codes stop working immediately. Confirm with your password and a code from your authenticator app.",
+      "authenticatorCode": "Authenticator code",
+      "generate": "Generate",
+      "disableText": "Enter your password to confirm. Your recovery codes are deleted as well.",
+      "sessionsTitle": "Active sessions",
+      "sessionsText": "Each refresh token. Revoke anything you don't recognise.",
+      "unknownDevice": "unknown device",
+      "revoke": "Revoke",
+      "noSessions": "No active sessions."
+    },
+    "apiKeys": {
+      "scopes": {
+        "power": {
+          "label": "Power",
+          "detail": "Start, stop, restart, kill"
+        },
+        "console": {
+          "label": "Console",
+          "detail": "Send console commands, run saved game commands"
+        },
+        "manage": {
+          "label": "Manage",
+          "detail": "Settings, reinstall, Hytale updates, scheduled tasks, active world"
+        },
+        "backups": {
+          "label": "Backups",
+          "detail": "Create, restore, download and delete backups; backup schedules"
+        },
+        "players": {
+          "label": "Players",
+          "detail": "Kick, ban, unban, mute, whitelist"
+        }
+      },
+      "expiry": {
+        "days30": "30 days",
+        "days90": "90 days",
+        "year": "1 year"
+      },
+      "loadFailed": "Failed to load API keys",
+      "nameRequired": "Give the key a name, e.g. \"Discord bot\"",
+      "serverRequired": "Pick at least one server",
+      "createFailed": "Failed to create the API key",
+      "copyFailed": "Copy failed — select the key and copy it by hand",
+      "revokeConfirm": "Revoke the API key \"{name}\"? Scripts using it stop working at once.",
+      "revoked": "API key revoked",
+      "revokeFailed": "Failed to revoke the API key",
+      "readPlus": "Read, {scopes}",
+      "readOnly": "Read only",
+      "allYourServers": "All your servers",
+      "deletedServer": "deleted server",
+      "intro": "For scripts, bots and monitoring. A key acts as you, but only with the rights and servers you pick, and never reaches your account, admin or node settings. Send it as {header}",
+      "newKey": "New key",
+      "created": "Key \"{name}\" created",
+      "copyNow": "Copy it now. It is stored only as a hash and cannot be shown again.",
+      "name": "Name",
+      "namePlaceholder": "e.g. Discord bot",
+      "rights": "Rights (reading your servers is always allowed)",
+      "rightsHint": "A key never gets more than your own permissions on a server.",
+      "allServers": "All my servers, including ones I get later",
+      "onlyThese": "Only these servers",
+      "noServers": "You have no servers yet.",
+      "expires": "Expires",
+      "createKey": "Create key",
+      "empty": "No API keys yet.",
+      "expired": "expired",
+      "meta": "Created {created} · Expires {expires}",
+      "never": "never",
+      "lastUsed": "Last used {date}",
+      "lastUsedFrom": "Last used {date} from {ip}"
+    },
+    "invitations": {
+      "empty": "No pending invitations",
+      "title": "Server invitation",
+      "role": "Role: {role}",
+      "expires": "Expires {date}",
+      "accept": "Accept",
+      "decline": "Decline"
+    },
+    "notFound": {
+      "thisPage": "This page",
+      "text": "Page not found."
+    },
+    "error": {
+      "backToDashboard": "Back to Dashboard",
+      "messages": {
+        "notFound": "The page you are looking for does not exist.",
+        "forbidden": "You do not have permission to access this page.",
+        "server": "Something went wrong on our end. Please try again later.",
+        "unavailable": "The service is temporarily unavailable. Please try again later.",
+        "unexpected": "An unexpected error occurred."
+      },
+      "titles": {
+        "notFound": "Page Not Found",
+        "forbidden": "Access Denied",
+        "server": "Server Error",
+        "generic": "Something Went Wrong"
+      }
+    }
+  }
+}

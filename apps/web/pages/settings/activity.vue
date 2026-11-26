@@ -4,6 +4,7 @@ import type { ActivityLog, Session } from '~/types'
 definePageMeta({ title: 'pages.activity', middleware: 'auth' })
 
 const api = useApi()
+const { t, locale } = useI18n()
 
 const activeTab = ref<'activity' | 'sessions'>('activity')
 const logs = ref<ActivityLog[]>([])
@@ -41,7 +42,7 @@ onMounted(() => {
 
 <template>
   <div class="p-6 max-w-4xl">
-    <h2 class="text-tp-text font-bold text-2xl mb-6">Activity & Sessions</h2>
+    <h2 class="text-tp-text font-bold text-2xl mb-6">{{ t('pages.activity') }}</h2>
 
     <div class="flex gap-2 mb-4">
       <button
@@ -52,37 +53,37 @@ onMounted(() => {
           activeTab === tab ? 'bg-tp-primary/10 text-tp-primary' : 'text-tp-muted hover:text-tp-text',
         ]"
       >
-        {{ tab === 'activity' ? 'Recent Activity' : 'Active Sessions' }}
+        {{ tab === 'activity' ? t('settings.activity.recentTab') : t('settings.activity.sessionsTab') }}
       </button>
     </div>
 
     <div v-if="activeTab === 'activity'" class="bg-tp-surface rounded-xl border border-tp-border overflow-hidden">
-      <div v-if="loading" class="p-8 text-center text-tp-muted text-sm">Loading...</div>
-      <div v-else-if="logs.length === 0" class="p-8 text-center text-tp-muted text-sm">No recent activity</div>
+      <div v-if="loading" class="p-8 text-center text-tp-muted text-sm">{{ t('common.loading') }}</div>
+      <div v-else-if="logs.length === 0" class="p-8 text-center text-tp-muted text-sm">{{ t('dashboard.recent.empty') }}</div>
       <div v-else class="divide-y divide-tp-border">
         <div v-for="log in logs" :key="log.id" class="px-5 py-3 flex items-center gap-4">
           <div class="flex-1 min-w-0">
             <p class="text-tp-text text-sm">{{ log.action }}</p>
-            <p class="text-tp-muted text-xs">{{ log.ip_address }} &middot; {{ new Date(log.created_at).toLocaleString() }}</p>
+            <p class="text-tp-muted text-xs">{{ log.ip_address }} &middot; {{ new Date(log.created_at).toLocaleString(locale) }}</p>
           </div>
         </div>
       </div>
     </div>
 
     <div v-if="activeTab === 'sessions'" class="bg-tp-surface rounded-xl border border-tp-border overflow-hidden">
-      <div v-if="loading" class="p-8 text-center text-tp-muted text-sm">Loading...</div>
-      <div v-else-if="sessions.length === 0" class="p-8 text-center text-tp-muted text-sm">No active sessions</div>
+      <div v-if="loading" class="p-8 text-center text-tp-muted text-sm">{{ t('common.loading') }}</div>
+      <div v-else-if="sessions.length === 0" class="p-8 text-center text-tp-muted text-sm">{{ t('settings.activity.noSessions') }}</div>
       <div v-else class="divide-y divide-tp-border">
         <div v-for="sess in sessions" :key="sess.id" class="px-5 py-3 flex items-center justify-between gap-4">
           <div class="flex-1 min-w-0">
-            <p class="text-tp-text text-sm truncate">{{ sess.user_agent || 'Unknown device' }}</p>
-            <p class="text-tp-muted text-xs">{{ sess.ip_address }} &middot; Created {{ new Date(sess.created_at).toLocaleString() }}</p>
+            <p class="text-tp-text text-sm truncate">{{ sess.user_agent || t('settings.activity.unknownDevice') }}</p>
+            <p class="text-tp-muted text-xs">{{ sess.ip_address }} &middot; {{ t('settings.activity.created', { date: new Date(sess.created_at).toLocaleString(locale) }) }}</p>
           </div>
           <button
             @click="revokeSession(sess.id)"
             class="text-tp-danger text-xs font-medium hover:text-tp-danger/80"
           >
-            Revoke
+            {{ t('settings.security.revoke') }}
           </button>
         </div>
       </div>

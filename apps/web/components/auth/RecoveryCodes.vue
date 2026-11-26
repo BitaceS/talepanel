@@ -13,17 +13,19 @@ const emit = defineEmits<{
   done: []
 }>()
 
+const { t } = useI18n()
+
 const copied = ref(false)
 const saved = ref(false)
 
 function asText(): string {
   return [
-    'TalePanel 2FA recovery codes',
-    ...(props.email ? [`Account: ${props.email}`] : []),
-    `Generated: ${new Date().toISOString()}`,
+    t('auth.recoveryCodes.fileTitle'),
+    ...(props.email ? [t('auth.recoveryCodes.fileAccount', { email: props.email })] : []),
+    t('auth.recoveryCodes.fileGenerated', { date: new Date().toISOString() }),
     '',
-    'Each code works once, in place of the code from your authenticator app.',
-    'Generating new codes invalidates all of these.',
+    t('auth.recoveryCodes.fileUsage'),
+    t('auth.recoveryCodes.fileInvalidate'),
     '',
     ...props.codes,
     '',
@@ -61,15 +63,14 @@ function downloadCodes() {
     <div class="flex items-start gap-3 bg-tp-warning/10 rounded-xl p-3">
       <TriangleAlert class="w-4 h-4 text-tp-warning shrink-0 mt-0.5" />
       <div class="text-sm">
-        <p class="text-tp-text font-semibold">Store these recovery codes now. They won't be shown again.</p>
+        <p class="text-tp-text font-semibold">{{ t('auth.recoveryCodes.warningTitle') }}</p>
         <p class="text-tp-muted mt-0.5">
-          If you lose your authenticator, each code signs you in once instead of the 6-digit code.
-          Keep them somewhere safe, such as a password manager.
+          {{ t('auth.recoveryCodes.warningText') }}
         </p>
       </div>
     </div>
 
-    <ol class="grid grid-cols-2 gap-2 bg-tp-surface2 rounded-xl p-4" aria-label="Recovery codes">
+    <ol class="grid grid-cols-2 gap-2 bg-tp-surface2 rounded-xl p-4" :aria-label="t('auth.recoveryCodes.label')">
       <li
         v-for="code in codes"
         :key="code"
@@ -84,14 +85,14 @@ function downloadCodes() {
         <UiButton variant="secondary" size="sm" @click="copyCodes">
           <Check v-if="copied" class="w-3.5 h-3.5" />
           <Copy v-else class="w-3.5 h-3.5" />
-          {{ copied ? 'Copied' : 'Copy' }}
+          {{ copied ? t('actions.copied') : t('actions.copy') }}
         </UiButton>
         <UiButton variant="secondary" size="sm" @click="downloadCodes">
-          <Download class="w-3.5 h-3.5" /> Download .txt
+          <Download class="w-3.5 h-3.5" /> {{ t('auth.recoveryCodes.downloadTxt') }}
         </UiButton>
       </div>
       <UiButton variant="primary" size="sm" @click="emit('done')">
-        {{ saved ? 'Done' : "I've saved them" }}
+        {{ saved ? t('auth.recoveryCodes.done') : t('auth.recoveryCodes.saved') }}
       </UiButton>
     </div>
   </div>

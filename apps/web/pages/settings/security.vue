@@ -7,6 +7,7 @@ definePageMeta({ title: 'pages.security', middleware: 'auth' })
 const api = useApi()
 const route = useRoute()
 const authStore = useAuthStore()
+const { t, locale } = useI18n()
 
 // Set by the login flow after signing in with a recovery code.
 const recoveryUsedNotice = ref(typeof route.query.recovery_used === 'string')
@@ -80,9 +81,9 @@ async function regenerate() {
     shownCodes.value = res.recovery_codes
     closeRegen()
     await loadRecoveryStatus()
-    flash('New recovery codes generated; the old ones no longer work')
+    flash(t('settings.security.toast.codesRegenerated'))
   } catch (err) {
-    flash(errorMessage(err, 'Could not generate recovery codes'), 'error')
+    flash(errorMessage(err, t('settings.security.toast.codesFailed')), 'error')
   } finally {
     busy.value = false
   }
@@ -103,7 +104,7 @@ async function startSetup() {
     setupData.value = await api.post<typeof setupData.value>('/auth/totp/setup')
     setupState.value = 'pending'
   } catch (err) {
-    flash(errorMessage(err, 'Could not start 2FA setup'), 'error')
+    flash(errorMessage(err, t('settings.security.toast.setupFailed')), 'error')
   } finally {
     busy.value = false
   }
@@ -118,9 +119,9 @@ async function confirmSetup() {
     setupData.value = null
     setupCode.value = ''
     await refresh()
-    flash('2FA enabled')
+    flash(t('settings.security.toast.enabled'))
   } catch (err) {
-    flash(errorMessage(err, 'Invalid code'), 'error')
+    flash(errorMessage(err, t('settings.security.toast.invalidCode')), 'error')
   } finally {
     busy.value = false
   }
@@ -148,9 +149,9 @@ async function disable() {
     closeDisable()
     shownCodes.value = []
     await refresh()
-    flash('2FA disabled')
+    flash(t('settings.security.toast.disabled'))
   } catch (err) {
-    flash(errorMessage(err, 'Password incorrect'), 'error')
+    flash(errorMessage(err, t('settings.security.toast.passwordIncorrect')), 'error')
   } finally {
     busy.value = false
   }
@@ -166,10 +167,10 @@ async function loadSessions() {
 }
 
 async function revokeSession(id: string) {
-  if (!confirm('Revoke this session?')) return
+  if (!confirm(t('settings.security.revokeConfirm'))) return
   await api.delete(`/auth/sessions/${id}`)
   await loadSessions()
-  flash('Session revoked')
+  flash(t('settings.security.toast.sessionRevoked'))
 }
 
 onMounted(() => loadSessions())
@@ -178,8 +179,8 @@ onMounted(() => loadSessions())
 <template>
   <div class="max-w-2xl mx-auto py-8 space-y-6">
     <header>
-      <h1 class="text-2xl font-display font-bold text-tp-text">Security</h1>
-      <p class="text-sm text-tp-muted">Two-factor authentication and active sessions.</p>
+      <h1 class="text-2xl font-display font-bold text-tp-text">{{ t('pages.security') }}</h1>
+      <p class="text-sm text-tp-muted">{{ t('settings.security.subtitle') }}</p>
     </header>
 
     <!-- Toast -->
@@ -197,9 +198,9 @@ onMounted(() => loadSessions())
     <div v-if="authStore.twoFactorSetupRequired" class="flex items-start gap-3 bg-tp-warning/10 rounded-xl p-4">
       <ShieldCheck class="w-4 h-4 text-tp-warning shrink-0 mt-0.5" />
       <div class="text-sm flex-1">
-        <p class="text-tp-text font-semibold">Two-factor authentication is required</p>
+        <p class="text-tp-text font-semibold">{{ t('settings.security.requiredTitle') }}</p>
         <p class="text-tp-muted mt-0.5">
-          The panel owner requires 2FA for admin accounts. Set it up below; the rest of the panel unlocks right after.
+          {{ t('settings.security.requiredText') }}
         </p>
       </div>
     </div>
@@ -208,22 +209,21 @@ onMounted(() => loadSessions())
     <div v-if="recoveryUsedNotice" class="flex items-start gap-3 bg-tp-warning/10 rounded-xl p-4">
       <KeyRound class="w-4 h-4 text-tp-warning shrink-0 mt-0.5" />
       <div class="text-sm flex-1">
-        <p class="text-tp-text font-semibold">You signed in with a recovery code</p>
+        <p class="text-tp-text font-semibold">{{ t('settings.security.recoveryUsedTitle') }}</p>
         <p class="text-tp-muted mt-0.5">
-          That code is now used up<template v-if="recoveryStatus">; {{ recoveryStatus.remaining }} left</template>.
-          If you lost your authenticator, disable 2FA below and set it up again on your new device;
-          otherwise generate new codes once you're running low.
+          {{ recoveryStatus ? t('settings.security.recoveryUsedLeft', { n: recoveryStatus.remaining }) : t('settings.security.recoveryUsed') }}
+          {{ t('settings.security.recoveryUsedText') }}
         </p>
       </div>
-      <button class="text-tp-muted hover:text-tp-text text-xs" @click="recoveryUsedNotice = false">Dismiss</button>
+      <button class="text-tp-muted hover:text-tp-text text-xs" @click="recoveryUsedNotice = false">{{ t('settings.security.dismiss') }}</button>
     </div>
 
     <!-- TOTP card -->
     <section class="bg-tp-surface rounded-xl overflow-hidden">
       <div class="px-5 py-4 border-b border-tp-border">
-        <h2 class="text-tp-text font-display font-semibold text-sm">Two-factor authentication</h2>
+        <h2 class="text-tp-text font-display font-semibold text-sm">{{ t('auth.login.totpTitle') }}</h2>
         <p class="text-tp-muted text-xs mt-0.5">
-          An authenticator app adds a second login factor; recovery codes get you in if you lose it.
+          {{ t('settings.security.totpIntro') }}
         </p>
       </div>
 
@@ -243,7 +243,11 @@ onMounted(() => loadSessions())
               <ShieldCheck class="w-4 h-4 text-tp-success" />
             </div>
             <p class="text-sm text-tp-text">
-              2FA is <strong class="text-tp-success">active</strong> on your account.
+              <i18n-t keypath="settings.security.activeText" scope="global">
+                <template #active>
+                  <strong class="text-tp-success">{{ t('settings.security.active') }}</strong>
+                </template>
+              </i18n-t>
             </p>
           </div>
 
@@ -251,7 +255,7 @@ onMounted(() => loadSessions())
             <div class="flex items-center gap-3">
               <KeyRound class="w-4 h-4 text-tp-muted shrink-0" />
               <div>
-                <p class="text-tp-text text-sm font-medium">Recovery codes</p>
+                <p class="text-tp-text text-sm font-medium">{{ t('auth.recoveryCodes.label') }}</p>
                 <p
                   v-if="recoveryStatus"
                   :class="[
@@ -259,51 +263,50 @@ onMounted(() => loadSessions())
                     recoveryStatus.remaining <= 3 ? 'text-tp-warning' : 'text-tp-muted',
                   ]"
                 >
-                  {{ recoveryStatus.remaining }} of {{ recoveryStatus.total }} unused
-                  <template v-if="recoveryStatus.total === 0">: generate a set so you can still sign in without your authenticator</template>
-                  <template v-else-if="recoveryStatus.remaining === 0">: generate new ones now</template>
-                  <template v-else-if="recoveryStatus.remaining <= 3">: consider generating new ones</template>
+                  {{ t('settings.security.unused', { remaining: recoveryStatus.remaining, total: recoveryStatus.total }) }}<template v-if="recoveryStatus.total === 0">{{ t('settings.security.unusedNone') }}</template>
+                  <template v-else-if="recoveryStatus.remaining === 0">{{ t('settings.security.unusedZero') }}</template>
+                  <template v-else-if="recoveryStatus.remaining <= 3">{{ t('settings.security.unusedLow') }}</template>
                 </p>
               </div>
             </div>
             <UiButton variant="secondary" size="sm" :disabled="busy" @click="regenOpen = true">
-              <RefreshCw class="w-3.5 h-3.5" /> Generate new codes
+              <RefreshCw class="w-3.5 h-3.5" /> {{ t('settings.security.generateNew') }}
             </UiButton>
           </div>
 
           <UiButton variant="danger" size="sm" :disabled="busy" @click="disableOpen = true">
-            Disable 2FA
+            {{ t('settings.twoFactor.disable') }}
           </UiButton>
         </template>
 
         <!-- Not enabled, idle -->
         <template v-else-if="setupState === 'idle'">
           <p class="text-sm text-tp-muted">
-            Add an authenticator app (1Password, Authy, Aegis, Google Authenticator) for an extra login factor.
+            {{ t('settings.security.addApp') }}
           </p>
           <UiButton variant="primary" size="sm" :loading="busy" @click="startSetup">
-            <Shield class="w-3.5 h-3.5" /> Set up 2FA
+            <Shield class="w-3.5 h-3.5" /> {{ t('settings.security.setup') }}
           </UiButton>
         </template>
 
         <!-- Setup in progress -->
         <div v-else-if="setupState === 'pending' && setupData" class="space-y-4">
           <p class="text-sm text-tp-text">
-            Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.
+            {{ t('settings.security.scan') }}
           </p>
           <img
             :src="`data:image/png;base64,${setupData.qr_code_base64}`"
-            alt="TOTP QR code"
+            :alt="t('settings.security.qrAlt')"
             class="w-48 h-48 rounded-xl bg-white p-2"
           />
           <details class="text-sm text-tp-muted">
-            <summary class="cursor-pointer">Can't scan? Enter the secret manually</summary>
+            <summary class="cursor-pointer">{{ t('settings.security.cantScan') }}</summary>
             <code class="block mt-2 p-2 bg-tp-surface2 text-tp-text rounded-lg break-all font-mono">{{ setupData.secret }}</code>
           </details>
 
           <div class="flex items-end gap-3">
             <label class="flex-1 flex flex-col gap-1.5">
-              <span class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Verification code</span>
+              <span class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('settings.security.verificationCode') }}</span>
               <input
                 v-model="setupCode"
                 type="text"
@@ -316,10 +319,10 @@ onMounted(() => loadSessions())
               />
             </label>
             <UiButton variant="primary" :loading="busy" :disabled="setupCode.length !== 6" @click="confirmSetup">
-              Confirm
+              {{ t('actions.confirm') }}
             </UiButton>
             <UiButton variant="ghost" :disabled="busy" @click="cancelSetup">
-              Cancel
+              {{ t('actions.cancel') }}
             </UiButton>
           </div>
         </div>
@@ -327,21 +330,21 @@ onMounted(() => loadSessions())
     </section>
 
     <!-- Regenerate recovery codes -->
-    <UiModal :open="regenOpen" title="Generate new recovery codes" size="sm" @close="closeRegen">
+    <UiModal :open="regenOpen" :title="t('settings.security.regenTitle')" size="sm" @close="closeRegen">
       <form class="space-y-4" @submit.prevent="canRegenerate && !busy && regenerate()">
         <p class="text-sm text-tp-muted">
-          Your current recovery codes stop working immediately. Confirm with your password and a code from your authenticator app.
+          {{ t('settings.security.regenText') }}
         </p>
         <UiInput
           v-model="regenPassword"
           type="password"
-          label="Password"
+          :label="t('auth.fields.password')"
           autocomplete="current-password"
           placeholder="••••••••"
         />
         <UiInput
           v-model="regenCode"
-          label="Authenticator code"
+          :label="t('settings.security.authenticatorCode')"
           autocomplete="one-time-code"
           placeholder="123456"
         />
@@ -349,34 +352,34 @@ onMounted(() => loadSessions())
         <button type="submit" class="sr-only" tabindex="-1" aria-hidden="true" />
       </form>
       <template #footer>
-        <UiButton variant="ghost" @click="closeRegen">Cancel</UiButton>
+        <UiButton variant="ghost" @click="closeRegen">{{ t('actions.cancel') }}</UiButton>
         <UiButton
           variant="primary"
           :loading="busy"
           :disabled="!canRegenerate"
           @click="regenerate"
         >
-          <RefreshCw class="w-3.5 h-3.5" /> Generate
+          <RefreshCw class="w-3.5 h-3.5" /> {{ t('settings.security.generate') }}
         </UiButton>
       </template>
     </UiModal>
 
     <!-- Disable confirmation -->
-    <UiModal :open="disableOpen" title="Disable 2FA" size="sm" @close="closeDisable">
+    <UiModal :open="disableOpen" :title="t('settings.twoFactor.disable')" size="sm" @close="closeDisable">
       <form class="space-y-4" @submit.prevent="disablePassword && !busy && disable()">
-        <p class="text-sm text-tp-muted">Enter your password to confirm. Your recovery codes are deleted as well.</p>
+        <p class="text-sm text-tp-muted">{{ t('settings.security.disableText') }}</p>
         <UiInput
           v-model="disablePassword"
           type="password"
-          label="Password"
+          :label="t('auth.fields.password')"
           autocomplete="current-password"
           placeholder="••••••••"
         />
       </form>
       <template #footer>
-        <UiButton variant="ghost" @click="closeDisable">Cancel</UiButton>
+        <UiButton variant="ghost" @click="closeDisable">{{ t('actions.cancel') }}</UiButton>
         <UiButton variant="danger" :loading="busy" :disabled="!disablePassword" @click="disable">
-          Disable 2FA
+          {{ t('settings.twoFactor.disable') }}
         </UiButton>
       </template>
     </UiModal>
@@ -384,24 +387,24 @@ onMounted(() => loadSessions())
     <!-- Active sessions -->
     <section class="bg-tp-surface rounded-xl overflow-hidden">
       <div class="px-5 py-4 border-b border-tp-border">
-        <h2 class="text-tp-text font-display font-semibold text-sm">Active sessions</h2>
+        <h2 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.security.sessionsTitle') }}</h2>
         <p class="text-tp-muted text-xs mt-0.5">
-          Each refresh token. Revoke anything you don't recognise.
+          {{ t('settings.security.sessionsText') }}
         </p>
       </div>
       <div class="px-5 py-2">
         <ul v-if="sessions.length" class="divide-y divide-tp-border">
           <li v-for="s in sessions" :key="s.id" class="py-3 flex items-center justify-between gap-3">
             <div class="text-sm min-w-0">
-              <div class="font-medium text-tp-text truncate">{{ s.user_agent || 'unknown device' }}</div>
-              <div class="text-tp-muted text-xs">{{ s.ip_address || '—' }} · {{ new Date(s.created_at).toLocaleString() }}</div>
+              <div class="font-medium text-tp-text truncate">{{ s.user_agent || t('settings.security.unknownDevice') }}</div>
+              <div class="text-tp-muted text-xs">{{ s.ip_address || '—' }} · {{ new Date(s.created_at).toLocaleString(locale) }}</div>
             </div>
             <UiButton variant="ghost" size="sm" @click="revokeSession(s.id)">
-              Revoke
+              {{ t('settings.security.revoke') }}
             </UiButton>
           </li>
         </ul>
-        <p v-else class="text-sm text-tp-muted py-3">No active sessions.</p>
+        <p v-else class="text-sm text-tp-muted py-3">{{ t('settings.security.noSessions') }}</p>
       </div>
     </section>
   </div>

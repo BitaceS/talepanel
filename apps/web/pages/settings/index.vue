@@ -9,6 +9,7 @@ definePageMeta({ title: 'pages.settings', middleware: 'auth' })
 const authStore = useAuthStore()
 const modulesStore = useModulesStore()
 const api = useApi()
+const { t, locale } = useI18n()
 
 type Section = 'profile' | 'security' | 'api-keys' | 'notifications' | 'modules'
 const activeSection = ref<Section>('profile')
@@ -17,13 +18,13 @@ const isAdmin = computed(() => authStore.user?.role === 'admin' || authStore.use
 
 const sections = computed(() => {
   const base = [
-    { id: 'profile' as Section,       label: 'Profile',       icon: User },
-    { id: 'security' as Section,      label: 'Security',      icon: Lock },
-    { id: 'api-keys' as Section,      label: 'API keys',      icon: KeyRound },
-    { id: 'notifications' as Section, label: 'Notifications', icon: Bell },
+    { id: 'profile' as Section,       label: t('settings.index.sections.profile'),       icon: User },
+    { id: 'security' as Section,      label: t('settings.index.sections.security'),      icon: Lock },
+    { id: 'api-keys' as Section,      label: t('settings.index.sections.apiKeys'),      icon: KeyRound },
+    { id: 'notifications' as Section, label: t('settings.index.sections.notifications'), icon: Bell },
   ]
   if (isAdmin.value) {
-    base.push({ id: 'modules' as Section, label: 'Modules', icon: Puzzle })
+    base.push({ id: 'modules' as Section, label: t('settings.index.sections.modules'), icon: Puzzle })
   }
   return base
 })
@@ -48,11 +49,11 @@ const pwError = ref('')
 async function changePassword() {
   pwError.value = ''
   if (pwForm.new_password !== pwForm.confirm) {
-    pwError.value = 'New passwords do not match'
+    pwError.value = t('settings.password.mismatch')
     return
   }
   if (pwForm.new_password.length < 8) {
-    pwError.value = 'New password must be at least 8 characters'
+    pwError.value = t('settings.password.tooShort')
     return
   }
   pwLoading.value = true
@@ -62,10 +63,10 @@ async function changePassword() {
       new_password: pwForm.new_password,
     })
     Object.assign(pwForm, { old_password: '', new_password: '', confirm: '' })
-    showToast('Password changed successfully')
+    showToast(t('settings.password.changed'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    pwError.value = e.data?.error ?? e.message ?? 'Failed to change password'
+    pwError.value = e.data?.error ?? e.message ?? t('settings.password.changeFailed')
   } finally {
     pwLoading.value = false
   }
@@ -93,12 +94,12 @@ interface NotifPref {
 }
 
 const notifPrefs = reactive<NotifPref[]>([
-  { key: 'login_new_device', label: 'New Sign-in Alerts', desc: 'Email when your account is signed into from a new device or network', enabled: true },
-  { key: 'crash',    label: 'Server Crash Alerts',   desc: 'Get notified when a server crashes or stops unexpectedly', enabled: true },
-  { key: 'backup',   label: 'Backup Completion',     desc: 'Notifications when backups complete or fail',              enabled: true },
-  { key: 'resource', label: 'Resource Warnings',     desc: 'Alerts when CPU, RAM, or disk usage exceeds thresholds',   enabled: false },
-  { key: 'ddos',     label: 'DDoS Detection',        desc: 'Immediate alerts when suspicious network traffic is detected', enabled: true },
-  { key: 'player',   label: 'Player Events',         desc: 'Notifications for player joins, bans, and moderation actions', enabled: false },
+  { key: 'login_new_device', label: 'settings.index.notif.loginNewDevice.label', desc: 'settings.index.notif.loginNewDevice.desc', enabled: true },
+  { key: 'crash',    label: 'settings.index.notif.crash.label',    desc: 'settings.index.notif.crash.desc',    enabled: true },
+  { key: 'backup',   label: 'settings.index.notif.backup.label',   desc: 'settings.index.notif.backup.desc',   enabled: true },
+  { key: 'resource', label: 'settings.index.notif.resource.label', desc: 'settings.index.notif.resource.desc', enabled: false },
+  { key: 'ddos',     label: 'settings.index.notif.ddos.label',     desc: 'settings.index.notif.ddos.desc',     enabled: true },
+  { key: 'player',   label: 'settings.index.notif.player.label',   desc: 'settings.index.notif.player.desc',   enabled: false },
 ])
 
 interface BackendNotifPref {
@@ -119,9 +120,9 @@ async function saveNotifPrefs() {
   )
   try {
     await Promise.all(writes)
-    showToast('Preferences saved')
+    showToast(t('settings.notifications.saved'))
   } catch (err) {
-    showToast((err as Error).message || 'Failed to save preferences', 'error')
+    showToast((err as Error).message || t('settings.notifications.saveFailed'), 'error')
   }
 }
 
@@ -144,7 +145,7 @@ onMounted(() => {
 
 <template>
   <div class="p-6">
-    <h2 class="text-tp-text font-display font-bold text-2xl mb-6">Settings</h2>
+    <h2 class="text-tp-text font-display font-bold text-2xl mb-6">{{ t('nav.settings') }}</h2>
 
     <div class="flex flex-col sm:flex-row gap-6">
       <!-- Sidebar nav -->
@@ -171,15 +172,15 @@ onMounted(() => {
         <template v-if="activeSection === 'profile'">
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-3 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Account Information</h3>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.index.accountInfo') }}</h3>
             </div>
             <div class="divide-y divide-tp-border">
               <div v-for="row in [
-                { label: 'Username', value: authStore.user?.username },
-                { label: 'Email', value: authStore.user?.email },
-                { label: 'Role', value: authStore.user?.role },
-                { label: 'Member since', value: authStore.user?.created_at ? new Date(authStore.user.created_at).toLocaleDateString() : '—' },
-                { label: '2FA', value: authStore.user?.totp_enabled ? 'Enabled' : 'Disabled' },
+                { label: t('settings.index.username'), value: authStore.user?.username },
+                { label: t('settings.index.email'), value: authStore.user?.email },
+                { label: t('settings.index.role'), value: authStore.user?.role ? t(`roles.${authStore.user.role}`) : undefined },
+                { label: t('settings.index.memberSince'), value: authStore.user?.created_at ? new Date(authStore.user.created_at).toLocaleDateString(locale) : '—' },
+                { label: '2FA', value: authStore.user?.totp_enabled ? t('settings.index.enabled') : t('settings.index.disabled') },
               ]" :key="row.label" class="flex items-center px-5 py-3">
                 <span class="text-tp-outline text-sm w-36 shrink-0">{{ row.label }}</span>
                 <span class="text-tp-text text-sm capitalize">{{ row.value ?? '—' }}</span>
@@ -192,8 +193,8 @@ onMounted(() => {
         <template v-else-if="activeSection === 'security'">
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Change Password</h3>
-              <p class="text-tp-muted text-xs mt-0.5">Update your account password. Min. 8 characters.</p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.password.title') }}</h3>
+              <p class="text-tp-muted text-xs mt-0.5">{{ t('settings.password.subtitle') }}</p>
             </div>
             <div class="p-5 space-y-4">
               <div v-if="pwError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
@@ -202,19 +203,19 @@ onMounted(() => {
               <UiInput
                 v-model="pwForm.old_password"
                 type="password"
-                label="Current Password"
+                :label="t('settings.password.current')"
                 placeholder="••••••••"
               />
               <UiInput
                 v-model="pwForm.new_password"
                 type="password"
-                label="New Password"
+                :label="t('settings.password.new')"
                 placeholder="••••••••"
               />
               <UiInput
                 v-model="pwForm.confirm"
                 type="password"
-                label="Confirm New Password"
+                :label="t('settings.password.confirm')"
                 placeholder="••••••••"
               />
               <div class="flex justify-end pt-1">
@@ -226,7 +227,7 @@ onMounted(() => {
                   @click="changePassword"
                 >
                   <Lock class="w-4 h-4" />
-                  Change Password
+                  {{ t('settings.password.title') }}
                 </UiButton>
               </div>
             </div>
@@ -234,13 +235,14 @@ onMounted(() => {
 
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Two-Factor Authentication</h3>
-              <p class="text-tp-muted text-xs mt-0.5">
-                2FA is currently
-                <span :class="authStore.user?.totp_enabled ? 'text-tp-success' : 'text-tp-muted'">
-                  {{ authStore.user?.totp_enabled ? 'enabled' : 'disabled' }}
-                </span>.
-              </p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.twoFactor.title') }}</h3>
+              <i18n-t keypath="settings.twoFactor.currently" tag="p" class="text-tp-muted text-xs mt-0.5" scope="global">
+                <template #state>
+                  <span :class="authStore.user?.totp_enabled ? 'text-tp-success' : 'text-tp-muted'">
+                    {{ authStore.user?.totp_enabled ? t('settings.twoFactor.stateEnabled') : t('settings.twoFactor.stateDisabled') }}
+                  </span>
+                </template>
+              </i18n-t>
             </div>
             <div class="px-5 py-4 flex items-center justify-between">
               <div class="flex items-center gap-3">
@@ -248,15 +250,15 @@ onMounted(() => {
                   <Shield :class="['w-4 h-4', authStore.user?.totp_enabled ? 'text-tp-success' : 'text-tp-muted']" />
                 </div>
                 <div>
-                  <p class="text-tp-text text-sm font-medium">Authenticator App</p>
-                  <p class="text-tp-muted text-xs">TOTP (Google Authenticator, Authy, etc.)</p>
+                  <p class="text-tp-text text-sm font-medium">{{ t('settings.twoFactor.app') }}</p>
+                  <p class="text-tp-muted text-xs">{{ t('settings.twoFactor.appHint') }}</p>
                 </div>
               </div>
               <UiButton v-if="!authStore.user?.totp_enabled" variant="primary" size="sm" @click="setup2FA">
-                <Shield class="w-3.5 h-3.5" /> Enable 2FA
+                <Shield class="w-3.5 h-3.5" /> {{ t('settings.twoFactor.enable') }}
               </UiButton>
               <UiButton v-else variant="danger" size="sm" @click="disable2FA">
-                Disable 2FA
+                {{ t('settings.twoFactor.disable') }}
               </UiButton>
             </div>
           </div>
@@ -271,14 +273,14 @@ onMounted(() => {
         <template v-else-if="activeSection === 'notifications'">
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Notification Preferences</h3>
-              <p class="text-tp-muted text-xs mt-0.5">Choose how and when you receive notifications.</p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('pages.notifications') }}</h3>
+              <p class="text-tp-muted text-xs mt-0.5">{{ t('settings.index.notifSubtitle') }}</p>
             </div>
             <div class="divide-y divide-tp-border">
               <label v-for="pref in notifPrefs" :key="pref.key" class="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-tp-surface2/50 transition-colors">
                 <div>
-                  <p class="text-tp-text text-sm font-medium">{{ pref.label }}</p>
-                  <p class="text-tp-muted text-xs mt-0.5">{{ pref.desc }}</p>
+                  <p class="text-tp-text text-sm font-medium">{{ t(pref.label) }}</p>
+                  <p class="text-tp-muted text-xs mt-0.5">{{ t(pref.desc) }}</p>
                 </div>
                 <input type="checkbox" v-model="pref.enabled" @change="saveNotifPrefs"
                   class="w-4 h-4 rounded bg-tp-surface2 border border-tp-border text-tp-primary focus:ring-tp-primary/50" />
@@ -292,8 +294,8 @@ onMounted(() => {
           <!-- Deployment profile selector -->
           <div class="bg-tp-surface rounded-xl overflow-hidden mb-4">
             <div class="px-5 py-4 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Deployment profile</h3>
-              <p class="text-tp-muted text-xs mt-0.5">Switching to "Hoster" enables multi-node and monitoring modules by default. You can still toggle individual modules below.</p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.index.profileTitle') }}</h3>
+              <p class="text-tp-muted text-xs mt-0.5">{{ t('settings.index.profileHint') }}</p>
             </div>
             <div class="px-5 py-4 flex gap-2">
               <button type="button"
@@ -302,7 +304,7 @@ onMounted(() => {
                   modulesStore.profile === 'solo'
                     ? 'bg-tp-primary/15 border-tp-primary text-tp-primary'
                     : 'bg-tp-surface2 border-tp-border text-tp-muted hover:text-tp-text']">
-                Solo / Friends
+                {{ t('settings.index.profileSolo') }}
               </button>
               <button type="button"
                 @click="modulesStore.applyProfile('hoster')"
@@ -310,15 +312,15 @@ onMounted(() => {
                   modulesStore.profile === 'hoster'
                     ? 'bg-tp-primary/15 border-tp-primary text-tp-primary'
                     : 'bg-tp-surface2 border-tp-border text-tp-muted hover:text-tp-text']">
-                Hosting Provider
+                {{ t('settings.index.profileHoster') }}
               </button>
             </div>
           </div>
 
           <div class="bg-tp-surface rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-tp-border">
-              <h3 class="text-tp-text font-display font-semibold text-sm">Feature Modules</h3>
-              <p class="text-tp-muted text-xs mt-0.5">Enable or disable features. Hoster-only modules are marked with a badge. Disabled modules are hidden from the sidebar.</p>
+              <h3 class="text-tp-text font-display font-semibold text-sm">{{ t('settings.index.modulesTitle') }}</h3>
+              <p class="text-tp-muted text-xs mt-0.5">{{ t('settings.index.modulesHint') }}</p>
             </div>
             <div class="divide-y divide-tp-border">
               <label v-for="mod in modulesStore.modules" :key="mod.id"
@@ -326,7 +328,7 @@ onMounted(() => {
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
                     <p class="text-tp-text text-sm font-medium">{{ mod.label }}</p>
-                    <span v-if="mod.hosterOnly" class="text-xs px-1.5 py-0.5 rounded-full bg-tp-warning/10 text-tp-warning">Hoster</span>
+                    <span v-if="mod.hosterOnly" class="text-xs px-1.5 py-0.5 rounded-full bg-tp-warning/10 text-tp-warning">{{ t('settings.index.hosterBadge') }}</span>
                   </div>
                   <p class="text-tp-muted text-xs mt-0.5">{{ mod.description }}</p>
                 </div>

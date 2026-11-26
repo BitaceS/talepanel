@@ -1,1 +1,44 @@
-{}
+{
+  "dashboard": {
+    "title": "Flottenübersicht",
+    "subtitle": "Deine Server, Nodes und Spieler auf einen Blick.",
+    "stats": {
+      "running": "{n} laufen",
+      "nodesOnline": "{n} online",
+      "nodesOffline": "{n} offline",
+      "notRunning": "Server nicht aktiv",
+      "playersOnline": "Spieler online",
+      "acrossServers": "Auf all deinen Servern"
+    },
+    "resources": {
+      "title": "Node-Ressourcen",
+      "subtitle": "Zuletzt gemeldete Auslastung, summiert über alle Nodes",
+      "cpu": "CPU (Ø)",
+      "disk": "Speicher",
+      "noNodes": "Noch keine Nodes registriert."
+    },
+    "activity": {
+      "title": "Spieleraktivität",
+      "subtitle": "Spieler pro Stunde, letzte 24 Stunden",
+      "empty": "Keine Spieler in den letzten 24 Stunden.",
+      "players": "{n} Spieler | {n} Spieler",
+      "nowLower": "jetzt",
+      "now": "Jetzt",
+      "peak": "Spitze",
+      "peakAt": "{n} um {time}",
+      "hourlyAvg": "Ø pro Stunde"
+    },
+    "servers": {
+      "title": "Deine Server",
+      "new": "Neuer Server",
+      "emptyTitle": "Noch keine Server",
+      "emptyText": "Erstelle deinen ersten Server, um loszulegen.",
+      "createFirst": "Ersten Server erstellen",
+      "viewAll": "Alle {n} Server anzeigen"
+    },
+    "recent": {
+      "title": "Letzte Aktivitäten",
+      "empty": "Keine aktuellen Aktivitäten"
+    }
+  }
+}

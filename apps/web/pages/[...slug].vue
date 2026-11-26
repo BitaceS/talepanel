@@ -4,10 +4,11 @@ definePageMeta({
 })
 
 const route = useRoute()
+const { t } = useI18n()
 const pageName = computed(() => {
   const slug = route.params.slug
   const segment = Array.isArray(slug) ? slug[0] : slug
-  return segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : 'This page'
+  return segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : t('settings.notFound.thisPage')
 })
 </script>
 
@@ -18,8 +19,8 @@ const pageName = computed(() => {
         <span class="text-tp-muted text-xl font-bold">—</span>
       </div>
       <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ pageName }}</h4>
-      <p class="text-tp-muted text-sm">Page not found.</p>
-      <NuxtLink to="/" class="inline-block mt-4 text-tp-accent text-sm hover:text-tp-primary transition-colors">Back to Dashboard</NuxtLink>
+      <p class="text-tp-muted text-sm">{{ t('settings.notFound.text') }}</p>
+      <NuxtLink to="/" class="inline-block mt-4 text-tp-accent text-sm hover:text-tp-primary transition-colors">{{ t('settings.error.backToDashboard') }}</NuxtLink>
     </div>
   </div>
 </template>
