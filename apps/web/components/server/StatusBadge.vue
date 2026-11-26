@@ -10,20 +10,22 @@ withDefaults(defineProps<Props>(), {
   size: 'md',
 })
 
+const { t } = useI18n()
+
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'muted' | 'primary'
 
 const statusMap: Record<Server['status'], { variant: BadgeVariant; label: string }> = {
-  running:    { variant: 'success', label: 'Online' },
-  stopped:    { variant: 'muted',   label: 'Offline' },
-  crashed:    { variant: 'danger',  label: 'Crashed' },
-  starting:   { variant: 'warning', label: 'Starting' },
-  stopping:   { variant: 'warning', label: 'Stopping' },
-  installing: { variant: 'primary', label: 'Installing' },
+  running:    { variant: 'success', label: 'status.online' },
+  stopped:    { variant: 'muted',   label: 'status.offline' },
+  crashed:    { variant: 'danger',  label: 'status.crashed' },
+  starting:   { variant: 'warning', label: 'status.starting' },
+  stopping:   { variant: 'warning', label: 'status.stopping' },
+  installing: { variant: 'primary', label: 'status.installing' },
 }
 </script>
 
 <template>
   <UiBadge :variant="statusMap[status].variant" :size="size">
-    {{ statusMap[status].label }}
+    {{ t(statusMap[status].label) }}
   </UiBadge>
 </template>

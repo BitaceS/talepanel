@@ -100,8 +100,10 @@ export function serializeConfig(value: JsonValue, raw: string): string {
   return raw.endsWith('\n') ? out + eol : out
 }
 
+// formReasonCode/formReasonValue identify formReason so the UI can show it
+// translated; formReason itself stays the English text.
 export type ParseResult =
-  | { ok: true, value: JsonValue, formReason?: string }
+  | { ok: true, value: JsonValue, formReason?: string, formReasonCode?: 'lossy' | 'notObject', formReasonValue?: string }
   | { ok: false, error: string }
 
 // Parses a config file. formReason is set when the form must not be used
@@ -115,10 +117,10 @@ export function parseConfig(raw: string): ParseResult {
   }
   const lossy = findLossyNumbers(raw)
   if (lossy.length) {
-    return { ok: true, value, formReason: `Contains numbers too large for the form (${lossy[0]}). Edit it as raw JSON.` }
+    return { ok: true, value, formReason: `Contains numbers too large for the form (${lossy[0]}). Edit it as raw JSON.`, formReasonCode: 'lossy', formReasonValue: lossy[0] }
   }
   if (!isPlainObject(value) && !Array.isArray(value)) {
-    return { ok: true, value, formReason: 'The file is not a JSON object or list.' }
+    return { ok: true, value, formReason: 'The file is not a JSON object or list.', formReasonCode: 'notObject' }
   }
   return { ok: true, value }
 }

@@ -11,6 +11,12 @@ interface Props {
 const props = defineProps<Props>()
 const serversStore = useServersStore()
 const router = useRouter()
+const { t, te } = useI18n()
+
+// Status names for the transitional states shown on the action button.
+function statusText(status: string) {
+  return te(`status.${status}`) ? t(`status.${status}`) : status
+}
 
 const isRunning = computed(() => props.server.status === 'running')
 const isStopped = computed(() => props.server.status === 'stopped' || props.server.status === 'crashed')
@@ -126,7 +132,7 @@ const statusDotColor = computed(() => {
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-1.5 text-tp-muted text-xs">
           <span class="material-symbols-outlined text-sm">group</span>
-          <span>{{ players === undefined ? '—' : `${players} ${players === 1 ? 'player' : 'players'}` }}</span>
+          <span>{{ players === undefined ? '—' : t('servers.card.players', players) }}</span>
         </div>
 
         <!-- Quick action button -->
@@ -153,7 +159,7 @@ const statusDotColor = computed(() => {
           </svg>
           <span v-else-if="isStopped" class="material-symbols-outlined text-sm">play_arrow</span>
           <span v-else-if="isRunning" class="material-symbols-outlined text-sm">stop</span>
-          <span>{{ isRunning ? 'Stop' : isStopped ? 'Start' : server.status }}</span>
+          <span>{{ isRunning ? t('actions.stop') : isStopped ? t('actions.start') : statusText(server.status) }}</span>
         </button>
       </div>
     </div>

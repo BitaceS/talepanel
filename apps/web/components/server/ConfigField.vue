@@ -18,9 +18,21 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ update: [value: JsonValue] }>()
 
+const { t, te } = useI18n()
+
 const key = computed(() => props.path[props.path.length - 1] ?? '')
 const info = computed(() => fieldInfo(props.file, props.path))
-const label = computed(() => info.value.label ?? humanizeKey(key.value))
+
+// Known fields are translated via servers.config.fields.<file without
+// .json>.<dotted path>.label|hint, falling back to the English in configForm.
+function knownText(part: 'label' | 'hint'): string | undefined {
+  const en = info.value[part]
+  if (!en) return undefined
+  const k = `servers.config.fields.${props.file.replace(/\.json$/i, '')}.${props.path.join('.')}.${part}`
+  return te(k) ? t(k) : en
+}
+const label = computed(() => knownText('label') ?? humanizeKey(key.value))
+const hint = computed(() => knownText('hint'))
 const inputId = computed(() => `cfg-${props.file}-${props.path.join('-')}`.replace(/[^\w-]/g, '_'))
 
 const kind = computed(() => {
@@ -94,8 +106,8 @@ function addItem() {
 
 const childCount = computed(() => {
   const v = props.value
-  if (Array.isArray(v)) return `${v.length} ${v.length === 1 ? 'entry' : 'entries'}`
-  if (isPlainObject(v)) return `${Object.keys(v).length} ${Object.keys(v).length === 1 ? 'setting' : 'settings'}`
+  if (Array.isArray(v)) return t('servers.config.field.entries', v.length)
+  if (isPlainObject(v)) return t('servers.config.field.settings', Object.keys(v).length)
   return ''
 })
 
@@ -127,7 +139,7 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
           :depth="depth + 1"
           @update="v => setChild(String(childKey), v)"
         />
-        <p v-if="!Object.keys(value as object).length" class="text-tp-outline text-xs">Empty.</p>
+        <p v-if="!Object.keys(value as object).length" class="text-tp-outline text-xs">{{ t('servers.config.field.empty') }}</p>
       </template>
       <template v-else>
         <div v-for="(item, i) in (value as JsonValue[])" :key="i" class="flex items-start gap-2">
@@ -140,11 +152,11 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
               @update="v => setItem(i, v)"
             />
           </div>
-          <button type="button" class="mt-1.5 p-1 text-tp-outline hover:text-tp-danger" :aria-label="`Remove entry ${i + 1}`" @click="removeItem(i)">
+          <button type="button" class="mt-1.5 p-1 text-tp-outline hover:text-tp-danger" :aria-label="t('servers.config.field.removeEntry', { n: i + 1 })" @click="removeItem(i)">
             <X class="w-3.5 h-3.5" />
           </button>
         </div>
-        <p v-if="!(value as JsonValue[]).length" class="text-tp-outline text-xs">No entries. Add new ones in Raw JSON.</p>
+        <p v-if="!(value as JsonValue[]).length" class="text-tp-outline text-xs">{{ t('servers.config.field.noEntries') }}</p>
       </template>
     </div>
   </div>
@@ -153,7 +165,7 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
   <label v-else-if="kind === 'boolean'" :for="inputId" class="flex items-center justify-between gap-4 py-1">
     <span class="min-w-0">
       <span class="block text-sm text-tp-text">{{ label }}</span>
-      <span v-if="info.hint" class="block text-xs text-tp-outline">{{ info.hint }}</span>
+      <span v-if="hint" class="block text-xs text-tp-outline">{{ hint }}</span>
     </span>
     <input
       :id="inputId"
@@ -198,7 +210,7 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
         class="text-xs text-tp-muted hover:text-tp-text px-2"
         @click="showSecret = !showSecret"
       >
-        {{ showSecret ? 'Hide' : 'Show' }}
+        {{ showSecret ? t('servers.config.field.hide') : t('servers.config.field.show') }}
       </button>
     </div>
 
@@ -212,7 +224,7 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
         :aria-invalid="numberInvalid"
         @input="onNumber(($event.target as HTMLInputElement).value)"
       >
-      <p v-if="numberInvalid" class="text-xs text-tp-danger">Enter a number. The last valid value is kept.</p>
+      <p v-if="numberInvalid" class="text-xs text-tp-danger">{{ t('servers.config.field.numberInvalid') }}</p>
     </template>
 
     <div v-else-if="kind === 'string-list' || kind === 'number-list'" class="space-y-1.5">
@@ -224,7 +236,7 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
           spellcheck="false"
           @input="setItem(i, kind === 'number-list' && Number.isFinite(Number(($event.target as HTMLInputElement).value)) ? Number(($event.target as HTMLInputElement).value) : ($event.target as HTMLInputElement).value)"
         >
-        <button type="button" class="p-1 text-tp-outline hover:text-tp-danger" :aria-label="`Remove ${item}`" @click="removeItem(i)">
+        <button type="button" class="p-1 text-tp-outline hover:text-tp-danger" :aria-label="t('servers.config.field.removeItem', { item: String(item) })" @click="removeItem(i)">
           <X class="w-3.5 h-3.5" />
         </button>
       </div>
@@ -232,19 +244,19 @@ const inputClass = 'w-full bg-tp-surface-lowest border border-tp-border rounded-
         <input
           v-model="newItem"
           :class="inputClass"
-          :placeholder="kind === 'number-list' ? 'Add a number' : 'Add an entry'"
-          :aria-label="`Add to ${label}`"
+          :placeholder="kind === 'number-list' ? t('servers.config.field.addNumber') : t('servers.config.field.addEntry')"
+          :aria-label="t('servers.config.field.addTo', { label })"
           spellcheck="false"
           @keydown.enter.prevent="addItem"
         >
-        <button type="button" class="p-1 text-tp-muted hover:text-tp-primary" :aria-label="`Add to ${label}`" @click="addItem">
+        <button type="button" class="p-1 text-tp-muted hover:text-tp-primary" :aria-label="t('servers.config.field.addTo', { label })" @click="addItem">
           <Plus class="w-4 h-4" />
         </button>
       </div>
     </div>
 
-    <p v-else class="text-xs text-tp-outline font-mono">null <span class="font-sans">(edit in raw JSON)</span></p>
+    <p v-else class="text-xs text-tp-outline font-mono">null <span class="font-sans">{{ t('servers.config.field.nullValue') }}</span></p>
 
-    <p v-if="info.hint" class="text-xs text-tp-outline">{{ info.hint }}</p>
+    <p v-if="hint" class="text-xs text-tp-outline">{{ hint }}</p>
   </div>
 </template>

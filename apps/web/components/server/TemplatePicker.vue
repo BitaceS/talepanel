@@ -11,6 +11,7 @@ interface Props {
 
 defineProps<Props>()
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
+const { t } = useI18n()
 
 function cardClass(selected: boolean) {
   return [
@@ -23,7 +24,7 @@ function cardClass(selected: boolean) {
 </script>
 
 <template>
-  <div role="radiogroup" aria-label="Server template" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
+  <div role="radiogroup" :aria-label="t('servers.templatePicker.aria')" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
     <button
       type="button"
       role="radio"
@@ -33,30 +34,30 @@ function cardClass(selected: boolean) {
     >
       <span class="material-symbols-outlined text-tp-muted text-xl shrink-0">draft</span>
       <span class="min-w-0">
-        <span class="block text-tp-text text-sm font-medium">Blank</span>
-        <span class="block text-tp-muted text-xs mt-0.5">Start from the panel defaults and set everything yourself.</span>
+        <span class="block text-tp-text text-sm font-medium">{{ t('servers.templatePicker.blank') }}</span>
+        <span class="block text-tp-muted text-xs mt-0.5">{{ t('servers.templatePicker.blankHint') }}</span>
       </span>
     </button>
 
     <button
-      v-for="t in templates"
-      :key="t.id"
+      v-for="tpl in templates"
+      :key="tpl.id"
       type="button"
       role="radio"
-      :aria-checked="modelValue === t.id"
-      :class="cardClass(modelValue === t.id)"
-      @click="emit('update:modelValue', t.id)"
+      :aria-checked="modelValue === tpl.id"
+      :class="cardClass(modelValue === tpl.id)"
+      @click="emit('update:modelValue', tpl.id)"
     >
-      <span class="material-symbols-outlined text-tp-primary text-xl shrink-0">{{ t.icon || 'dns' }}</span>
+      <span class="material-symbols-outlined text-tp-primary text-xl shrink-0">{{ tpl.icon || 'dns' }}</span>
       <span class="min-w-0">
         <span class="block text-tp-text text-sm font-medium">
-          {{ t.name }}
-          <span v-if="!t.is_builtin" class="ml-1 text-[10px] uppercase tracking-wider text-tp-outline">custom</span>
+          {{ tpl.name }}
+          <span v-if="!tpl.is_builtin" class="ml-1 text-[10px] uppercase tracking-wider text-tp-outline">{{ t('servers.templatePicker.custom') }}</span>
         </span>
-        <span v-if="t.description" class="block text-tp-muted text-xs mt-0.5">{{ t.description }}</span>
+        <span v-if="tpl.description" class="block text-tp-muted text-xs mt-0.5">{{ tpl.description }}</span>
         <span class="flex flex-wrap gap-1 mt-1.5">
           <span
-            v-for="chip in templateSummary(t.settings)"
+            v-for="chip in templateSummary(tpl.settings, (k, n) => t(k, n))"
             :key="chip"
             class="text-[10px] px-1.5 py-0.5 rounded bg-tp-surface3 text-tp-muted font-mono"
           >{{ chip }}</span>

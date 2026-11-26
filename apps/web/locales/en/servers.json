@@ -1,1 +1,311 @@
-{}
+{
+  "servers": {
+    "list": {
+      "title": "Fleet Overview",
+      "subtitle": "Monitor and manage your high-performance Hytale clusters across global nodes.",
+      "activeServers": "Active Servers",
+      "totalRamLoad": "Total RAM Load",
+      "searchPlaceholder": "Search servers...",
+      "allStatus": "All Status",
+      "newServer": "New Server",
+      "noMatchTitle": "No servers match your filters",
+      "noServersTitle": "No servers yet",
+      "noMatchHint": "Try adjusting your search or filters.",
+      "noServersHint": "Create your first Hytale server to get started.",
+      "createFirst": "Create your first server",
+      "columns": {
+        "identity": "Server Identity",
+        "status": "Status",
+        "nodeId": "Node ID",
+        "network": "Network",
+        "ram": "RAM",
+        "quickActions": "Quick Actions"
+      },
+      "ramLimit": "{mb} MB limit",
+      "noLimit": "No limit",
+      "openServer": "Open server",
+      "more": "More",
+      "showing": "Showing {from} to {to} of {total} instances",
+      "maintenanceTitle": "System Maintenance",
+      "maintenanceNone": "No scheduled maintenance at this time.",
+      "apiStatus": "API Status",
+      "latency": "Latency",
+      "uptime": "Uptime (30d)",
+      "viewIncidents": "View Incidents",
+      "confirmDelete": "Delete server \"{name}\"? This cannot be undone.",
+      "errors": {
+        "actionFailed": "Action failed",
+        "deleteFailed": "Delete failed",
+        "restartFailed": "Restart failed"
+      }
+    },
+    "create": {
+      "title": "Create New Server",
+      "template": "Template",
+      "templateHint": "Fills in the fields below. Disk size, crash limits, launch flags and network role also come from the template. Anything you change here wins.",
+      "name": "Server Name",
+      "namePlaceholder": "My Hytale Server",
+      "version": "Hytale Version",
+      "release": "Release",
+      "preRelease": "Pre-release",
+      "preReleaseWarning": "Pre-release worlds cannot be opened by release servers.",
+      "ramLimit": "RAM Limit (MB)",
+      "ramPlaceholder": "e.g. 2048",
+      "cpuLimit": "CPU Limit (%)",
+      "cpuPlaceholder": "100 = 1 core, empty = unlimited",
+      "autoRestart": "Auto Restart",
+      "autoRestartHint": "Restart after a crash; gives up after repeated crashes",
+      "submit": "Create Server",
+      "failed": "Failed to create server"
+    },
+    "player": {
+      "badges": {
+        "banned": "Banned",
+        "muted": "Muted",
+        "op": "Op",
+        "whitelisted": "Whitelisted"
+      },
+      "playtime": "Playtime",
+      "firstSeen": "First Seen",
+      "lastSeen": "Last Seen",
+      "sessions": "Sessions",
+      "actions": "Actions",
+      "kick": "Kick",
+      "op": "Op",
+      "deop": "Deop",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "ban": "Ban",
+      "unban": "Unban",
+      "whitelist": "Whitelist",
+      "removeWhitelist": "Remove Whitelist",
+      "sessionHistory": "Session History",
+      "noSessions": "No sessions recorded.",
+      "joined": "Joined",
+      "left": "Left",
+      "duration": "Duration",
+      "notFound": "Player not found.",
+      "notFoundHint": "This player may not exist on this server.",
+      "kickReason": "Kick reason (optional):",
+      "banReason": "Ban reason (optional):",
+      "toast": {
+        "kicked": "Player kicked",
+        "kickFailed": "Failed to kick player",
+        "opRemoved": "Op removed",
+        "opGranted": "Op granted",
+        "opFailed": "Failed to update op status",
+        "unmuted": "Player unmuted",
+        "muted": "Player muted",
+        "muteFailed": "Failed to update mute status",
+        "unbanned": "Player unbanned",
+        "banned": "Player banned",
+        "banFailed": "Failed to update ban status",
+        "whitelistRemoved": "Removed from whitelist",
+        "whitelistAdded": "Added to whitelist",
+        "whitelistFailed": "Failed to update whitelist"
+      }
+    },
+    "config": {
+      "runningWarning": "The server reads these files when it starts, so changes apply after a restart. A running server can also write its own copy back when it stops. To be safe, stop it, save, then start it.",
+      "filesNav": "Config files",
+      "loadingFiles": "Loading files…",
+      "noFiles": "No config files yet. Hytale creates them on the first start.",
+      "unsaved": "Unsaved",
+      "editorMode": "Editor mode",
+      "form": "Form",
+      "rawJson": "Raw JSON",
+      "reading": "Reading {name}…",
+      "rawAria": "Raw JSON of {name}",
+      "notValidJson": "Not valid JSON: {error}",
+      "fixJsonFirst": "Fix the JSON first: {error}",
+      "notSavedInvalid": "Not saved, the JSON is invalid: {error}",
+      "lossyNumbers": "Contains numbers too large for the form ({value}). Edit it as raw JSON.",
+      "notObject": "The file is not a JSON object or list.",
+      "discardConfirm": "Discard unsaved changes to {name}?",
+      "saved": "{name} saved",
+      "savedRestart": "{name} saved. Restart the server to apply it.",
+      "errors": {
+        "loadList": "Failed to load the file list",
+        "readFile": "Failed to read the file",
+        "saveFile": "Failed to save the file"
+      },
+      "files": {
+        "config": {
+          "label": "Server settings",
+          "description": "Name, MOTD, password, player limit, view distance and defaults."
+        },
+        "permissions": {
+          "label": "Permissions",
+          "description": "Permission groups and which players belong to them."
+        },
+        "whitelist": {
+          "label": "Whitelist",
+          "description": "Whether the whitelist is on and who is on it."
+        },
+        "bans": {
+          "label": "Bans",
+          "description": "Banned players."
+        }
+      },
+      "fields": {
+        "config": {
+          "ServerName": { "label": "Server name" },
+          "MOTD": { "label": "Message of the day", "hint": "Shown in the server list." },
+          "Password": { "label": "Join password", "hint": "Leave empty for no password." },
+          "MaxPlayers": { "label": "Max players" },
+          "MaxViewRadius": { "label": "Max view radius", "hint": "In chunks. Higher values cost RAM and CPU." },
+          "Defaults": {
+            "World": { "label": "Default world", "hint": "Can also be set on the Worlds tab." },
+            "GameMode": { "label": "Default game mode" }
+          }
+        },
+        "whitelist": {
+          "enabled": { "label": "Whitelist enabled" },
+          "list": { "label": "Players", "hint": "Player UUIDs." }
+        }
+      },
+      "field": {
+        "entries": "{n} entry | {n} entries",
+        "settings": "{n} setting | {n} settings",
+        "empty": "Empty.",
+        "noEntries": "No entries. Add new ones in Raw JSON.",
+        "removeEntry": "Remove entry {n}",
+        "removeItem": "Remove {item}",
+        "hide": "Hide",
+        "show": "Show",
+        "numberInvalid": "Enter a number. The last valid value is kept.",
+        "addNumber": "Add a number",
+        "addEntry": "Add an entry",
+        "addTo": "Add to {label}",
+        "nullValue": "(edit in raw JSON)"
+      }
+    },
+    "performance": {
+      "title": "Performance",
+      "timeRange": "Time range",
+      "charts": "Charts",
+      "table": "Table",
+      "loadFailed": "Could not load performance history",
+      "noSamples": "No samples in this range yet. The panel records one per minute while the server runs (requires TaleDaemon v0.14 or newer on the node).",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "playersOnline": "Players online",
+      "chartAria": "{title} over the last {range}",
+      "limit": "limit",
+      "peak": "peak {value}",
+      "footnote": "Averages per {bucket}; CPU 100 % = one core. Gaps: server stopped or node offline.",
+      "bucketHour": "hour",
+      "bucketMinutes": "{n} min",
+      "columns": {
+        "time": "Time",
+        "cpu": "CPU avg / peak",
+        "ram": "RAM avg / peak",
+        "players": "Players"
+      }
+    },
+    "card": {
+      "players": "{n} player | {n} players"
+    },
+    "templatePicker": {
+      "aria": "Server template",
+      "blank": "Blank",
+      "blankHint": "Start from the panel defaults and set everything yourself.",
+      "custom": "custom"
+    },
+    "templateSummary": {
+      "ramGb": "{n} GB RAM",
+      "ramMb": "{n} MB RAM",
+      "cores": "{n} core | {n} cores",
+      "cpuPercent": "{n}% CPU",
+      "diskGb": "{n} GB disk",
+      "diskMb": "{n} MB disk",
+      "preRelease": "Pre-release",
+      "autoRestart": "Auto restart",
+      "networkHub": "Network hub",
+      "networkGamemode": "Network gamemode"
+    },
+    "tasks": {
+      "title": "Scheduled tasks",
+      "intro": "Restarts, Hytale updates, console commands and broadcasts on a schedule. Updates also run on a stopped server; everything else only while it is running.",
+      "newTask": "New Task",
+      "action": "Action",
+      "options": {
+        "restart": "Restart server",
+        "update": "Hytale update (maintenance window)",
+        "command": "Console command",
+        "broadcast": "Broadcast message"
+      },
+      "schedule": "Schedule",
+      "cronExpression": "Cron expression",
+      "cronPlaceholder": "minute hour day month weekday",
+      "cronHint": "{desc} · panel server time zone · at most every 5 minutes",
+      "warnLabel": "Warn players beforehand (minutes, 0–15)",
+      "updateHint": "At each run the panel checks the server's channel for a newer build. Only then it warns the players, takes a backup, stops the server, installs the build and starts it again. Nothing happens when it is up to date.",
+      "command": "Command",
+      "commandPlaceholder": "e.g. world save",
+      "commandHint": "Runs with your console role; commands above it are refused.",
+      "message": "Message",
+      "messagePlaceholder": "e.g. Join our Discord!",
+      "submit": "Schedule",
+      "loading": "Loading tasks...",
+      "emptyTitle": "No scheduled tasks",
+      "emptyHint": "Schedule a nightly restart or a recurring broadcast.",
+      "nextLast": "Next: {next} · Last: {last}",
+      "disabled": "disabled",
+      "confirmDelete": "Delete this scheduled task?",
+      "presets": {
+        "hourly": "Every hour",
+        "every6h": "Every 6 hours",
+        "daily4": "Daily at 04:00",
+        "weekly": "Weekly, Sunday 04:00",
+        "custom": "Custom (cron)"
+      },
+      "cron": {
+        "invalid": "Invalid expression",
+        "everyHour": "Every hour",
+        "everyMinutes": "Every {n} minutes",
+        "everyHoursAt": "Every {n} hours at :{min}",
+        "everyHourAt": "Every hour at :{min}",
+        "dailyAt": "Daily at {time}",
+        "weeklyOn": "Weekly on {day} at {time}",
+        "custom": "Custom schedule"
+      },
+      "weekdays": {
+        "sun": "Sunday",
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday"
+      },
+      "types": {
+        "restart": "Restart",
+        "update": "Hytale update",
+        "command": "Console command",
+        "broadcast": "Broadcast"
+      },
+      "detail": {
+        "warns": "Warns players {n} minute before | Warns players {n} minutes before",
+        "noWarning": "No warning",
+        "update": "Only when a newer build exists · backup first · {warning}"
+      },
+      "status": {
+        "ok": "ok",
+        "pending": "pending",
+        "skipped": "skipped",
+        "failed": "failed"
+      },
+      "toast": {
+        "scheduled": "Task scheduled",
+        "deleted": "Task deleted"
+      },
+      "errors": {
+        "load": "Failed to load scheduled tasks",
+        "create": "Failed to create task",
+        "update": "Failed to update task",
+        "delete": "Failed to delete task"
+      }
+    }
+  }
+}

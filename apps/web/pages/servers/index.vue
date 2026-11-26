@@ -12,6 +12,7 @@ const serversStore = useServersStore()
 const templatesStore = useServerTemplatesStore()
 const api = useApi()
 const { theme } = useTheme()
+const { t } = useI18n()
 
 interface HytalePatchline { patchline: string; latest: string }
 const patchlines = ref<HytalePatchline[]>([])
@@ -60,7 +61,7 @@ async function loadTemplates() {
 }
 
 const selectedTemplate = computed(() =>
-  templatesStore.templates.find(t => t.id === createForm.template_id) ?? null)
+  templatesStore.templates.find(tpl => tpl.id === createForm.template_id) ?? null)
 
 // Choosing a template pre-fills the form; the server also applies the
 // template's other settings (disk, crash limits, launch flags, network role)
@@ -98,7 +99,7 @@ async function submitCreate() {
     resetForm()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    createError.value = e.data?.error ?? e.message ?? 'Failed to create server'
+    createError.value = e.data?.error ?? e.message ?? t('servers.create.failed')
   } finally {
     createLoading.value = false
   }
@@ -125,14 +126,15 @@ function openModal() {
 const searchQuery = ref('')
 const statusFilter = ref<'all' | ServerType['status']>('all')
 
+// label is an i18n key
 const statusOptions: { value: 'all' | ServerType['status']; label: string }[] = [
-  { value: 'all',       label: 'All Status' },
-  { value: 'running',   label: 'Running' },
-  { value: 'stopped',   label: 'Stopped' },
-  { value: 'crashed',   label: 'Crashed' },
-  { value: 'starting',  label: 'Starting' },
-  { value: 'stopping',  label: 'Stopping' },
-  { value: 'installing',label: 'Installing' },
+  { value: 'all',       label: 'servers.list.allStatus' },
+  { value: 'running',   label: 'status.running' },
+  { value: 'stopped',   label: 'status.stopped' },
+  { value: 'crashed',   label: 'status.crashed' },
+  { value: 'starting',  label: 'status.starting' },
+  { value: 'stopping',  label: 'status.stopping' },
+  { value: 'installing',label: 'status.installing' },
 ]
 
 const filteredServers = computed(() => {
@@ -171,12 +173,12 @@ function statusBadgeClass(status: string) {
 
 function statusLabel(status: string) {
   switch (status) {
-    case 'running': return 'Online'
-    case 'stopped': return 'Offline'
-    case 'starting': return 'Starting'
-    case 'stopping': return 'Stopping'
-    case 'crashed': return 'Crashed'
-    case 'installing': return 'Installing'
+    case 'running': return t('status.online')
+    case 'stopped': return t('status.offline')
+    case 'starting': return t('status.starting')
+    case 'stopping': return t('status.stopping')
+    case 'crashed': return t('status.crashed')
+    case 'installing': return t('status.installing')
     default: return status
   }
 }
@@ -197,7 +199,7 @@ async function togglePower(server: ServerType) {
     }
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serversStore.error = e.data?.error ?? e.message ?? 'Action failed'
+    serversStore.error = e.data?.error ?? e.message ?? t('servers.list.errors.actionFailed')
   } finally {
     actionPending.value = null
   }
@@ -219,13 +221,13 @@ function toggleMenu(id: string) {
 
 async function confirmDelete(server: ServerType) {
   openMenuId.value = null
-  if (!window.confirm(`Delete server "${server.name}"? This cannot be undone.`)) return
+  if (!window.confirm(t('servers.list.confirmDelete', { name: server.name }))) return
   actionPending.value = server.id
   try {
     await serversStore.deleteServer(server.id)
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serversStore.error = e.data?.error ?? e.message ?? 'Delete failed'
+    serversStore.error = e.data?.error ?? e.message ?? t('servers.list.errors.deleteFailed')
   } finally {
     actionPending.value = null
   }
@@ -238,7 +240,7 @@ async function restartFromMenu(server: ServerType) {
     await serversStore.restartServer(server.id)
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    serversStore.error = e.data?.error ?? e.message ?? 'Restart failed'
+    serversStore.error = e.data?.error ?? e.message ?? t('servers.list.errors.restartFailed')
   } finally {
     actionPending.value = null
   }
@@ -269,18 +271,18 @@ onMounted(() => {
     <div>
       <div class="flex items-start justify-between mb-1">
         <div>
-          <h2 class="text-tp-text font-display font-bold text-3xl">Fleet Overview</h2>
-          <p class="text-tp-muted text-sm mt-1">Monitor and manage your high-performance Hytale clusters across global nodes.</p>
+          <h2 class="text-tp-text font-display font-bold text-3xl">{{ t('servers.list.title') }}</h2>
+          <p class="text-tp-muted text-sm mt-1">{{ t('servers.list.subtitle') }}</p>
         </div>
         <div class="flex items-center gap-3">
           <!-- Quick stats -->
           <div class="bg-tp-surface2 rounded-xl px-5 py-3 text-center">
             <p class="text-tp-text font-display font-bold text-2xl tabular-nums">{{ serversStore.servers.length }}</p>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Active Servers</p>
+            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.activeServers') }}</p>
           </div>
           <div class="bg-tp-surface2 rounded-xl px-5 py-3 text-center">
             <p class="text-tp-text font-display font-bold text-2xl tabular-nums">—</p>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Total RAM Load</p>
+            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.totalRamLoad') }}</p>
           </div>
         </div>
       </div>
@@ -295,7 +297,7 @@ onMounted(() => {
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search servers..."
+            :placeholder="t('servers.list.searchPlaceholder')"
             class="bg-tp-surface2 text-tp-text rounded-xl pl-10 pr-4 py-2.5 text-sm placeholder:text-tp-outline focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:bg-tp-surface transition-all w-full sm:w-64"
           />
         </div>
@@ -305,13 +307,13 @@ onMounted(() => {
           v-model="statusFilter"
           class="bg-tp-surface2 text-tp-text rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50 transition-all"
         >
-          <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ t(opt.label) }}</option>
         </select>
       </div>
 
       <UiButton variant="primary" size="md" @click="openModal">
         <span class="material-symbols-outlined text-base">add</span>
-        New Server
+        {{ t('servers.list.newServer') }}
       </UiButton>
     </div>
 
@@ -334,14 +336,14 @@ onMounted(() => {
         <span class="material-symbols-outlined text-3xl text-tp-muted">dns</span>
       </div>
       <h4 class="text-tp-text font-display font-semibold text-lg mb-2">
-        {{ searchQuery || statusFilter !== 'all' ? 'No servers match your filters' : 'No servers yet' }}
+        {{ searchQuery || statusFilter !== 'all' ? t('servers.list.noMatchTitle') : t('servers.list.noServersTitle') }}
       </h4>
       <p class="text-tp-muted text-sm mb-6">
-        {{ searchQuery || statusFilter !== 'all' ? 'Try adjusting your search or filters.' : 'Create your first Hytale server to get started.' }}
+        {{ searchQuery || statusFilter !== 'all' ? t('servers.list.noMatchHint') : t('servers.list.noServersHint') }}
       </p>
       <UiButton v-if="!searchQuery && statusFilter === 'all'" variant="primary" size="md" @click="openModal">
         <span class="material-symbols-outlined text-base">add</span>
-        Create your first server
+        {{ t('servers.list.createFirst') }}
       </UiButton>
     </div>
 
@@ -350,12 +352,12 @@ onMounted(() => {
       <!-- Table header -->
       <div class="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto] lg:grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-3 border-b border-tp-border/30">
         <div class="hidden sm:block w-12" />
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">Server Identity</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">Status</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">Node ID</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">Network</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36 hidden lg:block">RAM</p>
-        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-28 text-center"><span class="sr-only sm:not-sr-only">Quick Actions</span></p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.columns.identity') }}</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center">{{ t('servers.list.columns.status') }}</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">{{ t('servers.list.columns.nodeId') }}</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-20 text-center hidden lg:block">{{ t('servers.list.columns.network') }}</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-36 hidden lg:block">{{ t('servers.list.columns.ram') }}</p>
+        <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold w-28 text-center"><span class="sr-only sm:not-sr-only">{{ t('servers.list.columns.quickActions') }}</span></p>
       </div>
 
       <!-- Server rows -->
@@ -395,14 +397,14 @@ onMounted(() => {
 
         <!-- RAM limit (live usage is on the server page) -->
         <div class="w-36 hidden lg:block text-tp-muted text-xs whitespace-nowrap tabular-nums">
-          {{ server.ram_limit_mb ? `${server.ram_limit_mb} MB limit` : 'No limit' }}
+          {{ server.ram_limit_mb ? t('servers.list.ramLimit', { mb: server.ram_limit_mb }) : t('servers.list.noLimit') }}
         </div>
 
         <!-- Quick actions -->
         <div data-row-actions class="w-28 flex items-center justify-center gap-1 relative">
           <button
             class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
-            title="Open server"
+            :title="t('servers.list.openServer')"
             @click="openSettings(server)"
           >
             <span class="material-symbols-outlined text-base">settings</span>
@@ -410,7 +412,7 @@ onMounted(() => {
           <button
             class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
             :disabled="actionPending === server.id || ['starting','stopping','installing'].includes(server.status)"
-            :title="server.status === 'running' ? 'Stop' : 'Start'"
+            :title="server.status === 'running' ? t('actions.stop') : t('actions.start')"
             @click="togglePower(server)"
           >
             <span class="material-symbols-outlined text-base">{{ server.status === 'running' ? 'stop' : 'play_arrow' }}</span>
@@ -418,7 +420,7 @@ onMounted(() => {
           <button
             class="w-7 h-7 flex items-center justify-center rounded-lg text-tp-accent hover:bg-tp-surface3 transition-colors disabled:opacity-40"
             :disabled="actionPending === server.id"
-            title="More"
+            :title="t('servers.list.more')"
             @click.stop="toggleMenu(server.id)"
           >
             <span class="material-symbols-outlined text-base">more_vert</span>
@@ -433,14 +435,14 @@ onMounted(() => {
               @click="restartFromMenu(server)"
             >
               <span class="material-symbols-outlined text-sm align-middle mr-1.5">restart_alt</span>
-              Restart
+              {{ t('actions.restart') }}
             </button>
             <button
               class="w-full px-3 py-2 text-xs text-tp-error hover:bg-tp-surface text-left"
               @click="confirmDelete(server)"
             >
               <span class="material-symbols-outlined text-sm align-middle mr-1.5">delete</span>
-              Delete
+              {{ t('actions.delete') }}
             </button>
           </div>
         </div>
@@ -449,7 +451,7 @@ onMounted(() => {
       <!-- Pagination -->
       <div class="px-5 py-4 border-t border-tp-border/30 flex items-center justify-between">
         <p class="text-tp-muted text-xs">
-          Showing {{ (page - 1) * perPage + 1 }} to {{ Math.min(page * perPage, filteredServers.length) }} of {{ filteredServers.length }} instances
+          {{ t('servers.list.showing', { from: (page - 1) * perPage + 1, to: Math.min(page * perPage, filteredServers.length), total: filteredServers.length }) }}
         </p>
         <div class="flex items-center gap-2" v-if="totalPages > 1">
           <button
@@ -486,21 +488,21 @@ onMounted(() => {
       <div class="bg-tp-surface2 rounded-xl p-5">
         <div class="flex items-center gap-3 mb-2">
           <span class="material-symbols-outlined text-tp-accent">info</span>
-          <h4 class="text-tp-text font-display font-semibold text-sm">System Maintenance</h4>
+          <h4 class="text-tp-text font-display font-semibold text-sm">{{ t('servers.list.maintenanceTitle') }}</h4>
         </div>
-        <p class="text-tp-muted text-xs">No scheduled maintenance at this time.</p>
+        <p class="text-tp-muted text-xs">{{ t('servers.list.maintenanceNone') }}</p>
       </div>
       <div class="bg-tp-surface2 rounded-xl p-5">
-        <h4 class="text-tp-text font-display font-semibold text-sm mb-3">API Status</h4>
+        <h4 class="text-tp-text font-display font-semibold text-sm mb-3">{{ t('servers.list.apiStatus') }}</h4>
         <div class="flex items-center justify-between text-xs mb-1.5">
-          <span class="text-tp-muted">Latency</span>
+          <span class="text-tp-muted">{{ t('servers.list.latency') }}</span>
           <span class="text-tp-text font-mono">—</span>
         </div>
         <div class="flex items-center justify-between text-xs mb-3">
-          <span class="text-tp-muted">Uptime (30d)</span>
+          <span class="text-tp-muted">{{ t('servers.list.uptime') }}</span>
           <span class="text-tp-text font-mono">—</span>
         </div>
-        <a href="#" class="text-tp-accent text-xs hover:text-tp-primary transition-colors">View Incidents</a>
+        <a href="#" class="text-tp-accent text-xs hover:text-tp-primary transition-colors">{{ t('servers.list.viewIncidents') }}</a>
       </div>
     </div>
 
@@ -509,7 +511,7 @@ onMounted(() => {
     <!-- Create Server Modal -->
     <UiModal
       :open="showCreateModal"
-      title="Create New Server"
+      :title="t('servers.create.title')"
       size="lg"
       @close="showCreateModal = false"
     >
@@ -519,36 +521,35 @@ onMounted(() => {
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Template</span>
+          <span class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('servers.create.template') }}</span>
           <ServerTemplatePicker v-model="createForm.template_id" :templates="templatesStore.templates" />
           <p v-if="selectedTemplate" class="text-tp-muted text-xs">
-            Fills in the fields below. Disk size, crash limits, launch flags and network role also come from the
-            template. Anything you change here wins.
+            {{ t('servers.create.templateHint') }}
           </p>
         </div>
 
-        <UiInput v-model="createForm.name" label="Server Name" placeholder="My Hytale Server" :required="true" />
+        <UiInput v-model="createForm.name" :label="t('servers.create.name')" :placeholder="t('servers.create.namePlaceholder')" :required="true" />
         <div class="flex flex-col gap-1.5">
-          <label for="create-hytale-version" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">Hytale Version</label>
+          <label for="create-hytale-version" class="text-xs font-semibold text-tp-muted uppercase tracking-wider">{{ t('servers.create.version') }}</label>
           <select id="create-hytale-version" v-model="createForm.hytale_version"
             class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="latest">Release{{ patchlineLatest('release') ? ` (${patchlineLatest('release')})` : '' }}</option>
-            <option value="pre-release">Pre-release{{ patchlineLatest('pre-release') ? ` (${patchlineLatest('pre-release')})` : '' }}</option>
+            <option value="latest">{{ t('servers.create.release') }}{{ patchlineLatest('release') ? ` (${patchlineLatest('release')})` : '' }}</option>
+            <option value="pre-release">{{ t('servers.create.preRelease') }}{{ patchlineLatest('pre-release') ? ` (${patchlineLatest('pre-release')})` : '' }}</option>
           </select>
           <p v-if="createForm.hytale_version === 'pre-release'" class="text-tp-warning text-xs">
-            Pre-release worlds cannot be opened by release servers.
+            {{ t('servers.create.preReleaseWarning') }}
           </p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
-          <UiInput v-model="createForm.ram_limit_mb" type="number" label="RAM Limit (MB)" placeholder="e.g. 2048" />
-          <UiInput v-model="createForm.cpu_limit" type="number" label="CPU Limit (%)" placeholder="100 = 1 core, empty = unlimited" />
+          <UiInput v-model="createForm.ram_limit_mb" type="number" :label="t('servers.create.ramLimit')" :placeholder="t('servers.create.ramPlaceholder')" />
+          <UiInput v-model="createForm.cpu_limit" type="number" :label="t('servers.create.cpuLimit')" :placeholder="t('servers.create.cpuPlaceholder')" />
         </div>
 
         <div class="flex items-center justify-between bg-tp-surface rounded-xl px-4 py-3">
           <div>
-            <p class="text-tp-text text-sm font-medium">Auto Restart</p>
-            <p class="text-tp-muted text-xs mt-0.5">Restart after a crash; gives up after repeated crashes</p>
+            <p class="text-tp-text text-sm font-medium">{{ t('servers.create.autoRestart') }}</p>
+            <p class="text-tp-muted text-xs mt-0.5">{{ t('servers.create.autoRestartHint') }}</p>
           </div>
           <button
             type="button"
@@ -569,8 +570,8 @@ onMounted(() => {
       </form>
 
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="showCreateModal = false">Cancel</UiButton>
-        <UiButton variant="primary" size="md" :loading="createLoading" @click="submitCreate">Create Server</UiButton>
+        <UiButton variant="ghost" size="md" @click="showCreateModal = false">{{ t('actions.cancel') }}</UiButton>
+        <UiButton variant="primary" size="md" :loading="createLoading" @click="submitCreate">{{ t('servers.create.submit') }}</UiButton>
       </template>
     </UiModal>
   </div>
