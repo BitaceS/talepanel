@@ -4,7 +4,6 @@
       "title": "Fleet Overview",
       "subtitle": "Monitor and manage your high-performance Hytale clusters across global nodes.",
       "activeServers": "Active Servers",
-      "totalRamLoad": "Total RAM Load",
       "searchPlaceholder": "Search servers...",
       "allStatus": "All Status",
       "newServer": "New Server",
@@ -26,18 +25,13 @@
       "openServer": "Open server",
       "more": "More",
       "showing": "Showing {from} to {to} of {total} instances",
-      "maintenanceTitle": "System Maintenance",
-      "maintenanceNone": "No scheduled maintenance at this time.",
-      "apiStatus": "API Status",
-      "latency": "Latency",
-      "uptime": "Uptime (30d)",
-      "viewIncidents": "View Incidents",
       "confirmDelete": "Delete server \"{name}\"? This cannot be undone.",
       "errors": {
         "actionFailed": "Action failed",
         "deleteFailed": "Delete failed",
         "restartFailed": "Restart failed"
-      }
+      },
+      "ramAllocated": "RAM allocated"
     },
     "create": {
       "title": "Create New Server",
@@ -149,19 +143,42 @@
       },
       "fields": {
         "config": {
-          "ServerName": { "label": "Server name" },
-          "MOTD": { "label": "Message of the day", "hint": "Shown in the server list." },
-          "Password": { "label": "Join password", "hint": "Leave empty for no password." },
-          "MaxPlayers": { "label": "Max players" },
-          "MaxViewRadius": { "label": "Max view radius", "hint": "In chunks. Higher values cost RAM and CPU." },
+          "ServerName": {
+            "label": "Server name"
+          },
+          "MOTD": {
+            "label": "Message of the day",
+            "hint": "Shown in the server list."
+          },
+          "Password": {
+            "label": "Join password",
+            "hint": "Leave empty for no password."
+          },
+          "MaxPlayers": {
+            "label": "Max players"
+          },
+          "MaxViewRadius": {
+            "label": "Max view radius",
+            "hint": "In chunks. Higher values cost RAM and CPU."
+          },
           "Defaults": {
-            "World": { "label": "Default world", "hint": "Can also be set on the Worlds tab." },
-            "GameMode": { "label": "Default game mode" }
+            "World": {
+              "label": "Default world",
+              "hint": "Can also be set on the Worlds tab."
+            },
+            "GameMode": {
+              "label": "Default game mode"
+            }
           }
         },
         "whitelist": {
-          "enabled": { "label": "Whitelist enabled" },
-          "list": { "label": "Players", "hint": "Player UUIDs." }
+          "enabled": {
+            "label": "Whitelist enabled"
+          },
+          "list": {
+            "label": "Players",
+            "hint": "Player UUIDs."
+          }
         }
       },
       "field": {

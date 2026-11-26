@@ -249,6 +249,12 @@ async function restartFromMenu(server: ServerType) {
 onMounted(() => {
   window.addEventListener('click', () => { openMenuId.value = null })
 })
+
+// Sum of the servers' RAM limits; servers without a limit are not counted.
+const totalRamGb = computed(() => {
+  const mb = serversStore.servers.reduce((sum, s) => sum + (s.ram_limit_mb ?? 0), 0)
+  return mb ? `${(mb / 1024).toFixed(mb % 1024 ? 1 : 0)} GB` : '—'
+})
 </script>
 
 <template>
@@ -281,8 +287,8 @@ onMounted(() => {
             <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.activeServers') }}</p>
           </div>
           <div class="bg-tp-surface2 rounded-xl px-5 py-3 text-center">
-            <p class="text-tp-text font-display font-bold text-2xl tabular-nums">—</p>
-            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.totalRamLoad') }}</p>
+            <p class="text-tp-text font-display font-bold text-2xl tabular-nums">{{ totalRamGb }}</p>
+            <p class="text-[10px] text-tp-outline uppercase tracking-widest font-semibold">{{ t('servers.list.ramAllocated') }}</p>
           </div>
         </div>
       </div>
@@ -480,29 +486,6 @@ onMounted(() => {
             <span class="material-symbols-outlined text-base">chevron_right</span>
           </button>
         </div>
-      </div>
-    </div>
-
-    <!-- Bottom info cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <div class="bg-tp-surface2 rounded-xl p-5">
-        <div class="flex items-center gap-3 mb-2">
-          <span class="material-symbols-outlined text-tp-accent">info</span>
-          <h4 class="text-tp-text font-display font-semibold text-sm">{{ t('servers.list.maintenanceTitle') }}</h4>
-        </div>
-        <p class="text-tp-muted text-xs">{{ t('servers.list.maintenanceNone') }}</p>
-      </div>
-      <div class="bg-tp-surface2 rounded-xl p-5">
-        <h4 class="text-tp-text font-display font-semibold text-sm mb-3">{{ t('servers.list.apiStatus') }}</h4>
-        <div class="flex items-center justify-between text-xs mb-1.5">
-          <span class="text-tp-muted">{{ t('servers.list.latency') }}</span>
-          <span class="text-tp-text font-mono">—</span>
-        </div>
-        <div class="flex items-center justify-between text-xs mb-3">
-          <span class="text-tp-muted">{{ t('servers.list.uptime') }}</span>
-          <span class="text-tp-text font-mono">—</span>
-        </div>
-        <a href="#" class="text-tp-accent text-xs hover:text-tp-primary transition-colors">{{ t('servers.list.viewIncidents') }}</a>
       </div>
     </div>
 

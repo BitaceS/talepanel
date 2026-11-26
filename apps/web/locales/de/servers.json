@@ -4,7 +4,6 @@
       "title": "Flottenübersicht",
       "subtitle": "Überwache und verwalte deine Hytale-Cluster auf allen Nodes.",
       "activeServers": "Aktive Server",
-      "totalRamLoad": "RAM-Last gesamt",
       "searchPlaceholder": "Server suchen…",
       "allStatus": "Alle Status",
       "newServer": "Neuer Server",
@@ -26,18 +25,13 @@
       "openServer": "Server öffnen",
       "more": "Mehr",
       "showing": "{from} bis {to} von {total} Instanzen",
-      "maintenanceTitle": "Systemwartung",
-      "maintenanceNone": "Derzeit ist keine Wartung geplant.",
-      "apiStatus": "API-Status",
-      "latency": "Latenz",
-      "uptime": "Uptime (30 T.)",
-      "viewIncidents": "Vorfälle ansehen",
       "confirmDelete": "Server „{name}“ löschen? Das kann nicht rückgängig gemacht werden.",
       "errors": {
         "actionFailed": "Aktion fehlgeschlagen",
         "deleteFailed": "Löschen fehlgeschlagen",
         "restartFailed": "Neustart fehlgeschlagen"
-      }
+      },
+      "ramAllocated": "RAM zugewiesen"
     },
     "create": {
       "title": "Neuen Server erstellen",
@@ -149,19 +143,42 @@
       },
       "fields": {
         "config": {
-          "ServerName": { "label": "Servername" },
-          "MOTD": { "label": "Nachricht des Tages", "hint": "Wird in der Serverliste angezeigt." },
-          "Password": { "label": "Beitrittspasswort", "hint": "Leer lassen für kein Passwort." },
-          "MaxPlayers": { "label": "Max. Spieler" },
-          "MaxViewRadius": { "label": "Max. Sichtradius", "hint": "In Chunks. Höhere Werte kosten RAM und CPU." },
+          "ServerName": {
+            "label": "Servername"
+          },
+          "MOTD": {
+            "label": "Nachricht des Tages",
+            "hint": "Wird in der Serverliste angezeigt."
+          },
+          "Password": {
+            "label": "Beitrittspasswort",
+            "hint": "Leer lassen für kein Passwort."
+          },
+          "MaxPlayers": {
+            "label": "Max. Spieler"
+          },
+          "MaxViewRadius": {
+            "label": "Max. Sichtradius",
+            "hint": "In Chunks. Höhere Werte kosten RAM und CPU."
+          },
           "Defaults": {
-            "World": { "label": "Standardwelt", "hint": "Lässt sich auch im Tab Welten festlegen." },
-            "GameMode": { "label": "Standard-Spielmodus" }
+            "World": {
+              "label": "Standardwelt",
+              "hint": "Lässt sich auch im Tab Welten festlegen."
+            },
+            "GameMode": {
+              "label": "Standard-Spielmodus"
+            }
           }
         },
         "whitelist": {
-          "enabled": { "label": "Whitelist aktiv" },
-          "list": { "label": "Spieler", "hint": "Spieler-UUIDs." }
+          "enabled": {
+            "label": "Whitelist aktiv"
+          },
+          "list": {
+            "label": "Spieler",
+            "hint": "Spieler-UUIDs."
+          }
         }
       },
       "field": {
