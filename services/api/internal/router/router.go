@@ -186,6 +186,9 @@ func SetupRouter(
 	authRequired := middleware.AuthRequired(db, rdb, cfg.JWTSecret,
 		middleware.WithStaff2FA(securityPolicySvc.RequireStaff2FA))
 
+	oidcSvc := services.NewOIDCService(db, rdb, appSettingsSvc, authSvc, log, cfg.IsDevelopment())
+	oidcH := handlers.NewOIDCHandler(oidcSvc, authH, log)
+
 	// ── API v1 base group with audit logging ───────────────────────────────────
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.AuditLog(db, log))
@@ -215,6 +218,11 @@ func SetupRouter(
 		authGroup.POST("/login", authH.Login)
 		authGroup.POST("/refresh", authH.Refresh)
 		authGroup.POST("/totp/verify", authH.VerifyTOTP)
+
+		// Sign-in with the owner-configured OpenID Connect provider.
+		authGroup.GET("/oidc", oidcH.Public)
+		authGroup.GET("/oidc/start", oidcH.Start)
+		authGroup.GET("/oidc/callback", oidcH.Callback)
 
 		// These require a valid access token.
 		authProtected := authGroup.Group("")
@@ -489,6 +497,10 @@ func SetupRouter(
 		securityPolicyH := handlers.NewSecurityPolicyHandler(securityPolicySvc)
 		adminGroup.GET("/security-policy", securityPolicyH.Get)
 		adminGroup.PUT("/security-policy", middleware.RequireRole(models.RoleOwner), securityPolicyH.Update)
+
+		// OpenID Connect provider for "Sign in with ...". Owners change it.
+		adminGroup.GET("/sso", oidcH.GetSettings)
+		adminGroup.PUT("/sso", middleware.RequireRole(models.RoleOwner), oidcH.UpdateSettings)
 
 		backupKeyH := handlers.NewBackupKeyHandler(appSettingsSvc)
 		adminGroup.GET("/backup-key", backupKeyH.Status)

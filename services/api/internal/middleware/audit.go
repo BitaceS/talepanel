@@ -31,6 +31,7 @@ var sensitiveFields = map[string]struct{}{
 	"refresh_token":    {},
 	"access_token":     {},
 	"secret":           {},
+	"client_secret":    {},
 	"setup_code":       {},
 	// 2FA codes: "code" carries a TOTP or a single-use recovery code
 	// (/auth/totp/verify, /auth/totp/confirm, /auth/2fa/recovery-codes);

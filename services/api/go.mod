@@ -4,8 +4,10 @@ go 1.26.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gin-contrib/cors v1.7.9
 	github.com/gin-gonic/gin v1.12.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
@@ -16,6 +18,7 @@ require (
 	github.com/wneessen/go-mail v0.8.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/oauth2 v0.38.0
 	golang.org/x/term v0.46.0
 )
 
