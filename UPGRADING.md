@@ -119,7 +119,17 @@ Run the installer's **Upgrade** mode on the panel. No migration, and nodes need 
 
 ---
 
-## v0.17.0 → v1.0.0 (planned)
+## v0.17.0 → v0.18.0
+
+Run the installer's **Upgrade** mode on the panel first, **then on every node**. The API applies migration 051 (`user_oidc_links`) on start. The nodes need the update for two security fixes: a node no longer accepts another node's certificate as an endorsement during CA rotation, and the server sandbox now refuses x32 system calls.
+
+- The panel follows the browser language on the first visit, so German browsers now see the **German UI**. Switch it in the user menu (top right).
+- **Single sign-on** is off until an owner sets it up in Admin → Integrations → Single sign-on. The provider's redirect URI is `https://<panel>/api/v1/auth/oidc/callback`, so the API must be reachable on the panel's own address, as in the standard install. Existing accounts are never linked by email: people connect their account once under Settings → Security → Single sign-on.
+- The strict rate limit (30 per minute per IP) now covers only register, login, the 2FA step and SSO. Token refresh and the signed-in `/auth/*` routes use the general limit, so people behind one shared IP are no longer signed out.
+
+---
+
+## v0.18.0 → v1.0.0 (planned)
 
 _Not released yet. Notes will appear here._
 
