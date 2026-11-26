@@ -175,8 +175,10 @@ func SetupRouter(
 
 	// ── Rate limiters ─────────────────────────────────────────────────────────
 	devMode := cfg.IsDevelopment()
-	generalLimiter := middleware.RateLimit(rdb, 120, devMode)
-	authLimiter := middleware.RateLimit(rdb, 30, devMode)
+	// Each limiter counts in its own bucket. The strict one guards only the
+	// routes that take credentials; signed-in /auth routes use the general one.
+	generalLimiter := middleware.RateLimit(rdb, "general", 120, devMode)
+	authLimiter := middleware.RateLimit(rdb, "auth", 30, devMode)
 
 	// ── Auth middleware ────────────────────────────────────────────────────────
 	// Admins and owners without 2FA are limited to their own account while
@@ -210,24 +212,30 @@ func SetupRouter(
 		setupGroup.POST("/complete", authH.CompleteSetup)
 	}
 
-	// Auth — light rate limiting, no auth required (register/login)
+	// Auth — strict rate limit on the routes that take a password, a code or
+	// start SSO; the general one for the rest. Refresh needs a valid 256-bit
+	// refresh token (nothing to guess) and runs on every panel load, so a
+	// strict per-IP limit there only signs out people behind a shared IP.
 	authGroup := v1.Group("/auth")
-	authGroup.Use(authLimiter)
 	{
-		authGroup.POST("/register", authH.Register)
-		authGroup.POST("/login", authH.Login)
-		authGroup.POST("/refresh", authH.Refresh)
-		authGroup.POST("/totp/verify", authH.VerifyTOTP)
+		authGroup.POST("/refresh", generalLimiter, authH.Refresh)
+
+		authPublic := authGroup.Group("")
+		authPublic.Use(authLimiter)
+		authPublic.POST("/register", authH.Register)
+		authPublic.POST("/login", authH.Login)
+		authPublic.POST("/totp/verify", authH.VerifyTOTP)
 
 		// Sign-in with the owner-configured OpenID Connect provider.
-		authGroup.GET("/oidc", oidcH.Public)
-		authGroup.GET("/oidc/start", oidcH.Start)
-		authGroup.GET("/oidc/callback", oidcH.Callback)
+		authPublic.GET("/oidc", oidcH.Public)
+		authPublic.GET("/oidc/start", oidcH.Start)
+		authPublic.GET("/oidc/callback", oidcH.Callback)
 
 		// These require a valid access token.
 		authProtected := authGroup.Group("")
-		authProtected.Use(authRequired)
+		authProtected.Use(generalLimiter, authRequired)
 		{
+
 			authProtected.POST("/logout", authH.Logout)
 			authProtected.GET("/me", authH.Me)
 			authProtected.PATCH("/password", authH.ChangePassword)

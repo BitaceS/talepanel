@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 export const ADMIN_EMAIL = 'admin@demo.local'
 export const ADMIN_PASSWORD = 'Demo-Password-2026!'
@@ -7,21 +7,37 @@ export const ADMIN_PASSWORD = 'Demo-Password-2026!'
 export const RUNNING_SERVER = 'Emberwood Survival'
 export const STOPPED_SERVER = 'Skyforge Creative'
 
+// POST /auth/login, waiting out the API's sign-in rate limit (30 per minute
+// per IP). Locally the demo API sees 127.0.0.1, which development mode
+// exempts; in CI it sees the Docker network and the limit applies.
+async function postLogin(request: APIRequestContext) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await request.post('/api/v1/auth/login', {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    })
+    if (res.status() !== 429 || attempt >= 2) return res
+    const wait = Number(res.headers()['retry-after'] ?? '60')
+    await new Promise(r => setTimeout(r, (Math.min(Math.max(wait, 1), 60) + 1) * 1000))
+  }
+}
+
 // Signs in through the API. The refresh cookie lands in the browser
 // context, and the panel restores the session from it on the next load.
 export async function login(page: Page): Promise<void> {
-  const res = await page.request.post('/api/v1/auth/login', {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  })
+  test.setTimeout(180_000) // room for a rate-limit wait
+  const res = await postLogin(page.request)
   expect(res.ok(), `login failed: ${res.status()}`).toBeTruthy()
 }
 
+// One access token per worker; it outlives the whole suite.
+let cachedToken: string | undefined
+
 export async function accessToken(request: APIRequestContext): Promise<string> {
-  const res = await request.post('/api/v1/auth/login', {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  })
-  expect(res.ok()).toBeTruthy()
-  return (await res.json()).access_token as string
+  if (cachedToken) return cachedToken
+  const res = await postLogin(request)
+  expect(res.ok(), `login failed: ${res.status()}`).toBeTruthy()
+  cachedToken = (await res.json()).access_token as string
+  return cachedToken
 }
 
 export interface DemoServer { id: string, name: string, status: string }
