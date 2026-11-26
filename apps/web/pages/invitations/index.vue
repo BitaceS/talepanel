@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useInvitationsStore } from '~/stores/invitations'
 
-definePageMeta({ title: 'My Invitations', middleware: 'auth' })
+definePageMeta({ title: 'pages.invitations', middleware: 'auth' })
 
 const invStore = useInvitationsStore()
 const loading = ref(false)

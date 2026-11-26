@@ -2,7 +2,7 @@
 import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
 
-definePageMeta({ title: 'Nodes', middleware: ['auth', 'module'], moduleId: 'nodes' })
+definePageMeta({ title: 'pages.nodes', middleware: ['auth', 'module'], moduleId: 'nodes' })
 
 const api = useApi()
 const authStore = useAuthStore()

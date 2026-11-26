@@ -10,7 +10,7 @@ import { useApi } from '~/composables/useApi'
 import { useAuthStore } from '~/stores/auth'
 import { useServerTemplatesStore } from '~/stores/serverTemplates'
 
-definePageMeta({ title: 'Admin Panel', middleware: 'auth' })
+definePageMeta({ title: 'pages.admin', middleware: 'auth' })
 
 const api = useApi()
 const authStore = useAuthStore()

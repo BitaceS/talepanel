@@ -2,7 +2,7 @@
 import { KeyRound, RefreshCw, Shield, ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '~/stores/auth'
 
-definePageMeta({ title: 'Security', middleware: 'auth' })
+definePageMeta({ title: 'pages.security', middleware: 'auth' })
 
 const api = useApi()
 const route = useRoute()

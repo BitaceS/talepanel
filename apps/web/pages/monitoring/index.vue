@@ -8,7 +8,7 @@ import {
 import { useApi } from '~/composables/useApi'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ title: 'Monitoring', middleware: 'auth' })
+definePageMeta({ title: 'pages.monitoring', middleware: 'auth' })
 
 const api = useApi()
 const serversStore = useServersStore()

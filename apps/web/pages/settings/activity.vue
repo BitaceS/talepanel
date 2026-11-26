@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ActivityLog, Session } from '~/types'
 
-definePageMeta({ title: 'Activity & Sessions', middleware: 'auth' })
+definePageMeta({ title: 'pages.activity', middleware: 'auth' })
 
 const api = useApi()
 

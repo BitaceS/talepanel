@@ -4,7 +4,7 @@ import { useAlertsStore } from '~/stores/alerts'
 import { useServersStore } from '~/stores/servers'
 import { useAuthStore } from '~/stores/auth'
 
-definePageMeta({ title: 'Alerts', middleware: 'auth' })
+definePageMeta({ title: 'pages.alerts', middleware: 'auth' })
 
 const alertsStore = useAlertsStore()
 const serversStore = useServersStore()

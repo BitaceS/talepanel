@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useProfileStore } from '~/stores/profile'
 
-definePageMeta({ title: 'Profile Settings', middleware: 'auth' })
+definePageMeta({ title: 'pages.profile', middleware: 'auth' })
 
 const profileStore = useProfileStore()
 const toast = ref('')

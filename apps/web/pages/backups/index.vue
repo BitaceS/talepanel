@@ -5,7 +5,7 @@ import { useServersStore } from '~/stores/servers'
 import { useAuthStore } from '~/stores/auth'
 import type { Backup } from '~/types'
 
-definePageMeta({ title: 'Backups', middleware: 'auth' })
+definePageMeta({ title: 'pages.backups', middleware: 'auth' })
 
 const backupsStore = useBackupsStore()
 const serversStore = useServersStore()

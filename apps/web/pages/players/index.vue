@@ -3,7 +3,7 @@ import { Users, Search, Ban, Shield, ShieldCheck, ShieldOff, RefreshCw } from '@
 import { usePlayersStore } from '~/stores/players'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ title: 'Players', middleware: 'auth' })
+definePageMeta({ title: 'pages.players', middleware: 'auth' })
 
 const playersStore = usePlayersStore()
 const serversStore = useServersStore()

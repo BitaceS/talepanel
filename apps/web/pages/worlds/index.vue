@@ -3,7 +3,7 @@ import { Globe, Trash2, RefreshCw, CheckCircle, Star, Info } from '@lucide/vue'
 import { useWorldsStore } from '~/stores/worlds'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ title: 'Worlds', middleware: 'auth' })
+definePageMeta({ title: 'pages.worlds', middleware: 'auth' })
 
 const worldsStore = useWorldsStore()
 const serversStore = useServersStore()

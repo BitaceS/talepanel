@@ -5,7 +5,7 @@ import { useServersStore } from '~/stores/servers'
 import type { CFMod, CFModFile, ModtaleVersion } from '~/types'
 
 definePageMeta({
-  title: 'Mods',
+  title: 'pages.mods',
   middleware: 'auth',
 })
 

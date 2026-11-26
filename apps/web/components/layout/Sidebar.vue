@@ -4,6 +4,7 @@ import { useModulesStore } from '~/stores/modules'
 import { useMediaQuery } from '@vueuse/core'
 
 const authStore = useAuthStore()
+const { t } = useI18n()
 const modulesStore = useModulesStore()
 const route = useRoute()
 
@@ -44,6 +45,7 @@ watch(drawerOpen, async (o) => {
   asideEl.value?.querySelector<HTMLElement>('nav a')?.focus()
 })
 
+// label and title are message keys (locales/*/common.json).
 interface NavItem {
   label: string
   icon: string
@@ -58,30 +60,30 @@ interface NavSection {
 
 const navSections: NavSection[] = [
   {
-    title: 'Overview',
+    title: 'nav.sectionOverview',
     items: [
-      { label: 'Dashboard', icon: 'dashboard', to: '/' },
+      { label: 'nav.dashboard', icon: 'dashboard', to: '/' },
     ],
   },
   {
-    title: 'Infrastructure',
+    title: 'nav.sectionInfrastructure',
     items: [
-      { label: 'Servers', icon: 'dns', to: '/servers' },
-      { label: 'Nodes', icon: 'lan', to: '/nodes', moduleId: 'nodes' },
+      { label: 'nav.servers', icon: 'dns', to: '/servers' },
+      { label: 'nav.nodes', icon: 'lan', to: '/nodes', moduleId: 'nodes' },
     ],
   },
   {
-    title: 'Operations',
+    title: 'nav.sectionOperations',
     items: [
-      { label: 'Backups', icon: 'backup', to: '/backups', moduleId: 'backups' },
-      { label: 'Alerts', icon: 'notifications_active', to: '/alerts', moduleId: 'alerts' },
-      { label: 'Monitoring', icon: 'monitoring', to: '/monitoring', moduleId: 'monitoring' },
+      { label: 'nav.backups', icon: 'backup', to: '/backups', moduleId: 'backups' },
+      { label: 'nav.alerts', icon: 'notifications_active', to: '/alerts', moduleId: 'alerts' },
+      { label: 'nav.monitoring', icon: 'monitoring', to: '/monitoring', moduleId: 'monitoring' },
     ],
   },
   {
-    title: 'System',
+    title: 'nav.sectionSystem',
     items: [
-      { label: 'Settings', icon: 'settings', to: '/settings' },
+      { label: 'nav.settings', icon: 'settings', to: '/settings' },
     ],
   },
 ]
@@ -91,9 +93,9 @@ const isAdmin = computed(() =>
 )
 
 const adminSection: NavSection = {
-  title: 'Administration',
+  title: 'nav.sectionAdministration',
   items: [
-    { label: 'Admin Panel', icon: 'admin_panel_settings', to: '/admin' },
+    { label: 'nav.admin', icon: 'admin_panel_settings', to: '/admin' },
   ],
 }
 
@@ -131,7 +133,7 @@ function isActive(to: string): boolean {
       drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
       mini ? 'md:w-16' : 'md:w-64',
     ]"
-    aria-label="Main navigation"
+    :aria-label="t('nav.mainNavigation')"
     :inert="!isDesktop && !drawerOpen ? true : undefined"
   >
     <!-- Logo section -->
@@ -141,7 +143,7 @@ function isActive(to: string): boolean {
         <Transition name="fade-width">
           <div v-if="!mini" class="flex flex-col min-w-0">
             <span class="text-tp-text font-display font-bold text-lg leading-none">TalePanel</span>
-            <span class="text-tp-outline font-mono text-[10px] leading-none mt-1 uppercase tracking-wider">Hytale servers</span>
+            <span class="text-tp-outline font-mono text-[10px] leading-none mt-1 uppercase tracking-wider">{{ t('nav.tagline') }}</span>
           </div>
         </Transition>
       </NuxtLink>
@@ -149,7 +151,7 @@ function isActive(to: string): boolean {
         v-if="!isDesktop"
         type="button"
         class="w-9 h-9 -mr-2 flex items-center justify-center rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2"
-        aria-label="Close menu"
+        :aria-label="t('nav.closeMenu')"
         @click="closeDrawer"
       >
         <span class="material-symbols-outlined text-xl">close</span>
@@ -165,7 +167,7 @@ function isActive(to: string): boolean {
           class="px-3 pt-5 pb-2 first:pt-0"
         >
           <span class="text-tp-outline font-mono text-[10px] font-medium uppercase tracking-[0.18em]">
-            {{ section.title }}
+            {{ t(section.title) }}
           </span>
         </div>
         <div v-else class="py-2">
@@ -183,10 +185,10 @@ function isActive(to: string): boolean {
               ? 'is-active bg-tp-surface2 text-tp-text'
               : 'text-tp-muted hover:text-tp-text hover:bg-tp-surface2/60',
           ]"
-          :title="mini ? item.label : undefined"
+          :title="mini ? t(item.label) : undefined"
         >
           <span :class="['material-symbols-outlined text-xl shrink-0', isActive(item.to) ? 'text-tp-primary' : '']">{{ item.icon }}</span>
-          <span v-if="!mini" class="truncate">{{ item.label }}</span>
+          <span v-if="!mini" class="truncate">{{ t(item.label) }}</span>
         </NuxtLink>
       </template>
     </nav>
@@ -197,7 +199,7 @@ function isActive(to: string): boolean {
       <button
         class="hidden md:flex w-full items-center justify-center mb-3 rounded-lg h-8 text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
         @click="toggleCollapse"
-        :title="mini ? 'Expand sidebar' : 'Collapse sidebar'"
+        :title="mini ? t('nav.expandSidebar') : t('nav.collapseSidebar')"
       >
         <span
           :class="['material-symbols-outlined text-lg transition-transform duration-300', mini ? 'rotate-180' : '']"
@@ -219,7 +221,7 @@ function isActive(to: string): boolean {
             {{ authStore.user?.username ?? 'User' }}
           </p>
           <p class="text-tp-outline text-[10px] capitalize truncate">
-            {{ authStore.user?.role ?? 'user' }}
+            {{ t(`roles.${authStore.user?.role ?? 'user'}`) }}
           </p>
         </div>
       </div>
@@ -230,11 +232,11 @@ function isActive(to: string): boolean {
           'w-full flex items-center gap-2 mt-2 rounded-lg px-3 py-2 text-sm text-tp-muted hover:text-tp-error hover:bg-tp-error/10 transition-colors',
           mini ? 'justify-center' : '',
         ]"
-        title="Logout"
+        :title="t('nav.logout')"
         @click="authStore.logout()"
       >
         <span class="material-symbols-outlined text-lg shrink-0">logout</span>
-        <span v-if="!mini">Logout</span>
+        <span v-if="!mini">{{ t('nav.logout') }}</span>
       </button>
     </div>
   </aside>

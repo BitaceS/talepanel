@@ -122,7 +122,7 @@
 import { usePlayersStore } from '~/stores/players'
 import type { Player, PlayerSession } from '~/types'
 
-definePageMeta({ title: 'Player Detail', middleware: 'auth' })
+definePageMeta({ title: 'pages.playerDetail', middleware: 'auth' })
 
 const route = useRoute()
 const serverId = route.params.id as string

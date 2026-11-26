@@ -2,7 +2,7 @@
 import { useAuthStore } from '~/stores/auth'
 import { useServersStore } from '~/stores/servers'
 
-definePageMeta({ layout: 'auth', title: 'First-time Setup' })
+definePageMeta({ layout: 'auth', title: 'pages.setup' })
 
 const api = useApi()
 const authStore = useAuthStore()

@@ -4,7 +4,7 @@ import { useServerTemplatesStore } from '~/stores/serverTemplates'
 import type { Server as ServerType } from '~/types'
 
 definePageMeta({
-  title: 'Servers',
+  title: 'pages.servers',
   middleware: 'auth',
 })
 

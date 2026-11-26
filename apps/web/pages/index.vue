@@ -6,7 +6,7 @@ import { useAuthStore } from '~/stores/auth'
 import type { Server as ServerType } from '~/types'
 
 definePageMeta({
-  title: 'Dashboard',
+  title: 'pages.dashboard',
   middleware: 'auth',
 })
 

@@ -1,0 +1,144 @@
+{
+  "pages": {
+    "backups": "Backups",
+    "admin": "Admin Panel",
+    "monitoring": "Monitoring",
+    "players": "Players",
+    "setup": "First-time Setup",
+    "nodes": "Nodes",
+    "dashboard": "Dashboard",
+    "worlds": "Worlds",
+    "profile": "Profile Settings",
+    "notifications": "Notification Preferences",
+    "settings": "Settings",
+    "activity": "Activity & Sessions",
+    "security": "Security",
+    "alerts": "Alerts",
+    "playerDetail": "Player Detail",
+    "servers": "Servers",
+    "invitations": "My Invitations",
+    "mods": "Mods"
+  },
+  "nav": {
+    "mainNavigation": "Main navigation",
+    "tagline": "Hytale servers",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "logout": "Logout",
+    "sectionOverview": "Overview",
+    "sectionInfrastructure": "Infrastructure",
+    "sectionOperations": "Operations",
+    "sectionSystem": "System",
+    "sectionAdministration": "Administration",
+    "dashboard": "Dashboard",
+    "servers": "Servers",
+    "nodes": "Nodes",
+    "backups": "Backups",
+    "alerts": "Alerts",
+    "monitoring": "Monitoring",
+    "settings": "Settings",
+    "admin": "Admin Panel"
+  },
+  "layout": {
+    "search": "Search infrastructure...",
+    "notifications": "Notifications",
+    "openAlerts": "Open alerts",
+    "noOpenAlerts": "No open alerts.",
+    "viewAllAlerts": "View all alerts",
+    "help": {
+      "title": "Help",
+      "heading": "Help & Resources",
+      "docs": {
+        "label": "Documentation",
+        "desc": "Guides and reference"
+      },
+      "start": {
+        "label": "Getting Started",
+        "desc": "Install and first server"
+      },
+      "community": {
+        "label": "Community",
+        "desc": "TalePanel Discord"
+      },
+      "bug": {
+        "label": "Report a Bug",
+        "desc": "Open a GitHub issue"
+      }
+    },
+    "profile": "Profile",
+    "theme": "Theme",
+    "themes": {
+      "classic": "Classic",
+      "game": "Game"
+    },
+    "language": "Language",
+    "logOut": "Log out",
+    "user": "User"
+  },
+  "roles": {
+    "owner": "owner",
+    "admin": "admin",
+    "moderator": "moderator",
+    "user": "user"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{n}m ago",
+    "hoursAgo": "{n}h ago",
+    "daysAgo": "{n}d ago"
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "starting": "Starting",
+    "stopping": "Stopping",
+    "crashed": "Crashed",
+    "installing": "Installing",
+    "online": "Online",
+    "offline": "Offline",
+    "unknown": "Unknown"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "add": "Add",
+    "remove": "Remove",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "refresh": "Refresh",
+    "retry": "Retry",
+    "search": "Search",
+    "copy": "Copy",
+    "copied": "Copied",
+    "download": "Download",
+    "upload": "Upload",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "kill": "Kill",
+    "revert": "Revert",
+    "apply": "Apply",
+    "enable": "Enable",
+    "disable": "Disable",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "common": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "noData": "Nothing here yet.",
+    "error": "Something went wrong.",
+    "never": "Never",
+    "none": "None",
+    "unknown": "Unknown",
+    "optional": "optional",
+    "required": "required"
+  }
+}

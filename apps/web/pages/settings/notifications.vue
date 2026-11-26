@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ title: 'Notification Preferences', middleware: 'auth' })
+definePageMeta({ title: 'pages.notifications', middleware: 'auth' })
 
 interface NotificationPref {
   id: string
