@@ -177,7 +177,7 @@ func SetupRouter(
 	devMode := cfg.IsDevelopment()
 	// Each limiter counts in its own bucket. The strict one guards only the
 	// routes that take credentials; signed-in /auth routes use the general one.
-	generalLimiter := middleware.RateLimit(rdb, "general", 120, devMode)
+	generalLimiter := middleware.RateLimit(rdb, "general", cfg.RateLimitPerMin, devMode)
 	authLimiter := middleware.RateLimit(rdb, "auth", 30, devMode)
 
 	// ── Auth middleware ────────────────────────────────────────────────────────

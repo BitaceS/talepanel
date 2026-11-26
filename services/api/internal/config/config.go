@@ -58,6 +58,11 @@ type Config struct {
 	// The client address is resolved with TrustedProxies.
 	AdminIPAllowlist []netip.Prefix
 
+	// RateLimitPerMin is the general API limit per client IP and minute
+	// (API_RATE_LIMIT_PER_MIN, default 120). The sign-in routes keep their
+	// own fixed limit of 30.
+	RateLimitPerMin int
+
 	// Daemon
 	// DaemonServersDir is the base path on daemon nodes where server data lives.
 	// Each server gets a subdirectory: {DaemonServersDir}/{server_id}
@@ -226,6 +231,12 @@ func Load() (*Config, error) {
 		cfg.AdminIPAllowlist = allow
 	}
 
+	// API_RATE_LIMIT_PER_MIN — optional; a malformed value fails startup.
+	cfg.RateLimitPerMin, err = parseRateLimit(os.Getenv("API_RATE_LIMIT_PER_MIN"))
+	if err != nil {
+		return nil, err
+	}
+
 	// DAEMON_SERVERS_DIR — base directory path used by daemon nodes for server data.
 	// The API appends /{server_id} to construct each server's data_path.
 	cfg.DaemonServersDir = os.Getenv("DAEMON_SERVERS_DIR")
@@ -324,4 +335,20 @@ func ParseIPAllowlist(raw string) ([]netip.Prefix, error) {
 		out = append(out, netip.PrefixFrom(a, a.BitLen()))
 	}
 	return out, nil
+}
+
+// DefaultRateLimitPerMin is the general API limit per client IP and minute.
+const DefaultRateLimitPerMin = 120
+
+// parseRateLimit reads API_RATE_LIMIT_PER_MIN. Empty means the default.
+func parseRateLimit(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultRateLimitPerMin, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("API_RATE_LIMIT_PER_MIN must be a positive whole number, got %q", raw)
+	}
+	return n, nil
 }
