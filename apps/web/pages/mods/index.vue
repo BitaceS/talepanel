@@ -11,6 +11,7 @@ definePageMeta({
 
 const modsStore = useModsStore()
 const serversStore = useServersStore()
+const { t, te } = useI18n()
 
 // ── Server selector ───────────────────────────────────────────────────────────
 const selectedServerId = ref('')
@@ -67,16 +68,16 @@ function pickFile(mod: CFMod): CFModFile | null {
 
 async function installMod(mod: CFMod) {
   if (!selectedServerId.value) {
-    showToast('Select a server first', 'error')
+    showToast(t('mods.page.selectServerFirst'), 'error')
     return
   }
   const file = pickFile(mod)
   if (!file) {
-    showToast('No downloadable file found for this mod', 'error')
+    showToast(t('mods.page.noFile'), 'error')
     return
   }
   if (!file.downloadUrl) {
-    showToast('CurseForge has restricted direct downloads for this mod', 'error')
+    showToast(t('mods.page.restricted'), 'error')
     return
   }
   try {
@@ -88,9 +89,9 @@ async function installMod(mod: CFMod) {
       cf_mod_id: mod.id,
       cf_file_id: file.id,
     })
-    showToast(`${mod.name} queued for installation`)
+    showToast(t('mods.page.queued', { name: mod.name }))
   } catch {
-    showToast(modsStore.error ?? 'Install failed', 'error')
+    showToast(modsStore.error ?? t('mods.page.installFailed'), 'error')
   }
 }
 
@@ -98,9 +99,9 @@ async function removeMod(filename: string, dir: 'mods' | 'plugins' = 'mods') {
   if (!selectedServerId.value) return
   try {
     await modsStore.remove(selectedServerId.value, filename, dir)
-    showToast('Mod removed')
+    showToast(t('mods.page.removed'))
   } catch {
-    showToast(modsStore.error ?? 'Remove failed', 'error')
+    showToast(modsStore.error ?? t('mods.page.removeFailed'), 'error')
   }
 }
 
@@ -117,9 +118,9 @@ async function toggleMod(serverId: string, mod: typeof modsStore.installed[numbe
       enabled: !mod.is_present,
     })
     await modsStore.fetchInstalled(serverId)
-    showToast(mod.is_present ? `${mod.filename} disabled` : `${mod.filename} enabled`)
+    showToast(mod.is_present ? t('mods.page.fileDisabled', { file: mod.filename }) : t('mods.page.fileEnabled', { file: mod.filename }))
   } catch {
-    showToast('Toggle failed', 'error')
+    showToast(t('mods.page.toggleFailed'), 'error')
   }
 }
 
@@ -144,7 +145,7 @@ async function openVersionSwitch(mod: typeof modsStore.installed[number]) {
       versionFiles.value = data.files ?? []
     }
   } catch {
-    showToast('Failed to load versions', 'error')
+    showToast(t('mods.page.versionsFailed'), 'error')
   } finally {
     loadingVersions.value = false
   }
@@ -160,10 +161,10 @@ async function switchModtaleVersion(v: ModtaleVersion) {
     })
     versionSwitchMod.value = null
     await modsStore.fetchInstalled(selectedServerId.value)
-    showToast(`Switching to ${v.version}`)
+    showToast(t('mods.page.switching', { version: v.version }))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Version switch failed', 'error')
+    showToast(e.data?.error ?? t('mods.page.switchFailed'), 'error')
   }
 }
 
@@ -180,9 +181,9 @@ async function switchVersion(file: CFModFile) {
     })
     versionSwitchMod.value = null
     await modsStore.fetchInstalled(selectedServerId.value)
-    showToast('Version updated')
+    showToast(t('mods.page.versionUpdated'))
   } catch {
-    showToast('Version switch failed', 'error')
+    showToast(t('mods.page.switchFailed'), 'error')
   }
 }
 
@@ -194,11 +195,11 @@ async function uploadMod(event: Event) {
   const file = input.files?.[0]
   if (!file) return
   if (!file.name.endsWith('.jar')) {
-    showToast('Only .jar files allowed', 'error')
+    showToast(t('mods.page.onlyJar'), 'error')
     return
   }
   if (!selectedServerId.value) {
-    showToast('Select a server first', 'error')
+    showToast(t('mods.page.selectServerFirst'), 'error')
     return
   }
   uploadingMod.value = true
@@ -209,9 +210,9 @@ async function uploadMod(event: Event) {
     form.append('display_name', file.name.replace('.jar', ''))
     await api.post(`/servers/${selectedServerId.value}/mods/upload`, form)
     await modsStore.fetchInstalled(selectedServerId.value)
-    showToast('Mod uploaded successfully')
+    showToast(t('mods.page.uploaded'))
   } catch {
-    showToast('Upload failed', 'error')
+    showToast(t('mods.page.uploadFailed'), 'error')
   } finally {
     uploadingMod.value = false
     input.value = ''
@@ -232,14 +233,14 @@ const isInstalled = (filename: string) =>
   <div class="p-6 space-y-5">
     <!-- Header + server selector -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <h2 class="text-tp-text font-display font-bold text-2xl">Mods</h2>
+      <h2 class="text-tp-text font-display font-bold text-2xl">{{ t('pages.mods') }}</h2>
       <div class="flex items-center gap-2">
-        <label class="text-tp-outline text-sm shrink-0">Server:</label>
+        <label class="text-tp-outline text-sm shrink-0">{{ t('mods.page.serverLabel') }}</label>
         <select
           v-model="selectedServerId"
           class="bg-tp-surface2 border border-tp-border text-tp-text rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:border-tp-primary transition-colors min-w-48"
         >
-          <option value="" disabled>Select a server</option>
+          <option value="" disabled>{{ t('mods.page.selectServer') }}</option>
           <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">
             {{ s.name }}
           </option>
@@ -250,7 +251,7 @@ const isInstalled = (filename: string) =>
     <!-- No servers -->
     <div v-if="serversStore.servers.length === 0 && !serversStore.loading"
       class="bg-tp-surface rounded-xl p-12 text-center">
-      <p class="text-tp-muted text-sm">Create a server first to manage its mods.</p>
+      <p class="text-tp-muted text-sm">{{ t('mods.page.noServers') }}</p>
     </div>
 
     <template v-else>
@@ -258,7 +259,7 @@ const isInstalled = (filename: string) =>
       <div class="border-b border-tp-border">
         <nav class="flex gap-1">
           <button
-            v-for="tab in [{ id: 'installed', label: 'Installed' }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
+            v-for="tab in [{ id: 'installed', label: t('mods.page.tabInstalled') }, { id: 'browse', label: 'CurseForge' }, { id: 'modtale', label: 'Modtale' }]"
             :key="tab.id"
             :class="[
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
@@ -288,11 +289,11 @@ const isInstalled = (filename: string) =>
         <div v-else-if="modsStore.installed.length === 0"
           class="bg-tp-surface rounded-xl p-12 text-center">
           <Package class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-          <p class="text-tp-text font-display font-semibold mb-1">No mods installed</p>
-          <p class="text-tp-muted text-sm">Install mods from CurseForge or Modtale, or upload a JAR.</p>
+          <p class="text-tp-text font-display font-semibold mb-1">{{ t('mods.page.emptyTitle') }}</p>
+          <p class="text-tp-muted text-sm">{{ t('mods.page.emptyText') }}</p>
           <div class="mt-4 flex flex-wrap justify-center gap-2">
-            <UiButton variant="primary" size="sm" @click="activeTab = 'modtale'">Browse Modtale</UiButton>
-            <UiButton variant="secondary" size="sm" @click="activeTab = 'browse'">Browse CurseForge</UiButton>
+            <UiButton variant="primary" size="sm" @click="activeTab = 'modtale'">{{ t('mods.page.browseModtale') }}</UiButton>
+            <UiButton variant="secondary" size="sm" @click="activeTab = 'browse'">{{ t('mods.page.browseCurseforge') }}</UiButton>
           </div>
         </div>
 
@@ -304,7 +305,7 @@ const isInstalled = (filename: string) =>
               class="cursor-pointer px-3 py-1.5 rounded bg-tp-surface2 hover:bg-tp-surface border border-tp-border text-tp-text text-sm transition-colors"
               :class="{ 'opacity-50 pointer-events-none': uploadingMod }"
             >
-              {{ uploadingMod ? 'Uploading...' : 'Upload JAR' }}
+              {{ uploadingMod ? t('mods.page.uploading') : t('mods.page.uploadJar') }}
               <input type="file" accept=".jar" class="hidden" @change="uploadMod" />
             </label>
           </div>
@@ -334,10 +335,10 @@ const isInstalled = (filename: string) =>
                     ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
                     : 'bg-white/10 text-white/40 hover:bg-white/20'"
                   :title="mod.is_present
-                    ? `Disable — renames ${mod.mod_dir}/${mod.filename} to .disabled on the node`
-                    : `Enable — restores ${mod.mod_dir}/${mod.filename} on the node`"
+                    ? t('mods.page.disableHint', { path: `${mod.mod_dir}/${mod.filename}` })
+                    : t('mods.page.enableHint', { path: `${mod.mod_dir}/${mod.filename}` })"
                 >
-                  {{ mod.is_present ? 'Enabled' : 'Disabled' }}
+                  {{ mod.is_present ? t('mods.page.enabled') : t('mods.page.disabled') }}
                 </button>
 
                 <!-- Change version (CurseForge and Modtale) -->
@@ -346,7 +347,7 @@ const isInstalled = (filename: string) =>
                   @click="openVersionSwitch(mod)"
                   class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-tp-muted hover:text-tp-text transition-colors"
                 >
-                  Change version
+                  {{ t('mods.page.changeVersion') }}
                 </button>
 
                 <!-- Delete -->
@@ -355,6 +356,7 @@ const isInstalled = (filename: string) =>
                   size="sm"
                   :loading="modsStore.removingFilename === mod.filename"
                   :disabled="!!modsStore.removingFilename"
+                  :title="t('actions.remove')"
                   @click="removeMod(mod.filename, mod.mod_dir || 'mods')"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
@@ -372,7 +374,7 @@ const isInstalled = (filename: string) =>
                       : mod.source === 'detected'   ? 'bg-tp-tertiary/15 text-tp-tertiary'
                       :                               'bg-white/10 text-white/50'"
               >
-                {{ mod.source }}
+                {{ te(`mods.page.source.${mod.source}`) ? t(`mods.page.source.${mod.source}`) : mod.source }}
               </span>
               <!-- Which directory the file lives in on the node. -->
               <span
@@ -381,7 +383,7 @@ const isInstalled = (filename: string) =>
               >
                 {{ mod.mod_dir || 'mods' }}/
               </span>
-              <span v-if="mod.author">by {{ mod.author }}</span>
+              <span v-if="mod.author">{{ t('mods.page.byAuthor', { author: mod.author }) }}</span>
               <span v-if="mod.version">v{{ mod.version }}</span>
             </div>
             <p v-if="mod.description" class="mt-0.5 text-xs text-white/40 truncate ml-9">{{ mod.description }}</p>
@@ -411,7 +413,7 @@ const isInstalled = (filename: string) =>
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search Hytale mods..."
+            :placeholder="t('mods.page.searchPlaceholder')"
             class="w-full bg-tp-surface2 border border-tp-border text-tp-text rounded-xl pl-9 pr-4 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:border-tp-primary transition-colors"
           />
         </div>
@@ -425,7 +427,7 @@ const isInstalled = (filename: string) =>
         <!-- No results -->
         <div v-else-if="!modsStore.loadingSearch && modsStore.searchResults.length === 0"
           class="bg-tp-surface rounded-xl p-12 text-center">
-          <p class="text-tp-muted text-sm">No mods found. Try a different search.</p>
+          <p class="text-tp-muted text-sm">{{ t('mods.page.noResults') }}</p>
         </div>
 
         <!-- Results grid -->
@@ -449,19 +451,19 @@ const isInstalled = (filename: string) =>
               <div class="min-w-0 flex-1">
                 <p class="text-tp-text font-semibold text-sm leading-tight truncate">{{ mod.name }}</p>
                 <p class="text-tp-outline text-xs mt-0.5">
-                  {{ formatDownloads(mod.downloadCount) }} downloads
+                  {{ t('mods.page.downloads', { n: formatDownloads(mod.downloadCount) }) }}
                 </p>
               </div>
             </div>
 
             <!-- Summary -->
             <p class="text-tp-muted text-xs leading-relaxed line-clamp-2 flex-1">
-              {{ mod.summary || 'No description available.' }}
+              {{ mod.summary || t('mods.page.noDescription') }}
             </p>
 
             <!-- Latest file info -->
             <p v-if="mod.latestFiles?.at(-1)" class="text-tp-outline text-xs font-mono">
-              Latest: {{ mod.latestFiles?.at(-1)?.displayName }}
+              {{ t('mods.page.latest', { version: mod.latestFiles?.at(-1)?.displayName ?? '' }) }}
             </p>
 
             <!-- Actions -->
@@ -473,7 +475,7 @@ const isInstalled = (filename: string) =>
                 disabled
                 class="flex-1"
               >
-                Installed
+                {{ t('mods.page.tabInstalled') }}
               </UiButton>
               <UiButton
                 v-else
@@ -485,7 +487,7 @@ const isInstalled = (filename: string) =>
                 @click="installMod(mod)"
               >
                 <Download class="w-3.5 h-3.5" />
-                Install
+                {{ t('mods.page.install') }}
               </UiButton>
               <a
                 v-if="mod.links?.websiteUrl"
@@ -493,7 +495,7 @@ const isInstalled = (filename: string) =>
                 target="_blank"
                 rel="noopener"
                 class="p-2 rounded-lg text-tp-muted hover:text-tp-text hover:bg-tp-surface2 transition-colors"
-                title="View on CurseForge"
+                :title="t('mods.page.viewOnCurseforge')"
               >
                 <ExternalLink class="w-3.5 h-3.5" />
               </a>
@@ -509,7 +511,7 @@ const isInstalled = (filename: string) =>
             :loading="modsStore.loadingSearch"
             @click="modsStore.search(searchQuery, modsStore.searchPage + 1)"
           >
-            Load more
+            {{ t('mods.page.loadMore') }}
           </UiButton>
         </div>
       </div>
@@ -540,9 +542,9 @@ const isInstalled = (filename: string) =>
       >
         <div class="bg-tp-surface border border-tp-border rounded-xl p-6 w-full max-w-md shadow-2xl mx-4">
           <h3 class="text-lg font-semibold mb-4 text-tp-text">
-            Change version — {{ (versionSwitchMod as typeof modsStore.installed[number]).display_name || (versionSwitchMod as typeof modsStore.installed[number]).filename }}
+            {{ t('mods.page.changeVersion') }} — {{ (versionSwitchMod as typeof modsStore.installed[number]).display_name || (versionSwitchMod as typeof modsStore.installed[number]).filename }}
           </h3>
-          <div v-if="loadingVersions" class="text-white/40 text-sm py-4 text-center">Loading versions...</div>
+          <div v-if="loadingVersions" class="text-white/40 text-sm py-4 text-center">{{ t('mods.page.loadingVersions') }}</div>
           <ul v-else-if="modtaleVersions.length" class="space-y-1 max-h-64 overflow-y-auto">
             <li v-for="v in modtaleVersions" :key="v.id">
               <button
@@ -554,7 +556,7 @@ const isInstalled = (filename: string) =>
                 <span class="text-sm text-tp-text">
                   {{ v.version }}
                   <span v-if="v.channel && v.channel !== 'RELEASE'" class="ml-1 text-[10px] text-tp-warning">{{ v.channel.toLowerCase() }}</span>
-                  <span v-if="v.version === (versionSwitchMod as typeof modsStore.installed[number]).version" class="ml-1 text-[10px] text-tp-success">installed</span>
+                  <span v-if="v.version === (versionSwitchMod as typeof modsStore.installed[number]).version" class="ml-1 text-[10px] text-tp-success">{{ t('mods.page.installedBadge') }}</span>
                 </span>
                 <span class="text-xs text-white/40 truncate">{{ v.game_versions.length ? `Hytale ${v.game_versions[0]}` : '' }}</span>
               </button>
@@ -571,12 +573,12 @@ const isInstalled = (filename: string) =>
               <span class="text-xs text-white/40">{{ Array.isArray(f.gameVersions) ? f.gameVersions[0] : '' }}</span>
             </li>
           </ul>
-          <p v-else class="text-white/40 text-sm py-4 text-center">No versions available.</p>
+          <p v-else class="text-white/40 text-sm py-4 text-center">{{ t('mods.page.noVersions') }}</p>
           <button
             @click="versionSwitchMod = null"
             class="mt-4 text-sm text-white/40 hover:text-white transition-colors"
           >
-            Cancel
+            {{ t('actions.cancel') }}
           </button>
         </div>
       </div>

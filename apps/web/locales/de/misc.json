@@ -1,1 +1,50 @@
-{}
+{
+  "misc": {
+    "worlds": {
+      "activated": "Aktive Welt aktualisiert. Starte den Server neu, um sie zu laden.",
+      "activateFailed": "Aktive Welt konnte nicht gesetzt werden",
+      "deleteConfirm": "Welt „{name}“ löschen?\n\nDadurch wird der Weltordner auf dem Node gelöscht. Das kann nicht rückgängig gemacht werden.",
+      "deleted": "Welt aus dem Panel und von der Festplatte gelöscht",
+      "deleteFailed": "Welt konnte nicht gelöscht werden",
+      "selectServer": "Server auswählen…",
+      "selectServerTitle": "Wähle einen Server",
+      "selectServerText": "Wähle einen Server, um seine Welten zu verwalten.",
+      "loading": "Welten werden geladen…",
+      "emptyTitle": "Keine Welten auf der Festplatte gefunden",
+      "emptyText": "Welten werden vom Hytale-Server selbst unter {path} erzeugt. Sie erscheinen hier automatisch, sobald der Daemon sie findet – TalePanel erstellt keine Welten für dich.",
+      "switchHint": "Ein Wechsel der aktiven Welt schreibt die {file} des Servers neu – er wird beim nächsten Server-Neustart wirksam.",
+      "active": "Aktiv",
+      "size": "Größe:",
+      "seed": "Seed:",
+      "setActiveHint": "Schreibt Defaults.World in config.json – wirksam nach einem Neustart",
+      "activating": "Wird aktiviert…",
+      "setActive": "Aktivieren",
+      "activateOtherFirst": "Aktiviere zuerst eine andere Welt",
+      "deleteFromDisk": "Diese Welt von der Festplatte löschen"
+    },
+    "updateBanner": {
+      "available": "TalePanel {latest} ist verfügbar – du nutzt {current}.",
+      "viewRelease": "Release ansehen",
+      "dismiss": "Ausblenden"
+    },
+    "serverSelect": {
+      "title": "Serverauswahl",
+      "summary": "{servers} auf {nodes}",
+      "servers": "{n} Server | {n} Server",
+      "nodes": "{n} Node | {n} Nodes",
+      "onlineCount": "{n} online",
+      "tabAll": "Alle",
+      "loading": "Server werden geladen…",
+      "empty": "Noch keine Server. Erstelle unten deinen ersten.",
+      "noOnline": "Keine Server online.",
+      "noStopped": "Keine gestoppten Server.",
+      "listLabel": "Server",
+      "port": "Port {port}",
+      "world": "Welt {name}",
+      "noRamLimit": "kein RAM-Limit",
+      "open": "Server öffnen",
+      "newServer": "Neuer Server",
+      "hint": "{up} {down} auswählen · {enter} öffnen · Doppelklick öffnet"
+    }
+  }
+}

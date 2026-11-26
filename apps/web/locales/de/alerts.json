@@ -1,1 +1,56 @@
-{}
+{
+  "alerts": {
+    "page": {
+      "types": {
+        "server_crashed": "Server-Absturz",
+        "cpu_high": "Hohe CPU-Auslastung",
+        "ram_high": "Hohe RAM-Auslastung",
+        "disk_high": "Hohe Speicherauslastung",
+        "node_offline": "Node offline",
+        "ddos": "DDoS erkannt"
+      },
+      "channels": {
+        "email": "E-Mail",
+        "discord": "Discord",
+        "webhook": "Webhook"
+      },
+      "ruleCreated": "Alert-Regel erstellt",
+      "ruleCreateFailed": "Regel konnte nicht erstellt werden",
+      "ruleEnabled": "Regel aktiviert",
+      "ruleDisabled": "Regel deaktiviert",
+      "ruleToggleFailed": "Regel konnte nicht umgeschaltet werden",
+      "ruleDeleteConfirm": "Diese Alert-Regel löschen?",
+      "ruleDeleted": "Regel gelöscht",
+      "ruleDeleteFailed": "Regel konnte nicht gelöscht werden",
+      "eventResolved": "Ereignis erledigt",
+      "resolveFailed": "Erledigen fehlgeschlagen",
+      "secondsAgo": "vor {n} Sek.",
+      "tabEvents": "Ereignisse",
+      "tabRules": "Regeln",
+      "noEvents": "Keine Alert-Ereignisse",
+      "noEventsText": "Erstelle Alert-Regeln, um Benachrichtigungen zu erhalten.",
+      "severity": {
+        "critical": "kritisch",
+        "warning": "Warnung",
+        "info": "Info"
+      },
+      "resolve": "Als erledigt markieren",
+      "newRule": "Neue Regel",
+      "noRules": "Keine Alert-Regeln",
+      "noRulesText": "Erstelle eine Regel, um über Server-Ereignisse informiert zu werden.",
+      "threshold": "Schwellenwert: {value}",
+      "thresholdDefault": "Standard",
+      "serverSpecific": "Serverspezifisch",
+      "global": "Global",
+      "createRule": "Alert-Regel erstellen",
+      "serverLabel": "Server (optional – leer lassen für global)",
+      "globalAll": "Global (alle Server)",
+      "alertType": "Alert-Typ",
+      "thresholdLabel": "Schwellenwert (%)",
+      "notifyVia": "Benachrichtigen per",
+      "selectChannel": "Wähle mindestens einen Kanal, sonst wird der Alert nicht zugestellt.",
+      "discordWebhookUrl": "Discord-Webhook-URL",
+      "webhookUrl": "Webhook-URL"
+    }
+  }
+}

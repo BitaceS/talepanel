@@ -10,15 +10,16 @@ definePageMeta({ title: 'pages.backups', middleware: 'auth' })
 const backupsStore = useBackupsStore()
 const serversStore = useServersStore()
 const authStore = useAuthStore()
+const { t, te } = useI18n()
 
 type Tab = 'backups' | 'schedules' | 'destinations'
 const selectedServer = ref('')
 const activeTab = ref<Tab>('backups')
 
 const tabs = computed(() => [
-  { key: 'backups' as Tab, label: 'Backups', icon: DatabaseBackup },
-  { key: 'schedules' as Tab, label: 'Schedules', icon: Calendar },
-  ...(authStore.isAdmin ? [{ key: 'destinations' as Tab, label: 'Destinations', icon: Cloud }] : []),
+  { key: 'backups' as Tab, label: t('backups.page.tabBackups'), icon: DatabaseBackup },
+  { key: 'schedules' as Tab, label: t('backups.page.tabSchedules'), icon: Calendar },
+  ...(authStore.isAdmin ? [{ key: 'destinations' as Tab, label: t('backups.page.tabDestinations'), icon: Cloud }] : []),
 ])
 
 // Toast
@@ -32,8 +33,8 @@ function showToast(msg: string, type: 'success' | 'error' = 'success') {
 }
 
 function destinationName(id: string | null | undefined): string {
-  if (!id) return 'This node only'
-  return backupsStore.destinationSummaries.find(d => d.id === id)?.name ?? 'Removed destination'
+  if (!id) return t('backups.page.nodeOnly')
+  return backupsStore.destinationSummaries.find(d => d.id === id)?.name ?? t('backups.page.removedDestination')
 }
 
 // Create backup modal
@@ -57,10 +58,10 @@ async function createBackup() {
       destination_id: createForm.destination_id || null,
     })
     showCreateModal.value = false
-    showToast('Backup started')
+    showToast(t('backups.page.started'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to create backup', 'error')
+    showToast(e.data?.error ?? t('backups.page.createFailed'), 'error')
   } finally {
     creating.value = false
   }
@@ -89,46 +90,48 @@ async function createSchedule() {
       destination_id: scheduleForm.destination_id || null,
     })
     showScheduleModal.value = false
-    showToast('Schedule created')
+    showToast(t('backups.page.scheduleCreated'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to create schedule', 'error')
+    showToast(e.data?.error ?? t('backups.page.scheduleCreateFailed'), 'error')
   } finally {
     creatingSchedule.value = false
   }
 }
 
 async function deleteBackup(b: Backup) {
-  const remote = b.upload_status === 'done' ? ` The copy on "${b.destination_name ?? 'the destination'}" is deleted too.` : ''
-  if (!confirm(`Delete this backup? This cannot be undone.${remote}`)) return
+  const remote = b.upload_status === 'done'
+    ? ' ' + t('backups.page.deleteRemoteNote', { name: b.destination_name ?? t('backups.page.theDestination') })
+    : ''
+  if (!confirm(t('backups.page.deleteConfirm') + remote)) return
   try {
     await backupsStore.deleteBackup(b.id)
-    showToast('Backup deleted')
+    showToast(t('backups.page.deleted'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to delete', 'error')
+    showToast(e.data?.error ?? t('backups.page.deleteFailed'), 'error')
   }
 }
 
 async function restoreBackup(b: Backup) {
-  const fetchNote = b.local_present ? '' : ' The node first downloads it from the off-site destination, which can take a while.'
-  if (!confirm(`Restore this backup? Current server files will be overwritten.${fetchNote}`)) return
+  const fetchNote = b.local_present ? '' : ' ' + t('backups.page.restoreFetchNote')
+  if (!confirm(t('backups.page.restoreConfirm') + fetchNote)) return
   try {
     await backupsStore.restoreBackup(b.id)
-    showToast('Restore initiated')
+    showToast(t('backups.page.restoreStarted'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to restore', 'error')
+    showToast(e.data?.error ?? t('backups.page.restoreFailed'), 'error')
   }
 }
 
 async function retryUpload(id: string) {
   try {
     await backupsStore.retryUpload(id)
-    showToast('Upload restarted')
+    showToast(t('backups.page.uploadRestarted'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string } }
-    showToast(e.data?.error ?? 'Failed to restart upload', 'error')
+    showToast(e.data?.error ?? t('backups.page.uploadRestartFailed'), 'error')
   }
 }
 
@@ -149,22 +152,22 @@ async function downloadBackup(id: string) {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-  } catch { showToast('Failed to download', 'error') }
+  } catch { showToast(t('backups.page.downloadFailed'), 'error') }
 }
 
 async function toggleSchedule(id: string, enabled: boolean) {
   try {
     await backupsStore.toggleSchedule(id, enabled)
-    showToast(enabled ? 'Schedule enabled' : 'Schedule disabled')
-  } catch { showToast('Failed to toggle schedule', 'error') }
+    showToast(enabled ? t('backups.page.scheduleEnabled') : t('backups.page.scheduleDisabled'))
+  } catch { showToast(t('backups.page.scheduleToggleFailed'), 'error') }
 }
 
 async function deleteSchedule(id: string) {
-  if (!confirm('Delete this schedule?')) return
+  if (!confirm(t('backups.page.scheduleDeleteConfirm'))) return
   try {
     await backupsStore.deleteSchedule(id)
-    showToast('Schedule deleted')
-  } catch { showToast('Failed to delete schedule', 'error') }
+    showToast(t('backups.page.scheduleDeleted'))
+  } catch { showToast(t('backups.page.scheduleDeleteFailed'), 'error') }
 }
 
 function statusColor(status: string) {
@@ -181,10 +184,10 @@ function statusColor(status: string) {
 
 function uploadLabel(b: Backup): string {
   switch (b.upload_status) {
-    case 'pending': return 'waiting'
-    case 'uploading': return 'uploading'
-    case 'done': return 'uploaded'
-    case 'failed': return 'upload failed'
+    case 'pending': return t('backups.page.upload.waiting')
+    case 'uploading': return t('backups.page.upload.uploading')
+    case 'done': return t('backups.page.upload.uploaded')
+    case 'failed': return t('backups.page.upload.failed')
     default: return ''
   }
 }
@@ -234,14 +237,14 @@ onMounted(async () => {
 <template>
   <div class="p-6 space-y-5">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 class="text-tp-text font-display font-bold text-2xl">Backups</h2>
+      <h2 class="text-tp-text font-display font-bold text-2xl">{{ t('pages.backups') }}</h2>
       <div class="flex items-center gap-2">
         <select v-model="selectedServer" class="bg-tp-surface rounded-xl px-3 py-2 text-sm text-tp-text">
-          <option value="" disabled>Select server...</option>
+          <option value="" disabled>{{ t('backups.page.selectServer') }}</option>
           <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
         <UiButton variant="primary" size="md" @click="openCreateModal">
-          <Plus class="w-4 h-4" /> Create Backup
+          <Plus class="w-4 h-4" /> {{ t('backups.page.createBackup') }}
         </UiButton>
       </div>
     </div>
@@ -259,39 +262,39 @@ onMounted(async () => {
     <div v-if="activeTab === 'backups'">
       <div v-if="backupsStore.loading" class="bg-tp-surface rounded-xl p-8 text-center">
         <RefreshCw class="w-6 h-6 text-tp-muted animate-spin mx-auto mb-2" />
-        <p class="text-tp-muted text-sm">Loading backups...</p>
+        <p class="text-tp-muted text-sm">{{ t('backups.page.loading') }}</p>
       </div>
       <div v-else-if="backupsStore.error" class="bg-tp-error/10 text-tp-error rounded-xl p-4 text-sm">{{ backupsStore.error }}</div>
       <div v-else-if="backupsStore.backups.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
         <DatabaseBackup class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-        <p class="text-tp-text font-display font-semibold mb-1">No backups yet</p>
-        <p class="text-tp-muted text-sm">Create your first backup to protect your server data.</p>
+        <p class="text-tp-text font-display font-semibold mb-1">{{ t('backups.page.emptyTitle') }}</p>
+        <p class="text-tp-muted text-sm">{{ t('backups.page.emptyText') }}</p>
       </div>
       <div v-else class="bg-tp-surface rounded-xl overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-tp-border">
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Status</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Type</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Stored on</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Size</th>
-              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Created</th>
-              <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">Actions</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colStatus') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colType') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colStoredOn') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colSize') }}</th>
+              <th class="text-left px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colCreated') }}</th>
+              <th class="text-right px-4 py-3 text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('backups.page.colActions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="b in backupsStore.backups" :key="b.id" class="border-b border-tp-border/50 hover:bg-tp-surface2/50 transition-colors align-top">
               <td class="px-4 py-3">
-                <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', statusColor(b.status)]" :title="b.error ?? undefined">{{ b.status }}</span>
-                <span v-if="b.encrypted" class="mt-1 flex items-center gap-1 text-xs text-tp-muted" title="Encrypted with the panel-managed key"><Lock class="w-3 h-3" /> Encrypted</span>
+                <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', statusColor(b.status)]" :title="b.error ?? undefined">{{ te(`backups.page.status.${b.status}`) ? t(`backups.page.status.${b.status}`) : b.status }}</span>
+                <span v-if="b.encrypted" class="mt-1 flex items-center gap-1 text-xs text-tp-muted" :title="t('backups.page.encryptedHint')"><Lock class="w-3 h-3" /> {{ t('backups.page.encrypted') }}</span>
               </td>
-              <td class="px-4 py-3 text-tp-text capitalize">{{ b.type }}</td>
+              <td class="px-4 py-3 text-tp-text capitalize">{{ te(`backups.page.types.${b.type}`) ? t(`backups.page.types.${b.type}`) : b.type }}</td>
               <td class="px-4 py-3 text-xs">
                 <div class="flex flex-col gap-1">
-                  <span v-if="b.local_present" class="flex items-center gap-1 text-tp-muted"><HardDrive class="w-3.5 h-3.5" /> Node</span>
+                  <span v-if="b.local_present" class="flex items-center gap-1 text-tp-muted"><HardDrive class="w-3.5 h-3.5" /> {{ t('backups.page.storedNode') }}</span>
                   <span v-if="b.upload_status" class="flex items-center gap-1 flex-wrap">
                     <Cloud class="w-3.5 h-3.5 text-tp-muted" />
-                    <span class="text-tp-muted">{{ b.destination_name ?? 'Removed destination' }}</span>
+                    <span class="text-tp-muted">{{ b.destination_name ?? t('backups.page.removedDestination') }}</span>
                     <span :class="['font-medium px-2 py-0.5 rounded-full', statusColor(b.upload_status)]">{{ uploadLabel(b) }}</span>
                   </span>
                   <span v-if="b.upload_status === 'failed' && b.upload_error" class="text-tp-error max-w-xs break-words whitespace-pre-wrap">{{ b.upload_error }}</span>
@@ -301,16 +304,16 @@ onMounted(async () => {
               <td class="px-4 py-3 text-tp-muted text-xs">{{ formatDate(b.created_at) }}</td>
               <td class="px-4 py-3">
                 <div class="flex items-center justify-end gap-1">
-                  <button v-if="b.upload_status === 'failed' && b.local_present" title="Retry upload" class="p-1.5 rounded-lg text-tp-primary hover:bg-tp-primary/10 transition-colors" @click="retryUpload(b.id)">
+                  <button v-if="b.upload_status === 'failed' && b.local_present" :title="t('backups.page.retryUpload')" class="p-1.5 rounded-lg text-tp-primary hover:bg-tp-primary/10 transition-colors" @click="retryUpload(b.id)">
                     <UploadCloud class="w-4 h-4" />
                   </button>
-                  <button v-if="b.status === 'completed'" title="Download" class="p-1.5 rounded-lg text-tp-accent hover:bg-tp-primary/10 transition-colors" @click="downloadBackup(b.id)">
+                  <button v-if="b.status === 'completed'" :title="t('actions.download')" class="p-1.5 rounded-lg text-tp-accent hover:bg-tp-primary/10 transition-colors" @click="downloadBackup(b.id)">
                     <Download class="w-4 h-4" />
                   </button>
-                  <button v-if="b.status === 'completed'" title="Restore" class="p-1.5 rounded-lg text-tp-warning hover:bg-tp-warning/10 transition-colors" @click="restoreBackup(b)">
+                  <button v-if="b.status === 'completed'" :title="t('backups.page.restore')" class="p-1.5 rounded-lg text-tp-warning hover:bg-tp-warning/10 transition-colors" @click="restoreBackup(b)">
                     <RefreshCw class="w-4 h-4" />
                   </button>
-                  <button title="Delete" class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="deleteBackup(b)">
+                  <button :title="t('actions.delete')" class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="deleteBackup(b)">
                     <Trash2 class="w-4 h-4" />
                   </button>
                 </div>
@@ -325,18 +328,18 @@ onMounted(async () => {
     <div v-if="activeTab === 'schedules'">
       <div class="flex items-center justify-end mb-4">
         <UiButton variant="secondary" size="sm" @click="openScheduleModal" :disabled="!selectedServer">
-          <Plus class="w-3.5 h-3.5" /> New Schedule
+          <Plus class="w-3.5 h-3.5" /> {{ t('backups.page.newSchedule') }}
         </UiButton>
       </div>
       <div v-if="!selectedServer" class="bg-tp-surface rounded-xl p-12 text-center">
         <Calendar class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-        <p class="text-tp-text font-display font-semibold mb-1">Select a server</p>
-        <p class="text-tp-muted text-sm">Choose a server above to view its backup schedules.</p>
+        <p class="text-tp-text font-display font-semibold mb-1">{{ t('backups.page.selectServerTitle') }}</p>
+        <p class="text-tp-muted text-sm">{{ t('backups.page.selectServerText') }}</p>
       </div>
       <div v-else-if="backupsStore.schedules.length === 0" class="bg-tp-surface rounded-xl p-12 text-center">
         <Clock class="w-10 h-10 text-tp-muted mx-auto mb-3" />
-        <p class="text-tp-text font-display font-semibold mb-1">No schedules</p>
-        <p class="text-tp-muted text-sm">Create a schedule to automate backups.</p>
+        <p class="text-tp-text font-display font-semibold mb-1">{{ t('backups.page.noSchedules') }}</p>
+        <p class="text-tp-muted text-sm">{{ t('backups.page.noSchedulesText') }}</p>
       </div>
       <div v-else class="space-y-3">
         <div v-for="sched in backupsStore.schedules" :key="sched.id" class="bg-tp-surface rounded-xl p-4 flex items-center justify-between">
@@ -345,15 +348,15 @@ onMounted(async () => {
               <Clock :class="['w-4 h-4', sched.enabled ? 'text-tp-success' : 'text-tp-muted']" />
             </div>
             <div>
-              <p class="text-tp-text text-sm font-medium">{{ sched.type }} backup — <span class="font-mono text-tp-muted">{{ sched.cron_expr }}</span></p>
-              <p class="text-tp-muted text-xs">{{ destinationName(sched.destination_id) }} | Retain {{ sched.retention_count ?? '∞' }} copies, {{ sched.retention_days ?? '∞' }} days</p>
+              <p class="text-tp-text text-sm font-medium">{{ t('backups.page.scheduleType', { type: te(`backups.page.types.${sched.type}`) ? t(`backups.page.types.${sched.type}`) : sched.type }) }} — <span class="font-mono text-tp-muted">{{ sched.cron_expr }}</span></p>
+              <p class="text-tp-muted text-xs">{{ destinationName(sched.destination_id) }} | {{ t('backups.page.retention', { copies: sched.retention_count ?? '∞', days: sched.retention_days ?? '∞' }) }}</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button :title="sched.enabled ? 'Disable' : 'Enable'" class="p-1.5 rounded-lg transition-colors" :class="sched.enabled ? 'text-tp-warning hover:bg-tp-warning/10' : 'text-tp-success hover:bg-tp-success/10'" @click="toggleSchedule(sched.id, !sched.enabled)">
+            <button :title="sched.enabled ? t('actions.disable') : t('actions.enable')" class="p-1.5 rounded-lg transition-colors" :class="sched.enabled ? 'text-tp-warning hover:bg-tp-warning/10' : 'text-tp-success hover:bg-tp-success/10'" @click="toggleSchedule(sched.id, !sched.enabled)">
               <Pause v-if="sched.enabled" class="w-4 h-4" /><Play v-else class="w-4 h-4" />
             </button>
-            <button title="Delete" class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="deleteSchedule(sched.id)">
+            <button :title="t('actions.delete')" class="p-1.5 rounded-lg text-tp-danger hover:bg-tp-danger/10 transition-colors" @click="deleteSchedule(sched.id)">
               <Trash2 class="w-4 h-4" />
             </button>
           </div>
@@ -365,71 +368,71 @@ onMounted(async () => {
     <BackupsDestinationsPanel v-if="activeTab === 'destinations' && authStore.isAdmin" @toast="showToast" />
 
     <!-- Create Backup Modal -->
-    <UiModal :open="showCreateModal" title="Create Backup" @close="showCreateModal = false">
+    <UiModal :open="showCreateModal" :title="t('backups.page.createBackup')" @close="showCreateModal = false">
       <div class="space-y-4">
         <div>
-          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Server</label>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.server') }}</label>
           <select v-model="createForm.server_id" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="">Select server...</option>
+            <option value="">{{ t('backups.page.selectServer') }}</option>
             <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </div>
         <div>
-          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Type</label>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.type') }}</label>
           <select v-model="createForm.type" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="full">Full</option><option value="world">World Only</option><option value="files">Config Files</option>
+            <option value="full">{{ t('backups.page.types.full') }}</option><option value="world">{{ t('backups.page.worldOnly') }}</option><option value="files">{{ t('backups.page.configFiles') }}</option>
           </select>
         </div>
         <div>
-          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Also copy to</label>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.alsoCopyTo') }}</label>
           <select v-model="createForm.destination_id" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="">Nothing — keep it on this node only</option>
+            <option value="">{{ t('backups.page.nothingNodeOnly') }}</option>
             <option v-for="d in backupsStore.destinationSummaries" :key="d.id" :value="d.id">{{ d.name }}</option>
           </select>
           <p v-if="!backupsStore.destinationSummaries.length" class="text-tp-muted text-xs mt-1">
-            {{ authStore.isAdmin ? 'Add an off-site destination (OneDrive, Google Drive, S3, …) on the Destinations tab.' : 'An admin can add off-site destinations such as OneDrive or S3.' }}
+            {{ authStore.isAdmin ? t('backups.page.destHintAdmin') : t('backups.page.destHintUser') }}
           </p>
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <UiButton variant="secondary" size="md" @click="showCreateModal = false">Cancel</UiButton>
-          <UiButton variant="primary" size="md" :loading="creating" :disabled="!createForm.server_id" @click="createBackup">Create</UiButton>
+          <UiButton variant="secondary" size="md" @click="showCreateModal = false">{{ t('actions.cancel') }}</UiButton>
+          <UiButton variant="primary" size="md" :loading="creating" :disabled="!createForm.server_id" @click="createBackup">{{ t('actions.create') }}</UiButton>
         </div>
       </div>
     </UiModal>
 
     <!-- Create Schedule Modal -->
-    <UiModal :open="showScheduleModal" title="Create Schedule" @close="showScheduleModal = false">
+    <UiModal :open="showScheduleModal" :title="t('backups.page.createSchedule')" @close="showScheduleModal = false">
       <div class="space-y-4">
         <div>
-          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Server</label>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.server') }}</label>
           <select v-model="scheduleForm.server_id" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-            <option value="">Select server...</option>
+            <option value="">{{ t('backups.page.selectServer') }}</option>
             <option v-for="s in serversStore.servers" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </div>
-        <UiInput v-model="scheduleForm.cron_expr" label="Cron Expression" placeholder="0 3 * * *" />
+        <UiInput v-model="scheduleForm.cron_expr" :label="t('backups.page.cronExpression')" placeholder="0 3 * * *" />
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Type</label>
+            <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.type') }}</label>
             <select v-model="scheduleForm.type" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-              <option value="full">Full</option><option value="world">World</option><option value="files">Files</option>
+              <option value="full">{{ t('backups.page.types.full') }}</option><option value="world">{{ t('backups.page.types.world') }}</option><option value="files">{{ t('backups.page.types.files') }}</option>
             </select>
           </div>
           <div>
-            <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">Also copy to</label>
+            <label class="block text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-1">{{ t('backups.page.alsoCopyTo') }}</label>
             <select v-model="scheduleForm.destination_id" class="w-full bg-tp-surface2 border border-tp-border rounded-xl px-3 py-2 text-sm text-tp-text">
-              <option value="">This node only</option>
+              <option value="">{{ t('backups.page.nodeOnly') }}</option>
               <option v-for="d in backupsStore.destinationSummaries" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <UiInput v-model.number="scheduleForm.retention_count" type="number" label="Retain copies" placeholder="7" />
-          <UiInput v-model.number="scheduleForm.retention_days" type="number" label="Retain days" placeholder="30" />
+          <UiInput v-model.number="scheduleForm.retention_count" type="number" :label="t('backups.page.retainCopies')" placeholder="7" />
+          <UiInput v-model.number="scheduleForm.retention_days" type="number" :label="t('backups.page.retainDays')" placeholder="30" />
         </div>
         <div class="flex justify-end gap-2 pt-2">
-          <UiButton variant="secondary" size="md" @click="showScheduleModal = false">Cancel</UiButton>
-          <UiButton variant="primary" size="md" :loading="creatingSchedule" :disabled="!scheduleForm.server_id" @click="createSchedule">Create</UiButton>
+          <UiButton variant="secondary" size="md" @click="showScheduleModal = false">{{ t('actions.cancel') }}</UiButton>
+          <UiButton variant="primary" size="md" :loading="creatingSchedule" :disabled="!scheduleForm.server_id" @click="createSchedule">{{ t('actions.create') }}</UiButton>
         </div>
       </div>
     </UiModal>

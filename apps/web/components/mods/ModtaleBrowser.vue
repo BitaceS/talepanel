@@ -11,17 +11,18 @@ const emit = defineEmits<{ toast: [message: string, type: 'success' | 'error'] }
 
 const modsStore = useModsStore()
 const api = useApi()
+const { t, te } = useI18n()
 
 const TYPES = [
-  { value: 'PLUGIN', label: 'Plugins' },
-  { value: 'DATA', label: 'Data packs' },
-  { value: 'ART', label: 'Art packs' },
+  { value: 'PLUGIN', label: 'mods.modtale.types.PLUGIN' },
+  { value: 'DATA', label: 'mods.modtale.types.DATA' },
+  { value: 'ART', label: 'mods.modtale.types.ART' },
 ] as const
 const SORTS = [
-  { value: '', label: 'Best match' },
-  { value: 'downloads', label: 'Most downloaded' },
-  { value: 'updated', label: 'Recently updated' },
-  { value: 'new', label: 'Newest' },
+  { value: '', label: 'mods.modtale.sorts.best' },
+  { value: 'downloads', label: 'mods.modtale.sorts.downloads' },
+  { value: 'updated', label: 'mods.modtale.sorts.updated' },
+  { value: 'new', label: 'mods.modtale.sorts.new' },
 ] as const
 
 const query = ref('')
@@ -53,7 +54,7 @@ async function search(nextPage = 0) {
   } catch (err: unknown) {
     if (seq !== searchSeq) return
     const e = err as { data?: { error?: string }; message?: string }
-    error.value = e.data?.error ?? e.message ?? 'Modtale search failed'
+    error.value = e.data?.error ?? e.message ?? t('mods.modtale.searchFailed')
     if (nextPage === 0) results.value = []
   } finally {
     if (seq === searchSeq) loading.value = false
@@ -87,7 +88,7 @@ async function toggleVersions(p: ModtaleProject) {
     versions.value[p.id] = data.versions ?? []
   } catch {
     versions.value[p.id] = []
-    emit('toast', 'Could not load versions from Modtale', 'error')
+    emit('toast', t('mods.modtale.versionsFailed'), 'error')
   } finally {
     loadingVersions.value = null
   }
@@ -101,14 +102,14 @@ function installedVersion(projectId: string): string | null {
 
 async function install(p: ModtaleProject, version = '') {
   if (!props.serverId) {
-    emit('toast', 'Select a server first', 'error')
+    emit('toast', t('mods.modtale.selectServerFirst'), 'error')
     return
   }
   try {
     const mod = await modsStore.installModtale(props.serverId, p.id, version, p.title)
-    emit('toast', `${p.title} ${mod.version} is being installed`, 'success')
+    emit('toast', t('mods.modtale.installing', { name: p.title, version: mod.version }), 'success')
   } catch {
-    emit('toast', modsStore.error ?? 'Install failed', 'error')
+    emit('toast', modsStore.error ?? t('mods.modtale.installFailed'), 'error')
   }
 }
 
@@ -127,7 +128,7 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString()
 }
 
-const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/s$/, '') ?? c
+const typeLabel = (c: string) => te(`mods.modtale.typeSingular.${c}`) ? t(`mods.modtale.typeSingular.${c}`) : c
 </script>
 
 <template>
@@ -139,25 +140,25 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
         <input
           v-model="query"
           type="search"
-          placeholder="Search Modtale..."
-          aria-label="Search Modtale"
+          :placeholder="t('mods.modtale.searchPlaceholder')"
+          :aria-label="t('mods.modtale.searchLabel')"
           class="w-full bg-tp-surface2 border border-tp-border text-tp-text rounded-xl pl-9 pr-4 py-2 text-sm placeholder:text-tp-muted focus:outline-none focus:ring-2 focus:ring-tp-primary/50 focus:border-tp-primary transition-colors"
         />
       </div>
       <div class="flex gap-2">
-        <select v-model="type" aria-label="Type"
+        <select v-model="type" :aria-label="t('mods.modtale.typeLabel')"
           class="flex-1 sm:flex-none bg-tp-surface2 border border-tp-border text-tp-text rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50">
-          <option v-for="t in TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+          <option v-for="ty in TYPES" :key="ty.value" :value="ty.value">{{ t(ty.label) }}</option>
         </select>
-        <select v-model="sort" aria-label="Sort"
+        <select v-model="sort" :aria-label="t('mods.modtale.sortLabel')"
           class="flex-1 sm:flex-none bg-tp-surface2 border border-tp-border text-tp-text rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tp-primary/50">
-          <option v-for="s in SORTS" :key="s.value" :value="s.value">{{ s.label }}</option>
+          <option v-for="s in SORTS" :key="s.value" :value="s.value">{{ t(s.label) }}</option>
         </select>
       </div>
     </div>
 
     <div v-if="error" class="flex items-start gap-3 bg-tp-error/10 text-tp-error rounded-xl px-4 py-3 text-sm">
-      <span class="font-medium shrink-0">Modtale unavailable:</span>
+      <span class="font-medium shrink-0">{{ t('mods.modtale.unavailable') }}</span>
       <span class="opacity-80">{{ error }}</span>
     </div>
 
@@ -169,15 +170,17 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
     <!-- Empty -->
     <div v-else-if="!loading && !error && results.length === 0" class="bg-tp-surface rounded-xl p-8 text-center">
       <p class="text-tp-muted text-sm">
-        {{ query.trim() ? `Nothing on Modtale matches "${query.trim()}".` : 'No projects of this type on Modtale yet.' }}
+        {{ query.trim() ? t('mods.modtale.noMatch', { query: query.trim() }) : t('mods.modtale.noProjects') }}
       </p>
     </div>
 
     <!-- Results -->
     <div v-else-if="results.length" class="bg-tp-surface rounded-xl overflow-hidden">
       <div class="px-4 sm:px-5 py-2.5 border-b border-tp-border flex items-center justify-between gap-2">
-        <p class="text-tp-outline text-xs">{{ total.toLocaleString() }} {{ total === 1 ? 'project' : 'projects' }}</p>
-        <p class="text-tp-outline text-xs">from <a href="https://modtale.net" target="_blank" rel="noopener noreferrer" class="underline hover:text-tp-text">modtale.net</a></p>
+        <p class="text-tp-outline text-xs">{{ t('mods.modtale.projects', { count: total.toLocaleString() }, total) }}</p>
+        <i18n-t keypath="mods.modtale.from" tag="p" class="text-tp-outline text-xs" scope="global">
+          <template #link><a href="https://modtale.net" target="_blank" rel="noopener noreferrer" class="underline hover:text-tp-text">modtale.net</a></template>
+        </i18n-t>
       </div>
       <ul class="divide-y divide-tp-border">
         <li v-for="p in results" :key="p.id" class="px-4 sm:px-5 py-4">
@@ -202,22 +205,22 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
                   target="_blank"
                   rel="noopener noreferrer"
                   class="text-tp-muted hover:text-tp-text transition-colors shrink-0"
-                  :aria-label="`${p.title} on Modtale`"
+                  :aria-label="t('mods.modtale.onModtale', { name: p.title })"
                 >
                   <ExternalLink class="w-3.5 h-3.5" />
                 </a>
               </div>
-              <p v-if="p.author" class="text-tp-outline text-xs">by {{ p.author }}</p>
-              <p class="text-tp-muted text-xs mt-1 line-clamp-2">{{ p.description || 'No description.' }}</p>
+              <p v-if="p.author" class="text-tp-outline text-xs">{{ t('mods.modtale.byAuthor', { author: p.author }) }}</p>
+              <p class="text-tp-muted text-xs mt-1 line-clamp-2">{{ p.description || t('mods.modtale.noDescription') }}</p>
               <p class="text-tp-outline text-xs mt-1">
-                {{ typeLabel(p.classification) }} &middot; {{ formatCount(p.downloads) }} downloads
-                <template v-if="formatDate(p.updated_at)"> &middot; updated {{ formatDate(p.updated_at) }}</template>
+                {{ typeLabel(p.classification) }} &middot; {{ t('mods.modtale.downloads', { n: formatCount(p.downloads) }) }}
+                <template v-if="formatDate(p.updated_at)"> &middot; {{ t('mods.modtale.updated', { date: formatDate(p.updated_at) }) }}</template>
               </p>
             </div>
 
             <div class="flex flex-col items-end gap-1.5 shrink-0">
               <span v-if="installedVersion(p.id) !== null" class="text-tp-success text-xs font-medium mt-1">
-                Installed{{ installedVersion(p.id) ? ` · ${installedVersion(p.id)}` : '' }}
+                {{ t('mods.modtale.installed') }}{{ installedVersion(p.id) ? ` · ${installedVersion(p.id)}` : '' }}
               </span>
               <UiButton
                 v-else
@@ -225,11 +228,11 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
                 size="sm"
                 :loading="busy(p.id)"
                 :disabled="!!modsStore.installingModtale || !serverId"
-                title="Install the newest release"
+                :title="t('mods.modtale.installNewest')"
                 @click="install(p)"
               >
                 <Download class="w-3.5 h-3.5" />
-                Install
+                {{ t('mods.modtale.install') }}
               </UiButton>
               <button
                 type="button"
@@ -237,7 +240,7 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
                 :aria-expanded="expanded === p.id"
                 @click="toggleVersions(p)"
               >
-                Versions
+                {{ t('mods.modtale.versions') }}
                 <component :is="expanded === p.id ? ChevronUp : ChevronDown" class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -245,8 +248,8 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
 
           <!-- Version list -->
           <div v-if="expanded === p.id" class="mt-3 sm:ml-16 rounded-xl bg-tp-surface2">
-            <p v-if="loadingVersions === p.id" class="px-4 py-3 text-xs text-tp-muted">Loading versions...</p>
-            <p v-else-if="!versions[p.id]?.length" class="px-4 py-3 text-xs text-tp-muted">No installable versions.</p>
+            <p v-if="loadingVersions === p.id" class="px-4 py-3 text-xs text-tp-muted">{{ t('mods.modtale.loadingVersions') }}</p>
+            <p v-else-if="!versions[p.id]?.length" class="px-4 py-3 text-xs text-tp-muted">{{ t('mods.modtale.noVersions') }}</p>
             <ul v-else class="divide-y divide-tp-border max-h-64 overflow-y-auto">
               <li v-for="v in versions[p.id]" :key="v.id" class="flex items-center gap-3 px-4 py-2">
                 <div class="flex-1 min-w-0">
@@ -259,7 +262,7 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
                     <template v-if="v.game_versions.length">Hytale {{ v.game_versions.slice(0, 3).join(', ') }}<template v-if="v.game_versions.length > 3"> +{{ v.game_versions.length - 3 }}</template> &middot; </template>{{ formatDate(v.released_at) }}
                   </p>
                 </div>
-                <span v-if="installedVersion(p.id) === v.version" class="text-tp-success text-xs font-medium">Installed</span>
+                <span v-if="installedVersion(p.id) === v.version" class="text-tp-success text-xs font-medium">{{ t('mods.modtale.installed') }}</span>
                 <UiButton
                   v-else-if="installedVersion(p.id) === null"
                   variant="secondary"
@@ -268,12 +271,14 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
                   :disabled="!!modsStore.installingModtale || !serverId"
                   @click="install(p, v.version)"
                 >
-                  Install
+                  {{ t('mods.modtale.install') }}
                 </UiButton>
               </li>
             </ul>
             <p v-if="installedVersion(p.id) !== null && versions[p.id]?.length" class="px-4 py-2 text-[11px] text-tp-outline border-t border-tp-border">
-              Already installed. To switch, use <b>Change version</b> on the Mods page.
+              <i18n-t keypath="mods.modtale.alreadyInstalled" scope="global">
+                <template #action><b>{{ t('mods.page.changeVersion') }}</b></template>
+              </i18n-t>
             </p>
           </div>
         </li>
@@ -281,12 +286,11 @@ const typeLabel = (c: string) => TYPES.find(t => t.value === c)?.label.replace(/
     </div>
 
     <div v-if="results.length < total" class="text-center">
-      <UiButton variant="secondary" size="sm" :loading="loading" @click="search(page + 1)">Load more</UiButton>
+      <UiButton variant="secondary" size="sm" :loading="loading" @click="search(page + 1)">{{ t('mods.modtale.loadMore') }}</UiButton>
     </div>
 
     <p class="text-tp-outline text-[11px] leading-relaxed">
-      Modtale is a community mod site, not affiliated with Hypixel Studios or TalePanel. Mods run with your
-      server's rights; install only what you trust and take a backup first. Changes apply after a restart.
+      {{ t('mods.modtale.disclaimer') }}
     </p>
   </div>
 </template>

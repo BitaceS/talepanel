@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 const { info, dismissed } = useUpdateCheck()
 </script>
 
@@ -9,17 +10,17 @@ const { info, dismissed } = useUpdateCheck()
   >
     <span class="material-symbols-outlined text-base shrink-0">system_update_alt</span>
     <span class="flex-1">
-      TalePanel {{ info.latest_version }} is available — you're on {{ info.current_version }}.
+      {{ t('misc.updateBanner.available', { latest: info.latest_version, current: info.current_version }) }}
     </span>
     <a
       :href="httpsHref(info.release_url)"
       target="_blank"
       rel="noopener"
       class="font-semibold underline underline-offset-2 hover:text-tp-warning/80 transition-colors shrink-0"
-    >View release</a>
+    >{{ t('misc.updateBanner.viewRelease') }}</a>
     <button
       class="ml-1 w-6 h-6 flex items-center justify-center rounded hover:bg-tp-warning/20 transition-colors shrink-0"
-      title="Dismiss"
+      :title="t('misc.updateBanner.dismiss')"
       @click="dismissed = true"
     >
       <span class="material-symbols-outlined text-base">close</span>

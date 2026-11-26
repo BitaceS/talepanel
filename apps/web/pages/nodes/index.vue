@@ -6,6 +6,7 @@ definePageMeta({ title: 'pages.nodes', middleware: ['auth', 'module'], moduleId:
 
 const api = useApi()
 const authStore = useAuthStore()
+const { t, te } = useI18n()
 
 interface Node {
   id: string
@@ -80,7 +81,7 @@ async function fetchNodes() {
     nodeMetrics.value = metricsMap
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    error.value = e.data?.error ?? e.message ?? 'Failed to fetch nodes'
+    error.value = e.data?.error ?? e.message ?? t('nodes.list.fetchFailed')
   } finally {
     loading.value = false
   }
@@ -102,15 +103,15 @@ function showToast(msg: string, type: 'success' | 'error' = 'success') {
 }
 
 async function deleteNode(id: string, name: string) {
-  if (!confirm(`Delete node "${name}"? This cannot be undone.`)) return
+  if (!confirm(t('nodes.list.deleteConfirm', { name }))) return
   deletingId.value = id
   try {
     await api.delete(`/nodes/${id}`)
     nodes.value = nodes.value.filter(n => n.id !== id)
-    showToast('Node deleted')
+    showToast(t('nodes.list.deleted'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    showToast(e.data?.error ?? 'Failed to delete node', 'error')
+    showToast(e.data?.error ?? t('nodes.list.deleteFailed'), 'error')
   } finally {
     deletingId.value = ''
   }
@@ -159,10 +160,10 @@ async function submitRegister() {
       }
     )
     enrollment.value = data
-    showToast('Enrollment token created')
+    showToast(t('nodes.list.tokenCreated'))
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    registerError.value = e.data?.error ?? e.message ?? 'Failed to create enrollment'
+    registerError.value = e.data?.error ?? e.message ?? t('nodes.list.enrollFailed')
   } finally {
     registerLoading.value = false
   }
@@ -179,7 +180,7 @@ async function copy(text: string, which: 'token' | 'cmd') {
       setTimeout(() => { cmdCopied.value = false }, 2000)
     }
   } catch {
-    showToast('Copy failed — select and copy manually', 'error')
+    showToast(t('nodes.list.copyFailed'), 'error')
   }
 }
 
@@ -232,11 +233,11 @@ async function submitEdit() {
     const data = await api.patch<{ node: Node }>(`/nodes/${node.id}`, payload)
     const idx = nodes.value.findIndex(n => n.id === node.id)
     if (idx !== -1) nodes.value[idx] = data.node
-    showToast('Node updated')
+    showToast(t('nodes.list.updated'))
     closeEditModal()
   } catch (err: unknown) {
     const e = err as { data?: { error?: string }; message?: string }
-    editError.value = e.data?.error ?? e.message ?? 'Failed to update node'
+    editError.value = e.data?.error ?? e.message ?? t('nodes.list.updateFailed')
   } finally {
     editLoading.value = false
   }
@@ -277,26 +278,26 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
     <!-- Header -->
     <div class="flex items-start justify-between">
       <div>
-        <h2 class="text-tp-text font-display font-bold text-3xl">Regional Nodes</h2>
-        <p class="text-tp-outline text-sm mt-1">Manage and monitor your distributed Hytale compute units.</p>
+        <h2 class="text-tp-text font-display font-bold text-3xl">{{ t('nodes.list.title') }}</h2>
+        <p class="text-tp-outline text-sm mt-1">{{ t('nodes.list.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-3">
         <span v-if="allOnline"
           class="flex items-center gap-2 text-xs font-semibold text-tp-tertiary bg-tp-tertiary/10 px-3 py-1.5 rounded-full">
           <span class="w-2 h-2 rounded-full bg-tp-tertiary animate-pulse" />
-          ALL SYSTEMS OPERATIONAL
+          {{ t('nodes.list.allOperational') }}
         </span>
         <span v-else-if="nodes.length > 0"
           class="flex items-center gap-2 text-xs font-semibold text-tp-warning bg-tp-warning/10 px-3 py-1.5 rounded-full">
           <span class="w-2 h-2 rounded-full bg-tp-warning" />
-          {{ onlineCount }}/{{ nodes.length }} ONLINE
+          {{ t('nodes.list.onlineOf', { online: onlineCount, total: nodes.length }) }}
         </span>
-        <UiButton variant="secondary" size="sm" :loading="loading" @click="fetchNodes">
+        <UiButton variant="secondary" size="sm" :loading="loading" :title="t('actions.refresh')" @click="fetchNodes">
           <span class="material-symbols-outlined text-base">refresh</span>
         </UiButton>
         <UiButton v-if="isAdmin" variant="primary" size="md" @click="showRegisterModal = true">
           <span class="material-symbols-outlined text-base">add</span>
-          Add Node
+          {{ t('nodes.list.addNode') }}
         </UiButton>
       </div>
     </div>
@@ -320,11 +321,11 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
       <div class="w-16 h-16 bg-tp-surface3 rounded-2xl flex items-center justify-center mx-auto mb-4">
         <span class="material-symbols-outlined text-3xl text-tp-muted">lan</span>
       </div>
-      <h4 class="text-tp-text font-display font-semibold text-lg mb-2">No nodes registered</h4>
-      <p class="text-tp-muted text-sm mb-6">Register a daemon node to host game servers.</p>
+      <h4 class="text-tp-text font-display font-semibold text-lg mb-2">{{ t('nodes.list.emptyTitle') }}</h4>
+      <p class="text-tp-muted text-sm mb-6">{{ t('nodes.list.emptyText') }}</p>
       <UiButton v-if="isAdmin" variant="primary" size="md" @click="showRegisterModal = true">
         <span class="material-symbols-outlined text-base">add</span>
-        Register your first node
+        {{ t('nodes.list.registerFirst') }}
       </UiButton>
     </div>
 
@@ -336,9 +337,9 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           class="bg-tp-surface2 rounded-xl p-5 flex flex-col gap-4">
           <!-- Top row: label + status badge -->
           <div class="flex items-center justify-between">
-            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">COMPUTE UNIT</span>
+            <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('nodes.list.computeUnit') }}</span>
             <span :class="['text-[10px] uppercase tracking-widest font-semibold px-2.5 py-1 rounded-full', statusColor(node.status)]">
-              {{ node.status.toUpperCase() }}
+              {{ te(`status.${node.status}`) ? t(`status.${node.status}`) : node.status }}
             </span>
           </div>
 
@@ -348,11 +349,11 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
             <div class="flex items-center gap-3 mt-1 text-tp-outline text-xs">
               <span class="flex items-center gap-1">
                 <span class="material-symbols-outlined text-sm">location_on</span>
-                {{ node.location || 'Unknown' }}
+                {{ node.location || t('common.unknown') }}
               </span>
               <span class="flex items-center gap-1">
                 <span class="material-symbols-outlined text-sm">schedule</span>
-                Uptime: {{ uptimeFromHeartbeat(node.last_heartbeat) }}
+                {{ t('nodes.list.uptime', { value: uptimeFromHeartbeat(node.last_heartbeat) }) }}
               </span>
             </div>
           </div>
@@ -360,7 +361,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           <!-- CPU Load -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CPU LOAD</span>
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('nodes.list.cpuLoad') }}</span>
               <span class="text-tp-text text-xs font-semibold">
                 {{ node.status === 'online' && nodeMetrics[node.id] != null
                   ? (nodeMetrics[node.id]!.cpu_pct.toFixed(1) + '%')
@@ -380,7 +381,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           <!-- Memory Usage -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">MEMORY USAGE</span>
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('nodes.list.memoryUsage') }}</span>
               <span class="text-tp-text text-xs font-semibold">
                 {{ node.status === 'online' && nodeMetrics[node.id] != null
                   ? formatMB(nodeMetrics[node.id]!.ram_used_mb) + ' / ' + formatMB(node.total_ram_mb)
@@ -400,7 +401,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           <!-- Disk Storage -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">DISK STORAGE</span>
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('nodes.list.diskStorage') }}</span>
               <span class="text-tp-text text-xs font-semibold">
                 {{ node.status === 'online' && nodeMetrics[node.id] != null
                   ? formatMB(nodeMetrics[node.id]!.disk_used_mb) + ' / ' + formatMB(node.total_disk_mb)
@@ -420,16 +421,19 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           <!-- Footer: capacity + actions -->
           <div class="flex items-center justify-between mt-auto pt-2">
             <span class="text-tp-outline text-xs">
-              Capacity:
-              {{ node.status === 'online' && nodeMetrics[node.id] != null
-                ? nodeMetrics[node.id]!.active_servers
-                : 0 }}/{{ node.max_servers }} Servers
+              {{ t('nodes.list.capacity', {
+                used: node.status === 'online' && nodeMetrics[node.id] != null
+                  ? nodeMetrics[node.id]!.active_servers
+                  : 0,
+                max: node.max_servers,
+              }) }}
             </span>
             <div class="flex items-center gap-2">
               <UiButton
                 v-if="isAdmin"
                 variant="ghost"
                 size="sm"
+                :title="t('actions.edit')"
                 @click="openEditModal(node)"
               >
                 <span class="material-symbols-outlined text-sm">edit</span>
@@ -440,6 +444,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
                 size="sm"
                 :loading="deletingId === node.id"
                 :disabled="!!deletingId"
+                :title="t('actions.delete')"
                 @click="deleteNode(node.id, node.name)"
               >
                 <span class="material-symbols-outlined text-sm">delete</span>
@@ -459,34 +464,34 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           <div class="px-5 py-3 flex items-center justify-between border-b border-tp-surface3">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-tp-primary animate-pulse" />
-              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">CLUSTER OVERVIEW</span>
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline">{{ t('nodes.list.clusterOverview') }}</span>
             </div>
           </div>
           <div class="px-5 py-4 space-y-4">
             <!-- Total Nodes -->
             <div class="flex items-center justify-between">
-              <span class="text-xs text-tp-outline">Total Nodes</span>
+              <span class="text-xs text-tp-outline">{{ t('nodes.list.totalNodes') }}</span>
               <span class="text-tp-text text-sm font-semibold font-display">
                 {{ clusterStats?.total_nodes ?? nodes.length }}
               </span>
             </div>
             <!-- Online Nodes -->
             <div class="flex items-center justify-between">
-              <span class="text-xs text-tp-outline">Online Nodes</span>
+              <span class="text-xs text-tp-outline">{{ t('nodes.list.onlineNodes') }}</span>
               <span class="text-tp-tertiary text-sm font-semibold font-display">
                 {{ clusterStats?.online_nodes ?? onlineCount }}
               </span>
             </div>
             <!-- Running Servers -->
             <div class="flex items-center justify-between">
-              <span class="text-xs text-tp-outline">Running Servers</span>
+              <span class="text-xs text-tp-outline">{{ t('nodes.list.runningServers') }}</span>
               <span class="text-tp-text text-sm font-semibold font-display">
                 {{ clusterStats?.running_servers ?? '\u2014' }}
               </span>
             </div>
             <!-- Avg CPU -->
             <div class="flex items-center justify-between">
-              <span class="text-xs text-tp-outline">Avg CPU</span>
+              <span class="text-xs text-tp-outline">{{ t('nodes.list.avgCpu') }}</span>
               <span class="text-tp-text text-sm font-semibold font-display">
                 {{ clusterStats != null ? clusterStats.avg_cpu_pct.toFixed(1) + '%' : '\u2014' }}
               </span>
@@ -494,7 +499,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
             <!-- RAM Usage -->
             <div>
               <div class="flex items-center justify-between mb-1.5">
-                <span class="text-xs text-tp-outline">RAM Usage</span>
+                <span class="text-xs text-tp-outline">{{ t('nodes.list.ramUsage') }}</span>
                 <span class="text-tp-text text-xs font-semibold">
                   {{ clusterStats != null
                     ? formatMB(clusterStats.used_ram_mb) + ' / ' + formatMB(clusterStats.total_ram_mb)
@@ -513,7 +518,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
             <!-- Disk Usage -->
             <div>
               <div class="flex items-center justify-between mb-1.5">
-                <span class="text-xs text-tp-outline">Disk Usage</span>
+                <span class="text-xs text-tp-outline">{{ t('nodes.list.diskUsage') }}</span>
                 <span class="text-tp-text text-xs font-semibold">
                   {{ clusterStats != null
                     ? formatMB(clusterStats.used_disk_mb) + ' / ' + formatMB(clusterStats.total_disk_mb)
@@ -538,27 +543,27 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
     <div v-if="nodes.length > 0"
       class="relative rounded-xl overflow-hidden bg-gradient-to-r from-tp-primary/20 via-tp-tertiary/10 to-tp-primary/5 p-8 flex items-center justify-between">
       <div>
-        <h3 class="text-tp-text font-display font-bold text-xl mb-1">Expand Infrastructure</h3>
-        <p class="text-tp-outline text-sm">Scale your Hytale network by provisioning additional compute nodes across regions.</p>
+        <h3 class="text-tp-text font-display font-bold text-xl mb-1">{{ t('nodes.list.expandTitle') }}</h3>
+        <p class="text-tp-outline text-sm">{{ t('nodes.list.expandText') }}</p>
       </div>
       <UiButton v-if="isAdmin" variant="primary" size="md" @click="showRegisterModal = true">
         <span class="material-symbols-outlined text-base">add_circle</span>
-        PROVISION NODE
+        {{ t('nodes.list.provisionNode') }}
       </UiButton>
     </div>
 
     <!-- Network Overview stats -->
     <div v-if="nodes.length > 0" class="grid grid-cols-3 gap-5">
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
-        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">TOTAL NODES</p>
+        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ t('nodes.list.totalNodes') }}</p>
         <p class="text-tp-text font-display font-bold text-3xl">{{ clusterStats?.total_nodes ?? nodes.length }}</p>
       </div>
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
-        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">RUNNING SERVERS</p>
+        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ t('nodes.list.runningServers') }}</p>
         <p class="text-tp-text font-display font-bold text-3xl">{{ clusterStats?.running_servers ?? '\u2014' }}</p>
       </div>
       <div class="bg-tp-surface2 rounded-xl p-5 text-center">
-        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">AVG CPU LOAD</p>
+        <p class="text-[10px] uppercase tracking-widest font-semibold text-tp-outline mb-2">{{ t('nodes.list.avgCpuLoad') }}</p>
         <p class="text-tp-text font-display font-bold text-3xl">
           {{ clusterStats != null ? clusterStats.avg_cpu_pct.toFixed(1) + '%' : '\u2014' }}
         </p>
@@ -566,14 +571,14 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
     </div>
 
     <!-- Enrollment Modal -->
-    <UiModal :open="showRegisterModal" title="Add Node" size="lg" @close="closeModal">
+    <UiModal :open="showRegisterModal" :title="t('nodes.list.addNode')" size="lg" @close="closeModal">
       <!-- Success state: token + install command -->
       <div v-if="enrollment" class="space-y-4">
         <div class="bg-tp-warning/10 rounded-xl px-4 py-3 text-tp-warning text-sm">
-          This token is valid for 15 minutes and can only be used once. Copy it now — it will not be shown again.
+          {{ t('nodes.list.tokenWarning') }}
         </div>
         <div>
-          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">Enrollment Token</label>
+          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">{{ t('nodes.list.enrollmentToken') }}</label>
           <div class="flex items-center gap-2">
             <code class="flex-1 block bg-tp-surface-lowest rounded-xl px-3 py-2.5 text-tp-tertiary text-xs font-mono break-all">
               {{ enrollment.token }}
@@ -584,7 +589,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           </div>
         </div>
         <div>
-          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">Run this on the daemon host</label>
+          <label class="text-tp-outline text-[10px] font-semibold uppercase tracking-widest block mb-1.5">{{ t('nodes.list.runOnHost') }}</label>
           <div class="flex items-start gap-2">
             <pre class="flex-1 bg-tp-surface-lowest rounded-xl px-3 py-2.5 text-tp-text text-xs font-mono whitespace-pre-wrap break-all">{{ installCommand }}</pre>
             <UiButton variant="secondary" size="sm" @click="copy(installCommand, 'cmd')">
@@ -592,7 +597,7 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
             </UiButton>
           </div>
           <p class="text-tp-outline text-xs mt-2">
-            Once the daemon redeems the token, the new node will appear in the list.
+            {{ t('nodes.list.redeemHint') }}
           </p>
         </div>
       </div>
@@ -603,43 +608,43 @@ const allOnline = computed(() => nodes.value.length > 0 && onlineCount.value ===
           {{ registerError }}
         </div>
         <p class="text-tp-outline text-sm">
-          Create a one-shot enrollment token. Copy the token, then run the generated install command on the daemon host — the daemon self-registers using the token.
+          {{ t('nodes.list.enrollIntro') }}
         </p>
-        <UiInput v-model="registerForm.name" label="Node Name" placeholder="prod-node-01" :required="true" />
+        <UiInput v-model="registerForm.name" :label="t('nodes.list.nodeName')" placeholder="prod-node-01" :required="true" />
         <div class="grid grid-cols-2 gap-3">
-          <UiInput v-model="registerForm.total_cpu" type="number" label="CPU Cores" placeholder="4" />
-          <UiInput v-model="registerForm.max_servers" type="number" label="Max Servers" placeholder="10" />
+          <UiInput v-model="registerForm.total_cpu" type="number" :label="t('nodes.list.cpuCores')" placeholder="4" />
+          <UiInput v-model="registerForm.max_servers" type="number" :label="t('nodes.list.maxServers')" placeholder="10" />
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <UiInput v-model="registerForm.total_ram_mb" type="number" label="Total RAM (MB)" placeholder="8192" />
-          <UiInput v-model="registerForm.total_disk_mb" type="number" label="Total Disk (MB)" placeholder="102400" />
+          <UiInput v-model="registerForm.total_ram_mb" type="number" :label="t('nodes.list.totalRam')" placeholder="8192" />
+          <UiInput v-model="registerForm.total_disk_mb" type="number" :label="t('nodes.list.totalDisk')" placeholder="102400" />
         </div>
       </form>
 
       <template #footer>
         <UiButton variant="ghost" size="md" @click="closeModal">
-          {{ enrollment ? 'Done' : 'Cancel' }}
+          {{ enrollment ? t('nodes.list.done') : t('actions.cancel') }}
         </UiButton>
         <UiButton v-if="!enrollment" variant="primary" size="md" :loading="registerLoading" @click="submitRegister">
-          Create Enrollment Token
+          {{ t('nodes.list.createToken') }}
         </UiButton>
       </template>
     </UiModal>
 
     <!-- Edit Modal -->
-    <UiModal :open="showEditModal" title="Edit Node" size="md" @close="closeEditModal">
+    <UiModal :open="showEditModal" :title="t('nodes.list.editNode')" size="md" @close="closeEditModal">
       <form class="space-y-4" @submit.prevent="submitEdit">
         <div v-if="editError" class="bg-tp-error/10 rounded-xl px-3 py-2.5 text-tp-error text-sm">
           {{ editError }}
         </div>
-        <UiInput v-model="editForm.name" label="Node Name" placeholder="prod-node-01" />
-        <UiInput v-model="editForm.location" label="Location" placeholder="US-East" />
-        <UiInput v-model="editForm.max_servers" type="number" label="Max Servers" placeholder="10" />
+        <UiInput v-model="editForm.name" :label="t('nodes.list.nodeName')" placeholder="prod-node-01" />
+        <UiInput v-model="editForm.location" :label="t('nodes.list.location')" placeholder="US-East" />
+        <UiInput v-model="editForm.max_servers" type="number" :label="t('nodes.list.maxServers')" placeholder="10" />
       </form>
 
       <template #footer>
-        <UiButton variant="ghost" size="md" @click="closeEditModal">Cancel</UiButton>
-        <UiButton variant="primary" size="md" :loading="editLoading" @click="submitEdit">Save</UiButton>
+        <UiButton variant="ghost" size="md" @click="closeEditModal">{{ t('actions.cancel') }}</UiButton>
+        <UiButton variant="primary" size="md" :loading="editLoading" @click="submitEdit">{{ t('actions.save') }}</UiButton>
       </template>
     </UiModal>
 
